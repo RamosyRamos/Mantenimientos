@@ -1286,8 +1286,98 @@ function getExtras(fuel) {
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────
 const bg = "#09090e", card = "#0f0f17", line = "#1c1c2a";
+const CORRECT_PIN = "1252";
+
+function PinScreen({ onUnlock }) {
+  const [pin, setPin]     = useState("");
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  const handleDigit = (d) => {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError(false);
+    if (next.length === 4) {
+      setTimeout(() => {
+        if (next === CORRECT_PIN) {
+          onUnlock();
+        } else {
+          setShake(true);
+          setError(true);
+          setTimeout(() => { setPin(""); setShake(false); }, 600);
+        }
+      }, 150);
+    }
+  };
+
+  const handleDelete = () => { setPin(p => p.slice(0,-1)); setError(false); };
+
+  const digits = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+
+  return (
+    <div style={{ minHeight:"100vh", background:bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"monospace", padding:24 }}>
+      {/* Logo */}
+      <div style={{ width:64, height:64, borderRadius:"50%", border:"2px solid #C8A96E", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:"#C8A96E", marginBottom:16 }}>★</div>
+      <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:3, color:"#e0d8cc", marginBottom:4 }}>MERCEDES-BENZ</div>
+      <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:40 }}>SISTEMA DE MANTENIMIENTO</div>
+
+      {/* Dots */}
+      <div style={{ display:"flex", gap:16, marginBottom:40, animation: shake ? "shake 0.4s ease" : "none" }}>
+        {[0,1,2,3].map(i => (
+          <div key={i} style={{
+            width:16, height:16, borderRadius:"50%",
+            background: error ? "#ef4444" : pin.length > i ? "#C8A96E" : "transparent",
+            border: `2px solid ${error ? "#ef4444" : pin.length > i ? "#C8A96E" : "#2a2a3a"}`,
+            transition:"all 0.15s"
+          }} />
+        ))}
+      </div>
+
+      {error && <div style={{ fontSize:11, color:"#ef4444", marginBottom:20, letterSpacing:1 }}>PIN incorrecto</div>}
+
+      {/* Keypad */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 72px)", gap:12 }}>
+        {digits.map((d, i) => (
+          <button key={i} onClick={() => d === "⌫" ? handleDelete() : d !== "" ? handleDigit(d) : null}
+            style={{
+              width:72, height:72, borderRadius:12,
+              border: d === "" ? "none" : `1px solid ${d==="⌫"?"#2a2a3a":"#2a2a3a"}`,
+              background: d === "" ? "transparent" : d==="⌫" ? "#111118" : "#111118",
+              color: d==="⌫" ? "#555" : "#e0d8cc",
+              fontSize: d==="⌫" ? 20 : 24,
+              fontFamily:"monospace",
+              cursor: d==="" ? "default" : "pointer",
+              fontWeight:"500",
+              opacity: d==="" ? 0 : 1,
+            }}>
+            {d}
+          </button>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes shake {
+          0%,100% { transform: translateX(0); }
+          20% { transform: translateX(-8px); }
+          40% { transform: translateX(8px); }
+          60% { transform: translateX(-8px); }
+          80% { transform: translateX(8px); }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 export default function App() {
+  const [unlocked, setUnlocked] = useState(false);
+
+  if (!unlocked) return <PinScreen onUnlock={() => setUnlocked(true)} />;
+
+  return <MainApp />;
+}
+
+function MainApp() {
   const [sel, setSel]       = useState("A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
