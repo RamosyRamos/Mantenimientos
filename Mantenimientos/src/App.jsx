@@ -1410,14 +1410,16 @@ export default function App() {
 }
 
 function MainApp() {
-  const [theme, setTheme]   = useState(() => localStorage.getItem("theme") || "dark");
+  const [theme, setTheme]   = useState(() => {
+    try { return localStorage.getItem("theme") || "dark"; } catch { return "dark"; }
+  });
   const T = theme === "light" ? LIGHT : DARK;
   const { bg, card, line } = T;
 
   const toggleTheme = () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    localStorage.setItem("theme", next);
+    try { localStorage.setItem("theme", next); } catch {}
   };
 
   const [sel, setSel]       = useState("A");
