@@ -211,6 +211,24 @@ function ReportView({ data }) {
             <div>Este resumen fue generado automáticamente al finalizar el servicio.</div>
             <div style={{ marginTop:4, fontSize:10 }}>Servicio realizado por <strong style={{ color:"#e0d8cc" }}>{mecanico}</strong> · {fecha}</div>
           </div>
+
+          {/* Nota del sistema + link historial */}
+          <div style={{ marginTop:14, paddingTop:12, borderTop:"1px solid #1c1c2a" }}>
+            <div style={{ fontSize:10, color:"#444", lineHeight:1.7, marginBottom:10 }}>
+              ℹ️ Ramos y Ramos implementó este sistema digital de registro de mantenimientos en <strong style={{ color:"#555" }}>abril del 2026</strong>. Los servicios realizados antes de esa fecha no aparecen en el historial digital.
+            </div>
+            <a
+              href={`${window.location.origin}/historial`}
+              style={{ display:"inline-block", padding:"8px 18px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E0c", color:"#C8A96E", fontSize:11, textDecoration:"none", fontFamily:"monospace", letterSpacing:1 }}>
+              📋 Ver historial completo de mantenimientos
+            </a>
+            <div style={{ fontSize:10, color:"#555", marginTop:6, fontFamily:"monospace", letterSpacing:0.5 }}>
+              mantenimientos.ramosyramoscr.com/historial
+            </div>
+            <div style={{ fontSize:10, color:"#333", marginTop:4 }}>
+              Ingresá la placa de tu vehículo para ver todos tus servicios registrados.
+            </div>
+          </div>
         </div>
 
       </div>

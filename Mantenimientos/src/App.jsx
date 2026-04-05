@@ -1409,6 +1409,7 @@ export default function App() {
 }
 
 function MainApp() {
+  const [step, setStep]     = useState(1); // 1=vehículo, 2=servicio, 3=checklist
   const [sel, setSel]       = useState("A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
@@ -1477,6 +1478,9 @@ function MainApp() {
   const resetAll = ()  => {
     const u={}; tasks.forEach(t => u[t.id]=false); setChk(p=>({...p,...u}));
     setTaskStatus({}); setTaskIssue({}); setActiveIssue(null);
+    setNotes(""); setMechName(""); setHasSig(false); setSigDate("");
+    setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
+    setTab("check"); setStep(1);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
 
@@ -1764,6 +1768,189 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
 
   const inp = { background:card, border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"7px 10px", fontSize:12, fontFamily:"monospace", outline:"none" };
 
+  /* ── PASO 1: DATOS DEL VEHÍCULO ── */
+  if (step === 1) return (
+    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)", display:"flex", flexDirection:"column" }}>
+      {/* Header */}
+      <div style={{ background:"var(--header)", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
+        <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
+        <div>
+          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
+          <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
+        </div>
+      </div>
+
+      <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
+        {/* Indicador de pasos */}
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:28 }}>
+          <div style={{ width:28, height:28, borderRadius:"50%", background:G, color:"#000", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold" }}>1</div>
+          <div style={{ flex:1, height:2, background:line }} />
+          <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:"#444", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>2</div>
+          <div style={{ flex:1, height:2, background:line }} />
+          <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:"#444", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>3</div>
+        </div>
+
+        <div style={{ fontSize:9, color:G, letterSpacing:3, marginBottom:16 }}>PASO 1 · DATOS DEL VEHÍCULO</div>
+
+        {/* Buscador de modelo */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>MODELO <span style={{ color:"#f87171" }}>*</span></div>
+          <div style={{ position:"relative" }}>
+            <input
+              value={modelSearch}
+              onChange={e => { setModelSearch(e.target.value); setModelOpen(true); }}
+              onFocus={() => setModelOpen(true)}
+              placeholder="🔍 Buscar — ej: C300, clase s, W204..."
+              style={{ ...inp, width:"100%", boxSizing:"border-box" }}
+            />
+            {model && !modelOpen && (
+              <div style={{ marginTop:4, fontSize:10, color:"#C8A96E" }}>✓ {model}</div>
+            )}
+            {modelOpen && (
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:240, overflowY:"auto", marginTop:2 }}>
+                {smartSearch(modelSearch).slice(0,12).map(({m, grp}) => (
+                  <div key={m} onClick={() => { setModel(m); setEngine(""); setModelSearch(m); setModelOpen(false); }}
+                    style={{ padding:"8px 12px", cursor:"pointer", borderBottom:`1px solid ${line}`, fontSize:11 }}>
+                    <div style={{ color:"#e0d8cc" }}>{m}</div>
+                    <div style={{ fontSize:9, color:"#555" }}>{grp}</div>
+                  </div>
+                ))}
+                {smartSearch(modelSearch).length === 0 && (
+                  <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Motor */}
+        {model && availableEngines.length > 0 && (
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>MOTOR</div>
+            <select value={engine} onChange={e=>setEngine(e.target.value)} style={{ ...inp, width:"100%", boxSizing:"border-box" }}>
+              <option value="">— Seleccionar motor —</option>
+              {availableEngines.map(e => (
+                <option key={e.name} value={e.name}>{e.name} · {e.oil}L</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Placa */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>PLACA</div>
+          <input value={plate} onChange={e=>setPlate(e.target.value.toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
+            style={{ ...inp, width:"100%", boxSizing:"border-box", letterSpacing:2, textTransform:"uppercase" }} />
+        </div>
+
+        {/* Kilometraje */}
+        <div style={{ marginBottom:28 }}>
+          <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>KILOMETRAJE</div>
+          <input value={km} onChange={e=>setKm(e.target.value.replace(/\D/g,""))} placeholder="Ej: 85000" type="text"
+            style={{ ...inp, width:"100%", boxSizing:"border-box" }} />
+        </div>
+
+        <button
+          onClick={() => { if (model) { setModelOpen(false); setStep(2); } }}
+          disabled={!model}
+          style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${model?G+"60":"#2a2a3a"}`, background:model?G+"18":"transparent", color:model?G:"#333", fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:model?"pointer":"default" }}>
+          CONTINUAR → TIPO DE SERVICIO
+        </button>
+        {!model && <div style={{ textAlign:"center", fontSize:10, color:"#444", marginTop:8 }}>Seleccioná un modelo para continuar</div>}
+      </div>
+      {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40 }} />}
+    </div>
+  );
+
+  /* ── PASO 2: TIPO DE SERVICIO ── */
+  if (step === 2) return (
+    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
+      {/* Header con resumen del vehículo */}
+      <div style={{ background:"var(--header)", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
+        <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
+        <div style={{ flex:1 }}>
+          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
+          <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
+        </div>
+        <button onClick={()=>setStep(1)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontFamily:"monospace" }}>← Vehículo</button>
+      </div>
+
+      {/* Resumen vehículo seleccionado */}
+      <div style={{ padding:"10px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
+        <div style={{ fontSize:9, color:"#444", letterSpacing:2, marginBottom:4 }}>VEHÍCULO SELECCIONADO</div>
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+          <span style={{ color:"#C8A96E", fontWeight:"bold", fontSize:12 }}>{model.split("(")[0].trim()}</span>
+          {engine && <span style={{ fontSize:10, color:"#888" }}>· {engine}</span>}
+          {plate && <span style={{ fontSize:10, background:"#1a1a2a", border:`1px solid ${line}`, borderRadius:4, padding:"1px 7px", letterSpacing:2, color:"#aaa" }}>{plate}</span>}
+          {km && <span style={{ fontSize:10, color:"#555" }}>{parseInt(km).toLocaleString()} km</span>}
+        </div>
+      </div>
+
+      <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
+        {/* Indicador de pasos */}
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:28 }}>
+          <div style={{ width:28, height:28, borderRadius:"50%", background:"#4ade80", color:"#000", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold" }}>✓</div>
+          <div style={{ flex:1, height:2, background:G }} />
+          <div style={{ width:28, height:28, borderRadius:"50%", background:G, color:"#000", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold" }}>2</div>
+          <div style={{ flex:1, height:2, background:line }} />
+          <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:"#444", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>3</div>
+        </div>
+
+        <div style={{ fontSize:9, color:G, letterSpacing:3, marginBottom:16 }}>PASO 2 · TIPO DE SERVICIO</div>
+
+        {/* Selector de código de servicio */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>CÓDIGO DE SERVICIO ASSYST <span style={{ color:"#f87171" }}>*</span></div>
+          <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
+            {A_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
+              <button key={k} onClick={()=>setSel(k)}
+                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
+                {k}
+              </button>
+            );})}
+          </div>
+          <div style={{ fontSize:9, color:"#7EB8F780", letterSpacing:2, marginBottom:6 }}>SERIE B — INSPECCIÓN MAYOR</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {B_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
+              <button key={k} onClick={()=>setSel(k)}
+                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
+                {k}
+              </button>
+            );})}
+          </div>
+          {svc && <div style={{ marginTop:8, fontSize:10, color:"#888" }}>{svc.desc}</div>}
+        </div>
+
+        {/* Combustible */}
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:10, color:"#555", marginBottom:8 }}>COMBUSTIBLE</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {[["gasolina","⛽ Gasolina"],["diesel","🛢️ Diesel"]].map(([v,lbl])=>(
+              <button key={v} onClick={()=>setFuel(v)}
+                style={{ flex:1, padding:"10px", borderRadius:6, border:`1px solid ${fuel===v?"#C8A96E60":line}`, background:fuel===v?"#C8A96E15":"transparent", color:fuel===v?"#C8A96E":"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:fuel===v?"bold":"normal" }}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 4MATIC */}
+        <div style={{ marginBottom:28 }}>
+          <button onClick={()=>setIs4m(p=>!p)}
+            style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${is4m?"#4ade8050":line}`, background:is4m?"#4ade8010":"transparent", color:is4m?"#4ade80":"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", textAlign:"left" }}>
+            {is4m?"✓":"○"} Tracción 4MATIC
+          </button>
+        </div>
+
+        <button onClick={()=>setStep(3)}
+          style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer" }}>
+          INICIAR INSPECCIÓN →
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
       {/* Overlay para cerrar el buscador */}
@@ -1772,7 +1959,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
       {/* HEADER */}
       <div style={{ background:"var(--header)", borderBottom:`1px solid var(--line)`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
         <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", flexShrink:0, objectFit:"cover" }} />
-        <div>
+        <div style={{ flex:1 }}>
           <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
@@ -1798,169 +1985,29 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         </button>
       </div>
 
-      {/* DATOS VEHÍCULO + SELECTORES — colapsados en pestaña Notas */}
-      {tab === "notes" ? (
-        /* Versión mini cuando estamos en Notas */
+      {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
+      <div style={{ padding:"8px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ fontSize:11, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{model.split("(")[0].trim()}</span>
+          {plate && <span style={{ color:"#aaa", letterSpacing:1 }}>· {plate}</span>}
+          <span style={{ fontSize:10, background:G+"20", border:`1px solid ${G}40`, color:G, borderRadius:4, padding:"1px 7px" }}>{sel}</span>
+          <span style={{ fontSize:10, color:"#555" }}>{fuel==="diesel"?"🛢️":"⛽"}{is4m?" · 4MATIC":""}</span>
+        </div>
+        <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
+      </div>
+
+      {/* MINI BAR en pestaña Notas */}
+      {tab === "notes" && (
         <div style={{ padding:"8px 16px", borderBottom:`1px solid ${line}`, background:"var(--datos)", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}
           onClick={() => setTab("check")}>
-          <div style={{ fontSize:11, color:"#888" }}>
-            {model ? <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{model.split("(")[0].trim()}</span> : "Sin modelo"}
-            {plate && <span style={{ color:"#aaa", marginLeft:8, letterSpacing:1 }}>· {plate}</span>}
-            {sel && <span style={{ fontSize:10, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px", marginLeft:8 }}>{sel}</span>}
+          <div style={{ fontSize:11, color:"#888", display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{model.split("(")[0].trim()}</span>
+            {plate && <span style={{ color:"#aaa", letterSpacing:1 }}>· {plate}</span>}
+            <span style={{ fontSize:10, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{sel}</span>
           </div>
-          <span style={{ fontSize:10, color:"#555" }}>✏️ editar</span>
+          <span style={{ fontSize:10, color:"#555" }}>📋 checklist</span>
         </div>
-      ) : (
-        <>
-      {/* DATOS VEHÍCULO */}
-      <div style={{ padding:"12px 16px", borderBottom:`1px solid ${line}`, background:"var(--datos)" }}>
-        <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8 }}>DATOS DEL VEHÍCULO</div>
-
-        {/* Buscador de modelo */}
-        <div style={{ position:"relative", marginBottom:6 }}>
-          <input
-            value={modelSearch}
-            onChange={e => { setModelSearch(e.target.value); setModelOpen(true); }}
-            onFocus={() => setModelOpen(true)}
-            placeholder="🔍 Buscar — ej: C300, clase s, W204, GLE63..."
-            style={{ ...inp, width:"100%", boxSizing:"border-box", paddingLeft:10 }}
-          />
-          {model && !modelOpen && (
-            <div style={{ marginTop:4, fontSize:10, color:"#C8A96E", paddingLeft:2 }}>
-              ✓ {model}
-              <button onClick={()=>{ setModel(""); setEngine(""); setModelSearch(""); }} style={{ marginLeft:8, background:"transparent", border:"none", color:"#555", cursor:"pointer", fontSize:10 }}>✕ cambiar</button>
-            </div>
-          )}
-          {modelOpen && (
-            <div style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:50, background:"#0f0f17", border:`1px solid ${line}`, borderRadius:6, maxHeight:220, overflowY:"auto", marginTop:2, boxShadow:"0 8px 24px #00000080" }}>
-              {(() => {
-                const q = modelSearch.toLowerCase().trim();
-                const searched = q ? smartSearch(q) : null;
-                const allModels = searched !== null ? [
-                  ...searched,
-                  ...(q.includes("otro") ? [{ m:"Otro / No listado", grp:"" }] : []),
-                ] : [
-                  ...Object.entries(MODEL_GROUPS).flatMap(([grp, ms]) => ms.map(m => ({ m, grp }))),
-                  { m:"Otro / No listado", grp:"" },
-                ];
-
-                if (!allModels.length) return (
-                  <div style={{ padding:"10px 12px", fontSize:11, color:"#555" }}>
-                    Sin resultados para "<span style={{ color:"#C8A96E" }}>{modelSearch}</span>"
-                    <div style={{ fontSize:10, color:"#444", marginTop:4 }}>Intentá con el chassis (ej: W204) o modelo (ej: C300)</div>
-                  </div>
-                );
-                let lastGrp = null;
-                return allModels.map(({ m, grp }, i) => {
-                  const showGrp = grp && grp !== lastGrp;
-                  lastGrp = grp;
-                  return (
-                    <div key={m+i}>
-                      {showGrp && (
-                        <div style={{ padding:"5px 10px 2px", fontSize:8, color:"#444", letterSpacing:2, background:"#0c0c12", borderTop:i>0?`1px solid ${line}`:"none" }}>
-                          {grp.toUpperCase()}
-                        </div>
-                      )}
-                      <div
-                        onClick={() => { setModel(m); setEngine(""); setModelSearch(m); setModelOpen(false); }}
-                        style={{ padding:"9px 12px", fontSize:12, color: model===m?"#C8A96E":"#ccc", background: model===m?"#C8A96E12":"transparent", cursor:"pointer", borderLeft: model===m?"2px solid #C8A96E":"2px solid transparent" }}
-                        onMouseEnter={e => e.currentTarget.style.background="#1a1a2a"}
-                        onMouseLeave={e => e.currentTarget.style.background = model===m?"#C8A96E12":"transparent"}
-                      >
-                        {m}
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-        </div>
-
-        {/* Motor — aparece justo debajo del modelo */}
-        {availableEngines.length > 0 && (
-          <select value={engine} onChange={handleEngineChange} style={{ ...inp, width:"100%", color:engine?"#e0d8cc":"#555", marginBottom:6 }}>
-            <option value="">— Seleccionar motor —</option>
-            {availableEngines.map(e => (
-              <option key={e.name} value={e.name}>{e.name}</option>
-            ))}
-          </select>
-        )}
-
-        {/* Patente + KM */}
-        <div style={{ display:"flex", gap:6, marginBottom:6 }}>
-          <input value={plate} onChange={e=>setPlate(e.target.value.toUpperCase())} placeholder="PLACA" maxLength={8} style={{ ...inp, flex:1, letterSpacing:2, textTransform:"uppercase" }} />
-          <input value={km} onChange={e=>setKm(e.target.value)} placeholder="KM" type="number" style={{ ...inp, flex:1 }} />
-        </div>
-
-        {/* Capacidad de aceite */}
-        {engineInfo && (
-          <div style={{ marginTop:8, padding:"8px 12px", borderRadius:6, border:`1px solid ${isEV?"#3b82f6":oilLiters>0?"#C8A96E60":line}`, background:isEV?"#0a0a1f":oilLiters>0?"#C8A96E0c":"#0c0c14", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:6 }}>
-            <div>
-              <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:2 }}>CAPACIDAD DE ACEITE CON FILTRO</div>
-              {isEV ? (
-                <div style={{ fontSize:14, fontWeight:"bold", color:"#3b82f6" }}>⚡ Vehículo eléctrico — Sin aceite de motor</div>
-              ) : (
-                <div style={{ fontSize:18, fontWeight:"bold", color:"#C8A96E" }}>{oilLiters} L <span style={{ fontSize:11, color:"#888", fontWeight:"normal" }}>— {oilSpec}</span></div>
-              )}
-            </div>
-            {!isEV && oilLiters > 0 && (
-              <div style={{ fontSize:10, color:"#555", background:card, border:`1px solid ${line}`, borderRadius:4, padding:"3px 8px" }}>
-                🛢️ Verificar varilla de nivel de aceite al finalizar
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* MOTOR + TRACCIÓN */}
-      <div style={{ padding:"10px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-        <span style={{ fontSize:9, color:"#555", letterSpacing:2 }}>MOTOR:</span>
-        {pill(fuel==="gasolina","#C8A96E",()=>setFuel("gasolina"),"⛽ Gasolina")}
-        {pill(fuel==="diesel","#C8A96E",()=>setFuel("diesel"),"🛢️ Diesel")}
-        <div style={{ width:1, height:16, background:"#2a2a3a", margin:"0 4px" }} />
-        <span style={{ fontSize:9, color:"#555", letterSpacing:2 }}>TRACCIÓN:</span>
-        {pill(!is4m,"#7EB8F7",()=>setIs4m(false),"RWD")}
-        {pill(is4m,"#7EB8F7",()=>setIs4m(true),"4MATIC")}
-      </div>
-
-      {/* SELECTOR SERIE A */}
-      <div style={{ padding:"10px 16px 4px" }}>
-        <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:3, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-          {A_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
-            <button key={k} onClick={()=>setSel(k)} style={{ padding:"5px 11px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":card, color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, fontWeight:on?"bold":"normal", cursor:"pointer" }}>{k}</button>
-          );})}
-        </div>
-      </div>
-
-      {/* SELECTOR SERIE B */}
-      <div style={{ padding:"4px 16px 10px", borderBottom:`1px solid ${line}` }}>
-        <div style={{ fontSize:9, color:"#7EB8F780", letterSpacing:3, marginBottom:6, marginTop:4 }}>SERIE B — INSPECCIÓN MAYOR</div>
-        <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-          {B_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
-            <button key={k} onClick={()=>setSel(k)} style={{ padding:"5px 11px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":card, color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, fontWeight:on?"bold":"normal", cursor:"pointer" }}>{k}</button>
-          );})}
-        </div>
-      </div>
-
-      {/* BANNER */}
-      <div style={{ margin:"10px 16px 0", padding:"10px 14px", borderRadius:8, border:`1px solid ${fuelMismatch?"#ef4444":G}40`, background:`${fuelMismatch?"#ef4444":G}0c` }}>
-        <div style={{ fontWeight:"bold", color:fuelMismatch?"#ef4444":G, fontSize:15 }}>Servicio {sel}</div>
-        <div style={{ fontSize:11, color:"#888", marginTop:2 }}>{svc.desc}</div>
-        {fuelMismatch && (
-          <div style={{ marginTop:8, padding:"7px 10px", borderRadius:6, background:"#2a0a0a", border:"1px solid #ef4444", fontSize:11, color:"#ef4444", lineHeight:1.6 }}>
-            ⚠️ El servicio <strong>{sel}</strong> es exclusivo de motor <strong>{fuelLock==="gasolina"?"Gasolina":"DIESEL"}</strong>. Verificar con el cliente antes de continuar.
-          </div>
-        )}
-        <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:8 }}>
-          {fuel==="diesel"
-            ? <span style={{ fontSize:9, background:"#1a1a0a", border:"1px solid #5a4a00", color:"#C8A96E", borderRadius:4, padding:"2px 7px" }}>🛢️ Diesel</span>
-            : <span style={{ fontSize:9, background:"#0a0a1a", border:"1px solid #2a2a5a", color:"#7EB8F7", borderRadius:4, padding:"2px 7px" }}>⛽ Gasolina</span>}
-          {fuelLock && <span style={{ fontSize:9, background:"#1a0a1a", border:"1px solid #4a1a4a", color:"#c084fc", borderRadius:4, padding:"2px 7px" }}>🔒 Solo {fuelLock==="gasolina"?"Gasolina":"Diesel"}</span>}
-          {is4m && <span style={{ fontSize:9, background:"#0a1a0a", border:"1px solid #1a4a1a", color:"#4ade80", borderRadius:4, padding:"2px 7px" }}>⚙️ 4MATIC</span>}
-        </div>
-      </div>
+      )}
 
       {/* PROGRESO */}
       <div style={{ padding:"10px 16px 8px" }}>
@@ -1972,8 +2019,6 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
           <div style={{ height:"100%", width:pct+"%", background:isComplete?"#4ade80":G, borderRadius:2, transition:"width .3s" }} />
         </div>
       </div>
-        </>
-      )}
 
       {/* TABS */}
       <div style={{ display:"flex", borderBottom:`1px solid ${line}`, padding:"0 16px" }}>
