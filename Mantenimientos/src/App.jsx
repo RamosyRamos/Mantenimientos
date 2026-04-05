@@ -1774,13 +1774,11 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
           <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"#e0d8cc" }}>RAMOS Y RAMOS</div>
           <div style={{ fontSize:9, color:"#555", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
-          {doneN > 0 && (
-            <div style={{ marginLeft:"auto", fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
-              {isComplete ? "✓ COMPLETO" : pct+"%"}
-            </div>
-          )}
-        </div>
+        {doneN > 0 && (
+          <div style={{ marginLeft:"auto", fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
+            {isComplete ? "✓ COMPLETO" : pct+"%"}
+          </div>
+        )}
       </div>
 
       {/* DATOS VEHÍCULO */}
