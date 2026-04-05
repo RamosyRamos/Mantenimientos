@@ -1668,6 +1668,18 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
       let generatedClientUrl = "";
       try {
         const svcData = buildServiceData();
+
+        // Generar slug legible: PLACA-SERVICIO-DDMMYYYY
+        const now = new Date();
+        const dd   = String(now.getDate()).padStart(2,"0");
+        const mm   = String(now.getMonth()+1).padStart(2,"0");
+        const yyyy = now.getFullYear();
+        const plateClean = (plate || "XX").replace(/[^A-Z0-9]/gi,"").toUpperCase();
+        const baseSlug = `${plateClean}-${sel}-${dd}${mm}${yyyy}`;
+        // Sufijo corto para evitar duplicados (misma placa mismo día)
+        const suffix = Math.random().toString(36).slice(2,5).toUpperCase();
+        const slug = `${baseSlug}-${suffix}`;
+
         const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/servicios`, {
           method: "POST",
           headers: {
@@ -1677,6 +1689,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
             "Prefer": "return=representation",
           },
           body: JSON.stringify({
+            slug,
             placa:           plate,
             modelo:          svcData.vehiculo.modelo,
             motor:           svcData.vehiculo.motor,
@@ -1698,7 +1711,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         const sbData = await sbRes.json();
         serviceId = sbData?.[0]?.id;
         if (serviceId) {
-          generatedClientUrl = `${APP_URL}/servicio/${serviceId}`;
+          generatedClientUrl = `${APP_URL}/servicio/${slug}`;
           setClientUrl(generatedClientUrl);
         }
       } catch(e) { console.warn("Supabase error:", e); }

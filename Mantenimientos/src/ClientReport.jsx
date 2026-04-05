@@ -13,9 +13,12 @@ export default function ClientReport({ binId }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(
-          `${SUPABASE_URL}/rest/v1/servicios?id=eq.${binId}&select=*`,
-          {
+        // Compatibilidad: UUID para registros viejos, slug para nuevos
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(binId);
+        const query = isUUID
+          ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${binId}&select=*`
+          : `${SUPABASE_URL}/rest/v1/servicios?slug=eq.${binId}&select=*`;
+        const res = await fetch(query, {
             headers: {
               "apikey": SUPABASE_KEY,
               "Authorization": `Bearer ${SUPABASE_KEY}`,
