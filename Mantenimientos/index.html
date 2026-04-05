@@ -1,17 +1,97 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#0a0a0f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Mercedes-Benz | Mantenimiento</title>
+    <title>Ramos y Ramos | Mantenimiento</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { background: #0a0a0f; }
+
+      /* ── TEMA OSCURO (por defecto) ── */
+      :root, [data-theme="dark"] {
+        --bg:       #09090e;
+        --card:     #0f0f17;
+        --line:     #1c1c2a;
+        --text:     #e0d8cc;
+        --sub:      #555555;
+        --sub2:     #888888;
+        --gold:     #C8A96E;
+        --header:   #0d0d16;
+        --datos:    #0c0c14;
+        --inp-bg:   #0f0f17;
+        --inp-text: #e0d8cc;
+        --inp-ph:   #555555;
+        --card-txt: #ccc;
+      }
+
+      /* ── TEMA CLARO ── */
+      [data-theme="light"] {
+        --bg:       #f2f0eb;
+        --card:     #ffffff;
+        --line:     #dedad4;
+        --text:     #1a1a1a;
+        --sub:      #777777;
+        --sub2:     #999999;
+        --gold:     #9a6f2e;
+        --header:   #ffffff;
+        --datos:    #f8f6f2;
+        --inp-bg:   #ffffff;
+        --inp-text: #1a1a1a;
+        --inp-ph:   #aaaaaa;
+        --card-txt: #444444;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        transition: background 0.2s, color 0.2s;
+      }
       #root { min-height: 100vh; }
+
+      /* Inputs heredan el tema */
+      input, select, textarea {
+        background: var(--inp-bg) !important;
+        color: var(--inp-text) !important;
+        border-color: var(--line) !important;
+      }
+      input::placeholder, textarea::placeholder {
+        color: var(--inp-ph) !important;
+      }
+      select option {
+        background: var(--inp-bg);
+        color: var(--inp-text);
+      }
+
+      /* Botón de tema */
+      .theme-toggle {
+        margin-left: auto;
+        padding: 5px 9px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--sub);
+        font-size: 15px;
+        cursor: pointer;
+        line-height: 1;
+        transition: all 0.2s;
+      }
+      .theme-toggle:hover { opacity: 0.8; }
+
+      /* Transiciones suaves */
+      div, span, button, input, select, textarea {
+        transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+      }
     </style>
+    <script>
+      // Restaurar tema guardado antes de que React cargue (evita flash)
+      try {
+        const saved = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', saved);
+      } catch(e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

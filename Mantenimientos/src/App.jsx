@@ -1763,26 +1763,34 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
   const inp = { background:card, border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"7px 10px", fontSize:12, fontFamily:"monospace", outline:"none" };
 
   return (
-    <div style={{ background:bg, minHeight:"100vh", fontFamily:"monospace", color:"#e0d8cc" }}>
+    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
       {/* Overlay para cerrar el buscador */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40 }} />}
 
       {/* HEADER */}
-      <div style={{ background:"#0d0d16", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
+      <div style={{ background:"var(--header)", borderBottom:`1px solid var(--line)`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
         <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", flexShrink:0, objectFit:"cover" }} />
         <div>
-          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"#e0d8cc" }}>RAMOS Y RAMOS</div>
-          <div style={{ fontSize:9, color:"#555", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
+          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
+          <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
         {doneN > 0 && (
-          <div style={{ marginLeft:"auto", fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
+          <div style={{ fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
             {isComplete ? "✓ COMPLETO" : pct+"%"}
           </div>
         )}
+        <button className="theme-toggle" onClick={() => {
+          const html = document.documentElement;
+          const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+          html.setAttribute('data-theme', next);
+          try { localStorage.setItem('theme', next); } catch(e) {}
+        }}>
+          ☀️
+        </button>
       </div>
 
       {/* DATOS VEHÍCULO */}
-      <div style={{ padding:"12px 16px", borderBottom:`1px solid ${line}`, background:"#0c0c14" }}>
+      <div style={{ padding:"12px 16px", borderBottom:`1px solid ${line}`, background:"var(--datos)" }}>
         <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8 }}>DATOS DEL VEHÍCULO</div>
 
         {/* Buscador de modelo */}
