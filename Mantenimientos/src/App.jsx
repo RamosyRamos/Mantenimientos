@@ -1438,7 +1438,11 @@ function MainApp() {
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
-  const markAll  = ()  => { const u={}; tasks.forEach(t => u[t.id]=true); setChk(p=>({...p,...u})); };
+  const markAll  = ()  => {
+    const newStatus = {};
+    tasks.forEach(t => { if (!t.text?.startsWith("⚠")) newStatus[t.id] = "ok"; });
+    setTaskStatus(p => ({ ...p, ...newStatus }));
+  };
   const resetAll = ()  => {
     const u={}; tasks.forEach(t => u[t.id]=false); setChk(p=>({...p,...u}));
     setTaskStatus({}); setTaskIssue({}); setActiveIssue(null);
