@@ -18,8 +18,8 @@ export default function ClientHistory() {
   const [searched, setSearched] = useState("");
 
   const search = async () => {
-    const q = placa.trim().toUpperCase();
-    if (!q) return;
+    const q = placa.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""); // sanitizar
+    if (!q || q.length < 3 || q.length > 8) return;
     setLoading(true);
     setResults(null);
     setSearched(q);
