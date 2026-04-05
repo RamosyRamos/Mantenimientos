@@ -1784,11 +1784,11 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
           const isLight = root.style.filter.includes('invert');
           if (isLight) {
             root.style.filter = '';
-            root.style.transition = 'filter 0.2s';
+            root.querySelectorAll('img, canvas').forEach(el => el.style.filter = '');
             try { localStorage.setItem('theme', 'dark'); } catch(e) {}
           } else {
             root.style.filter = 'invert(1) hue-rotate(180deg)';
-            root.style.transition = 'filter 0.2s';
+            root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)');
             try { localStorage.setItem('theme', 'light'); } catch(e) {}
           }
         }}>

@@ -23,5 +23,11 @@ createRoot(rootEl).render(
 try {
   if (localStorage.getItem('theme') === 'light') {
     rootEl.style.filter = 'invert(1) hue-rotate(180deg)';
+    // Re-invertir imágenes después de que React renderice
+    setTimeout(() => {
+      rootEl.querySelectorAll('img, canvas').forEach(el => {
+        el.style.filter = 'invert(1) hue-rotate(180deg)';
+      });
+    }, 300);
   }
 } catch(e) {}
