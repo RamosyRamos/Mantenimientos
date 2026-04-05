@@ -83,6 +83,15 @@
       /* Transiciones suaves */
       #root { transition: filter 0.2s; }
 
+      /* ── ESTILOS DE IMPRESIÓN ── */
+      @media print {
+        body { background: #fff !important; color: #000 !important; }
+        #root { filter: none !important; }
+        button { display: none !important; }
+        a { color: #000 !important; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      }
+
       /* ── TEMA CLARO: inversión de colores ── */
       [data-theme="light"] #root {
         filter: invert(1) hue-rotate(180deg);

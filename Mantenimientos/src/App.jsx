@@ -1409,7 +1409,11 @@ export default function App() {
 }
 
 function MainApp() {
-  const [step, setStep]     = useState(1); // 1=vehículo, 2=servicio, 3=checklist
+  const [step, setStep]     = useState(1);
+  const [showRecent, setShowRecent] = useState(false);
+  const [recentList, setRecentList] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null); // ID del servicio en edición
   const [sel, setSel]       = useState("A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
@@ -1480,7 +1484,7 @@ function MainApp() {
     setTaskStatus({}); setTaskIssue({}); setActiveIssue(null);
     setNotes(""); setMechName(""); setHasSig(false); setSigDate("");
     setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
-    setTab("check"); setStep(1);
+    setTab("check"); setStep(1); setEditingId(null);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
 
@@ -1559,6 +1563,60 @@ function MainApp() {
   const TRELLO_BOARD  = import.meta.env.VITE_TRELLO_BOARD;
   const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
   const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_KEY;
+
+  const fetchRecent = async () => {
+    setRecentLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+      });
+      const data = await res.json();
+      setRecentList(Array.isArray(data) ? data : []);
+    } catch(e) { setRecentList([]); }
+    setRecentLoading(false);
+  };
+
+  const loadService = (s) => {
+    // Cargar datos del vehículo
+    setModel(s.modelo || "");
+    setModelSearch(s.modelo || "");
+    setEngine(s.motor || "");
+    setPlate(s.placa || "");
+    setKm(s.km || "");
+    setFuel(s.combustible || "gasolina");
+    setIs4m(s.traccion === "4MATIC");
+
+    // Cargar código de servicio
+    setSel(s.servicio_codigo || "A");
+
+    // Cargar mecánico y notas
+    setMechName(s.mecanico || "");
+    setNotes(s.observaciones || "");
+
+    // Reconstruir estados del checklist desde revisiones guardadas
+    if (s.revisiones) {
+      const newStatus = {};
+      const newIssue  = {};
+      Object.values(s.revisiones).flat().forEach(item => {
+        // Buscar el task por texto para encontrar su id
+        const taskId = Object.keys(ITEMS).flatMap(k =>
+          ITEMS[k].tasks.map((t,i) => ({ id:`${k}_${i}`, text:t }))
+        ).find(t => t.text === item.text)?.id;
+        if (taskId && item.status && item.status !== "pending") {
+          newStatus[taskId] = item.status;
+          if (item.detail) newIssue[taskId] = item.detail;
+        }
+      });
+      setTaskStatus(newStatus);
+      setTaskIssue(newIssue);
+    }
+
+    // Marcar que estamos editando este servicio
+    setEditingId(s.id);
+    setShowRecent(false);
+    setStep(3); // Ir directo al checklist
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const APP_URL       = import.meta.env.VITE_APP_URL || window.location.origin;
 
   const [trelloStatus, setTrelloStatus] = useState("idle");
@@ -1686,8 +1744,12 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         const suffix = Math.random().toString(36).slice(2,5).toUpperCase();
         const slug = `${baseSlug}-${suffix}`;
 
-        const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/servicios`, {
-          method: "POST",
+        const sbRes = await fetch(
+          editingId
+            ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`
+            : `${SUPABASE_URL}/rest/v1/servicios`,
+          {
+          method: editingId ? "PATCH" : "POST",
           headers: {
             "apikey": SUPABASE_KEY,
             "Authorization": `Bearer ${SUPABASE_KEY}`,
@@ -2012,11 +2074,20 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
           <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
-        {doneN > 0 && (
+        {editingId && (
+          <div style={{ fontSize:9, padding:"3px 8px", borderRadius:10, background:"#1a1a0a", border:"1px solid #C8A96E50", color:"#C8A96E", letterSpacing:1 }}>
+            ✏️ EDITANDO
+          </div>
+        )}
+        {!editingId && doneN > 0 && (
           <div style={{ fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
             {isComplete ? "✓ COMPLETO" : pct+"%"}
           </div>
         )}
+        <button onClick={() => { setShowRecent(true); fetchRecent(); }} title="Mantenimientos recientes"
+          style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+          🕐
+        </button>
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
           const isLight = root.style.filter.includes('invert');
@@ -2034,15 +2105,70 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         </button>
       </div>
 
-      {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
-      <div style={{ padding:"8px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <div style={{ fontSize:11, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-          <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{model.split("(")[0].trim()}</span>
-          {plate && <span style={{ color:"#aaa", letterSpacing:1 }}>· {plate}</span>}
-          <span style={{ fontSize:10, background:G+"20", border:`1px solid ${G}40`, color:G, borderRadius:4, padding:"1px 7px" }}>{sel}</span>
-          <span style={{ fontSize:10, color:"#555" }}>{fuel==="diesel"?"🛢️":"⛽"}{is4m?" · 4MATIC":""}</span>
+      {/* PANEL MANTENIMIENTOS RECIENTES */}
+      {showRecent && (
+        <div style={{ position:"fixed", inset:0, zIndex:100, background:"#000a" }} onClick={() => setShowRecent(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+            <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div>
+                <div style={{ fontWeight:"bold", fontSize:13, letterSpacing:1, color:"#e0d8cc" }}>🕐 Recientes</div>
+                <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div>
+              </div>
+              <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+              {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+              {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
+              {!recentLoading && recentList.map(s => {
+                const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+                const url = `${window.location.origin}/servicio/${s.slug || s.id}`;
+                return (
+                  <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                      <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{s.placa || "Sin placa"}</span>
+                      <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+                    </div>
+                    <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{s.modelo || "—"}</div>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
+                      <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{s.servicio_codigo || "—"}</span>
+                      <span style={{ fontSize:9, color:"#555" }}>{s.mecanico || ""}</span>
+                    </div>
+                    <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                      <button onClick={() => loadService(s)}
+                        style={{ flex:1, padding:"6px 8px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+                        ✏️ Editar
+                      </button>
+                      <a href={url} target="_blank" rel="noreferrer"
+                        style={{ flex:1, padding:"6px 8px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                        🔗 Ver
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-        <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
+      )}
+
+      {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
+      <div style={{ padding:"8px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ fontSize:11, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{model.split("(")[0].trim()}</span>
+            {plate && <span style={{ color:"#aaa", letterSpacing:1 }}>· {plate}</span>}
+            <span style={{ fontSize:10, background:G+"20", border:`1px solid ${G}40`, color:G, borderRadius:4, padding:"1px 7px" }}>{sel}</span>
+            <span style={{ fontSize:10, color:"#555" }}>{fuel==="diesel"?"🛢️":"⛽"}{is4m?" · 4MATIC":""}</span>
+          </div>
+          <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
+        </div>
+        {oilLiters > 0 && (
+          <div style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>
+            <span style={{ fontSize:14 }}>🛢️</span>
+            <span style={{ fontSize:12, fontWeight:"bold", color:"#C8A96E" }}>{oilLiters} L</span>
+            <span style={{ fontSize:10, color:"#888" }}>{oilSpec}</span>
+          </div>
+        )}
       </div>
 
       {/* MINI BAR en pestaña Notas */}
@@ -2346,7 +2472,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
                   ) : (
                     <button onClick={sendToTrello} disabled={trelloStatus==="sending"}
                       style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${trelloStatus==="sending"?"#2a2a3a":"#0052cc80"}`, background:trelloStatus==="sending"?"#0a0a14":"#0052cc18", color:trelloStatus==="sending"?"#444":"#4c9aff", fontFamily:"monospace", fontSize:12, cursor:trelloStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
-                      {trelloStatus==="sending" ? "⏳ Enviando a Trello..." : "📋 Enviar resumen a Trello"}
+                      {trelloStatus==="sending" ? "⏳ Enviando..." : editingId ? "💾 Actualizar en Trello" : "📋 Enviar resumen a Trello"}
                     </button>
                   )}
 

@@ -231,6 +231,13 @@ function ReportView({ data }) {
             <div style={{ fontSize:10, color:"#333", marginTop:4 }}>
               Ingresá la placa de tu vehículo para ver todos tus servicios registrados.
             </div>
+
+            {/* BOTÓN IMPRIMIR / GUARDAR PDF */}
+            <button
+              onClick={() => window.print()}
+              style={{ marginTop:16, width:"100%", padding:"11px", borderRadius:8, border:"1px solid #3a3a4a", background:"#1a1a2a", color:"#aaa", fontSize:12, fontFamily:"monospace", letterSpacing:1, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              🖨️ Imprimir / Guardar como PDF
+            </button>
           </div>
         </div>
 
