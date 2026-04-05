@@ -1706,9 +1706,11 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
       const lists = await listsRes.json();
       let listId = lists[0]?.id;
       const preferred = lists.find(l =>
-        l.name.toLowerCase().includes("servicio") ||
-        l.name.toLowerCase().includes("taller") ||
-        l.name.toLowerCase().includes("completado") ||
+        l.name.toLowerCase().includes("prontos a salir") ||
+        l.name.toLowerCase().includes("pronto a salir") ||
+        l.name.toLowerCase().includes("prontos") ||
+        l.name.toLowerCase().includes("trabajos prontos") ||
+        l.name.toLowerCase().includes("listo para entregar") ||
         l.name.toLowerCase().includes("listo")
       );
       if (preferred) listId = preferred.id;
