@@ -1740,7 +1740,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
 
       // 3. Crear tarjeta en Trello con el link del cliente
       const clientLinkSection = generatedClientUrl
-        ? `\n\n---\n\n## 🔗 Link para el Cliente\n[**Ver resumen completo →**](${generatedClientUrl})\n\n> Copiar este link y enviarlo al cliente por WhatsApp o correo.`
+        ? `\n\n---\n\n## 🔗 Link para el Cliente\n[**Ver resumen completo →**](${generatedClientUrl})\n\n> Copiar este link y enviarlo al cliente por WhatsApp o correo.\n\n---\n\n## 💬 Mensaje para WhatsApp\n\`\`\`\nHola! Te comparto tu resumen de mantenimiento de Taller Ramos y Ramos:\n${generatedClientUrl}\n\`\`\``
         : "";
 
       const title = `🔧 ${model || "Vehículo"} | Placa: ${plate || "—"} | Servicio ${sel} | ${mechName}`;
@@ -1865,6 +1865,24 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
                 <option key={e.name} value={e.name}>{e.name} · {e.oil}L</option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* Badge de aceite — aparece al seleccionar motor */}
+        {oilLiters > 0 && (
+          <div style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:"#C8A96E12", border:"1px solid #C8A96E40", display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:22 }}>🛢️</span>
+            <div>
+              <div style={{ fontSize:11, color:"#888", letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE</div>
+              <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{oilLiters} L</div>
+              <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{oilSpec}</div>
+            </div>
+          </div>
+        )}
+        {isEV && engine && (
+          <div style={{ marginBottom:12, padding:"10px 14px", borderRadius:8, background:"#4ade8010", border:"1px solid #4ade8030", display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:18 }}>⚡</span>
+            <div style={{ fontSize:11, color:"#4ade80" }}>Vehículo eléctrico — sin aceite de motor</div>
           </div>
         )}
 
