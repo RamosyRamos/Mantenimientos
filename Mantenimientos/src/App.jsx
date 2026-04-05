@@ -1796,6 +1796,20 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         </button>
       </div>
 
+      {/* DATOS VEHÍCULO + SELECTORES — colapsados en pestaña Notas */}
+      {tab === "notes" ? (
+        /* Versión mini cuando estamos en Notas */
+        <div style={{ padding:"8px 16px", borderBottom:`1px solid ${line}`, background:"var(--datos)", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer" }}
+          onClick={() => setTab("check")}>
+          <div style={{ fontSize:11, color:"#888" }}>
+            {model ? <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{model.split("(")[0].trim()}</span> : "Sin modelo"}
+            {plate && <span style={{ color:"#aaa", marginLeft:8, letterSpacing:1 }}>· {plate}</span>}
+            {sel && <span style={{ fontSize:10, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px", marginLeft:8 }}>{sel}</span>}
+          </div>
+          <span style={{ fontSize:10, color:"#555" }}>✏️ editar</span>
+        </div>
+      ) : (
+        <>
       {/* DATOS VEHÍCULO */}
       <div style={{ padding:"12px 16px", borderBottom:`1px solid ${line}`, background:"var(--datos)" }}>
         <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8 }}>DATOS DEL VEHÍCULO</div>
@@ -1956,6 +1970,8 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
           <div style={{ height:"100%", width:pct+"%", background:isComplete?"#4ade80":G, borderRadius:2, transition:"width .3s" }} />
         </div>
       </div>
+        </>
+      )}
 
       {/* TABS */}
       <div style={{ display:"flex", borderBottom:`1px solid ${line}`, padding:"0 16px" }}>
