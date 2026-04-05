@@ -1504,12 +1504,15 @@ function MainApp() {
     setHasSig(false);
   };
   // ── TRELLO ──────────────────────────────────────────────────────────────
-  const TRELLO_KEY   = import.meta.env.VITE_TRELLO_KEY;
-  const TRELLO_TOKEN = import.meta.env.VITE_TRELLO_TOKEN;
-  const TRELLO_BOARD = import.meta.env.VITE_TRELLO_BOARD;
+  const TRELLO_KEY    = import.meta.env.VITE_TRELLO_KEY;
+  const TRELLO_TOKEN  = import.meta.env.VITE_TRELLO_TOKEN;
+  const TRELLO_BOARD  = import.meta.env.VITE_TRELLO_BOARD;
+  const JSONBIN_KEY   = import.meta.env.VITE_JSONBIN_KEY;
+  const APP_URL       = import.meta.env.VITE_APP_URL || window.location.origin;
 
-  const [trelloStatus, setTrelloStatus] = useState("idle"); // idle | sending | done | error
+  const [trelloStatus, setTrelloStatus] = useState("idle");
   const [trelloUrl, setTrelloUrl]       = useState("");
+  const [clientUrl, setClientUrl]       = useState("");
 
   // Genera el resumen HTML para la tarjeta de Trello
   const buildTrelloDesc = () => {
@@ -1586,16 +1589,62 @@ _Servicio certificado por ${mechName} · ${sigDate}_
 _Sistema de Gestión de Taller — Mercedes-Benz_`;
   };
 
+  // Construye el objeto de datos del servicio para JSONBin
+  const buildServiceData = () => {
+    const byGrpMap = {};
+    tasks.forEach(t => {
+      if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
+      byGrpMap[t.grp].push({
+        text: t.text,
+        status: taskStatus[t.id] || (checked[t.id] ? "ok" : "pending"),
+        detail: taskIssue[t.id] || null,
+        outOfAssyst: t.outOfAssyst || false,
+      });
+    });
+    return {
+      taller: "Ramos y Ramos",
+      fecha: sigDate,
+      mecanico: mechName,
+      servicio: { codigo: sel, descripcion: svc.desc },
+      vehiculo: { modelo: model, motor: engine, placa: plate, km: km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD" },
+      aceite: oilLiters > 0 ? { litros: oilLiters, especificacion: oilSpec } : null,
+      revisiones: byGrpMap,
+      observaciones: notes,
+      pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
+      progreso: { completadas: doneN, total },
+    };
+  };
+
   const sendToTrello = async () => {
     setTrelloStatus("sending");
     try {
-      // 1. Obtener listas del tablero
+      // 1. Guardar resumen en JSONBin → obtener link único para el cliente
+      let binId = null;
+      let generatedClientUrl = "";
+      try {
+        const binRes = await fetch("https://api.jsonbin.io/v3/b", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Access-Key": JSONBIN_KEY,
+            "X-Bin-Name": `Servicio-${plate||"XX"}-${sel}-${Date.now()}`,
+            "X-Bin-Private": "false",
+          },
+          body: JSON.stringify(buildServiceData()),
+        });
+        const binData = await binRes.json();
+        binId = binData.metadata?.id;
+        if (binId) {
+          generatedClientUrl = `${APP_URL}/servicio/${binId}`;
+          setClientUrl(generatedClientUrl);
+        }
+      } catch(e) { console.warn("JSONBin error:", e); }
+
+      // 2. Obtener listas del tablero Trello
       const listsRes = await fetch(
         `https://api.trello.com/1/boards/${TRELLO_BOARD}/lists?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`
       );
       const lists = await listsRes.json();
-
-      // Buscar lista "Servicios" o "Gestión de Taller" o usar la primera
       let listId = lists[0]?.id;
       const preferred = lists.find(l =>
         l.name.toLowerCase().includes("servicio") ||
@@ -1605,21 +1654,20 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
       );
       if (preferred) listId = preferred.id;
 
-      // 2. Crear tarjeta
+      // 3. Crear tarjeta en Trello incluyendo el link del cliente
+      const clientLinkSection = generatedClientUrl
+        ? `\n\n---\n\n## 🔗 Link para el Cliente\n[**Ver resumen completo →**](${generatedClientUrl})\n\n> Copiar este link y enviarlo al cliente por WhatsApp o correo.`
+        : "";
+
       const title = `🔧 ${model || "Vehículo"} | Placa: ${plate || "—"} | Servicio ${sel} | ${mechName}`;
-      const desc  = buildTrelloDesc();
+      const desc  = buildTrelloDesc() + clientLinkSection;
 
       const cardRes = await fetch(
         `https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            idList: listId,
-            name: title,
-            desc: desc,
-            due: null,
-          })
+          body: JSON.stringify({ idList: listId, name: title, desc, due: null })
         }
       );
       const card = await cardRes.json();
