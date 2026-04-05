@@ -148,15 +148,16 @@ function ReportView({ data }) {
               if (item.text?.startsWith("⚠")) return null;
               const isOk    = item.status === "ok";
               const isIssue = item.status === "issue";
-              const isPending = item.status === "pending";
+              const isNA    = item.status === "na";
               return (
-                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", marginBottom:4, borderRadius:8, background: isOk ? "#0a1a0a" : isIssue ? "#1a0a0a" : "#0c0c14", border:`1px solid ${isOk?"#4ade8030":isIssue?"#f8717130":"#1c1c2a"}` }}>
+                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", marginBottom:4, borderRadius:8, background: isOk ? "#0a1a0a" : isIssue ? "#1a0a0a" : isNA ? "#0c0c0c" : "#0c0c14", border:`1px solid ${isOk?"#4ade8030":isIssue?"#f8717130":isNA?"#33333340":"#1c1c2a"}` }}>
                   <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>
-                    {isOk ? "✅" : isIssue ? "⚠️" : "○"}
+                    {isOk ? "✅" : isIssue ? "⚠️" : isNA ? "—" : "○"}
                   </span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, color: isOk ? "#86efac" : isIssue ? "#fca5a5" : "#666", textDecoration: isOk && !isIssue ? "none" : "none", lineHeight:1.5 }}>
+                    <div style={{ fontSize:13, color: isOk ? "#86efac" : isIssue ? "#fca5a5" : isNA ? "#444" : "#666", textDecoration: isNA ? "line-through" : "none", lineHeight:1.5 }}>
                       {item.text}
+                      {isNA && <span style={{ fontSize:10, color:"#444", marginLeft:8 }}>No aplica</span>}
                     </div>
                     {item.detail && (
                       <div style={{ fontSize:11, color:"#f87171", marginTop:4, padding:"4px 8px", background:"#2a0a0a", borderRadius:4, borderLeft:"2px solid #f87171" }}>

@@ -184,11 +184,14 @@ function ServiceCard({ service: s, index, total }) {
                 if (item.text?.startsWith("⚠")) return null;
                 const isOk    = item.status === "ok";
                 const isIssue = item.status === "issue";
+                const isNA    = item.status === "na";
                 return (
-                  <div key={i} style={{ display:"flex", gap:8, padding:"7px 10px", marginBottom:3, borderRadius:6, background: isOk?"#0a1a0a": isIssue?"#1a0a0a":"#0c0c12", border:`1px solid ${isOk?"#4ade8025":isIssue?"#f8717125":"#1c1c2a"}` }}>
-                    <span style={{ flexShrink:0, fontSize:12 }}>{isOk?"✅":isIssue?"⚠️":"○"}</span>
+                  <div key={i} style={{ display:"flex", gap:8, padding:"7px 10px", marginBottom:3, borderRadius:6, background: isOk?"#0a1a0a": isIssue?"#1a0a0a": isNA?"#0c0c0c":"#0c0c12", border:`1px solid ${isOk?"#4ade8025":isIssue?"#f8717125":isNA?"#33333335":"#1c1c2a"}` }}>
+                    <span style={{ flexShrink:0, fontSize:12 }}>{isOk?"✅":isIssue?"⚠️":isNA?"—":"○"}</span>
                     <div>
-                      <div style={{ fontSize:12, color: isOk?"#86efac":isIssue?"#fca5a5":"#555", lineHeight:1.4 }}>{item.text}</div>
+                      <div style={{ fontSize:12, color: isOk?"#86efac":isIssue?"#fca5a5":isNA?"#444":"#555", textDecoration:isNA?"line-through":"none", lineHeight:1.4 }}>
+                        {item.text}{isNA && <span style={{ fontSize:10, color:"#444", marginLeft:6 }}>No aplica</span>}
+                      </div>
                       {item.detail && <div style={{ fontSize:11, color:"#f87171", marginTop:3 }}>→ {item.detail}</div>}
                     </div>
                   </div>

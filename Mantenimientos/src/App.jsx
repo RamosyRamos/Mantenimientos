@@ -1460,6 +1460,7 @@ function MainApp() {
   const extras       = getExtras(fuel);
 
   const doneN  = tasks.filter(t => checked[t.id] || taskStatus[t.id]).length;
+  const naN    = tasks.filter(t => taskStatus[t.id] === "na").length;
   const total  = tasks.length;
   const pct    = total ? Math.round(doneN / total * 100) : 0;
   const isComplete = pct === 100;
@@ -1484,13 +1485,18 @@ function MainApp() {
     setChk(p => ({ ...p, [id]: true }));
     if (status === "ok") {
       setActiveIssue(null);
-      // Remove previous issue note if exists
       if (taskIssue[id]) {
         setTaskIssue(p => { const n={...p}; delete n[id]; return n; });
       }
     }
     if (status === "issue") {
       setActiveIssue(id);
+    }
+    if (status === "na") {
+      setActiveIssue(null);
+      if (taskIssue[id]) {
+        setTaskIssue(p => { const n={...p}; delete n[id]; return n; });
+      }
     }
   };
 
@@ -1577,7 +1583,7 @@ function MainApp() {
       ts.forEach(t => {
         const s = taskStatus[t.id];
         const detail = taskIssue[t.id] ? ` → _${taskIssue[t.id]}_` : "";
-        const icon = s==="ok" ? "✅" : s==="issue" ? "⚠️" : checked[t.id] ? "✅" : "○";
+        const icon = s==="ok" ? "✅" : s==="issue" ? "⚠️" : s==="na" ? "—" : checked[t.id] ? "✅" : "○";
         taskSection += `${icon} ${t.text}${detail}\n`;
       });
     });
@@ -1966,14 +1972,16 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
                     <div style={{ flex:1, height:1, background:`${secColor}30` }} />
                   </div>
                   {gtasks.map(({id,text}) => {
-                    const status  = taskStatus[id]; // "ok" | "issue" | undefined
+                    const status  = taskStatus[id]; // "ok" | "issue" | "na" | undefined
                     const isInfo  = text.startsWith("⚠");
                     const isOpen  = activeIssue === id;
-                    const rowBg   = status==="ok" ? "#0a1a0a"
+                    const rowBg   = status==="ok"    ? "#0a1a0a"
                                   : status==="issue" ? "#1a0a0a"
+                                  : status==="na"    ? "#0c0c0c"
                                   : isInfo ? "#0c0c12" : card;
-                    const rowBdr  = status==="ok" ? "#4ade8040"
+                    const rowBdr  = status==="ok"    ? "#4ade8040"
                                   : status==="issue" ? "#f8717140"
+                                  : status==="na"    ? "#33333360"
                                   : line;
                     return (
                       <div key={id} style={{ marginBottom: isOpen ? 8 : 3 }}>
@@ -1981,23 +1989,27 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
                         <div style={{ display:"flex", alignItems:"flex-start", gap:8, padding:"9px 10px", borderRadius: isOpen?"6px 6px 0 0":6, background:rowBg, border:`1px solid ${rowBdr}`, userSelect:"none", opacity:isInfo?0.55:1 }}>
                           {isInfo
                             ? <span style={{ fontSize:11, color:"#666", flexShrink:0, marginTop:2 }}>ℹ</span>
-                            : <span style={{ fontSize:12, color: status==="ok"?"#4ade80": status==="issue"?"#f87171":"#666", flexShrink:0, marginTop:2, width:14, textAlign:"center" }}>
-                                {status==="ok" ? "✓" : status==="issue" ? "!" : "·"}
+                            : <span style={{ fontSize:12, color: status==="ok"?"#4ade80": status==="issue"?"#f87171": status==="na"?"#555":"#555", flexShrink:0, marginTop:2, width:14, textAlign:"center" }}>
+                                {status==="ok" ? "✓" : status==="issue" ? "!" : status==="na" ? "—" : "·"}
                               </span>
                           }
-                          <span style={{ flex:1, fontSize:12, color: status==="ok"?"#4a6a4a": status==="issue"?"#8a4a4a":isInfo?"#666":"#ccc", textDecoration: status==="ok"?"line-through":"none", lineHeight:1.5 }}>{text}</span>
+                          <span style={{ flex:1, fontSize:12, color: status==="ok"?"#4a6a4a": status==="issue"?"#8a4a4a": status==="na"?"#444":isInfo?"#666":"#ccc", textDecoration: status==="ok"||status==="na" ? "line-through":"none", lineHeight:1.5 }}>{text}</span>
 
-                          {/* Botones OK / Detalle */}
+                          {/* Botones OK / Detalle / N/A */}
                           {!isInfo && (
                             <div style={{ display:"flex", gap:4, flexShrink:0, marginTop:1 }}>
                               <button
                                 onClick={()=> status==="ok" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"ok","",text)}
-                                style={{ padding:"3px 8px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="ok"?"#4ade8060":"#2a3a2a"}`, background:status==="ok"?"#4ade8020":"transparent", color:status==="ok"?"#4ade80":"#3a5a3a", fontWeight:status==="ok"?"bold":"normal" }}
+                                style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="ok"?"#4ade8060":"#2a3a2a"}`, background:status==="ok"?"#4ade8020":"transparent", color:status==="ok"?"#4ade80":"#3a5a3a", fontWeight:status==="ok"?"bold":"normal" }}
                               >✓ OK</button>
                               <button
                                 onClick={()=> status==="issue" && !isOpen ? setActiveIssue(id) : setStatus(id,"issue","",text)}
-                                style={{ padding:"3px 8px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="issue"?"#f8717160":"#3a2a2a"}`, background:status==="issue"?"#f8717120":"transparent", color:status==="issue"?"#f87171":"#5a3a3a", fontWeight:status==="issue"?"bold":"normal" }}
-                              >⚠ Detalle</button>
+                                style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="issue"?"#f8717160":"#3a2a2a"}`, background:status==="issue"?"#f8717120":"transparent", color:status==="issue"?"#f87171":"#5a3a3a", fontWeight:status==="issue"?"bold":"normal" }}
+                              >⚠ Det.</button>
+                              <button
+                                onClick={()=> status==="na" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"na","",text)}
+                                style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="na"?"#55555560":"#2a2a2a"}`, background:status==="na"?"#33333320":"transparent", color:status==="na"?"#666":"#3a3a3a", fontWeight:status==="na"?"bold":"normal" }}
+                              >— N/A</button>
                             </div>
                           )}
                         </div>
@@ -2046,56 +2058,12 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
               <button onClick={markAll} style={{ flex:1, padding:10, borderRadius:6, border:`1px solid ${G}50`, background:G+"18", color:G, fontFamily:"monospace", fontSize:11, letterSpacing:2, cursor:"pointer" }}>✓ MARCAR TODO</button>
             </div>
 
-            {/* REVISIONES ADICIONALES */}
-            <div style={{ borderTop:"1px dashed #2a2a3a", paddingTop:14, marginBottom:24 }}>
-              <button onClick={()=>setShowEx(p=>!p)} style={{ width:"100%", padding:"10px 14px", borderRadius:8, border:"1px solid #a855f730", background:showEx?"#a855f712":card, color:"#a855f7", fontFamily:"monospace", fontSize:11, letterSpacing:1, cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <span>🔎 REVISIONES ADICIONALES</span>
-                <span style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  {/* Etiqueta del tipo de motor activo */}
-                  <span style={{ fontSize:9, background: fuel==="diesel"?"#1a1a0a":"#0a0a1a", border:`1px solid ${fuel==="diesel"?"#5a4a00":"#2a2a5a"}`, color: fuel==="diesel"?"#C8A96E":"#7EB8F7", borderRadius:10, padding:"1px 7px" }}>
-                    {fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"} · {extras.length} categorías
-                  </span>
-                  {exDoneN > 0 && <span style={{ fontSize:9, background:"#a855f720", border:"1px solid #a855f750", color:"#a855f7", borderRadius:10, padding:"1px 7px" }}>{exDoneN}/{exTotal}</span>}
-                  <span>{showEx?"▲":"▼"}</span>
-                </span>
-              </button>
-
-              {showEx && (
-                <div style={{ marginTop:12 }}>
-                  <div style={{ fontSize:10, color:"#a855f7", letterSpacing:1, marginBottom:12, lineHeight:1.6, padding:"8px 10px", borderRadius:6, background:"#a855f710", border:"1px solid #a855f730" }}>
-                    ⚠️ Componentes <strong>fuera del ASSYST</strong> — no aparecen en el tablero. Basados en experiencia de taller y recomendaciones de especialistas MB. Se muestran ítems para motor <strong>{fuel==="diesel"?"Diesel":"Gasolina"}</strong>.
-                  </div>
-
-                  {extras.map(ex => (
-                    <div key={ex.id} style={{ marginBottom:14 }}>
-                      <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:10, color:"#a855f7cc", letterSpacing:1, marginBottom:5, fontWeight:"bold" }}>
-                        <span>{ex.icon}</span>
-                        <span>{ex.label.toUpperCase()}</span>
-                        <div style={{ flex:1, height:1, background:"#a855f730" }} />
-                      </div>
-                      <div style={{ fontSize:9, color:"#555", marginBottom:6 }}>🕐 {ex.interval}</div>
-                      {ex.tasks.map((text, i) => {
-                        const eid = `${ex.id}_${i}`;
-                        const d = !!exChk[eid];
-                        const isInfo = text.startsWith("⚠");
-                        return (
-                          <div key={eid} onClick={()=>!isInfo && toggleEx(eid)}
-                            style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"8px 10px", marginBottom:3, borderRadius:6, background:d?"#a855f712":isInfo?"#0c0c12":card, border:`1px solid ${d?"#a855f735":line}`, cursor:isInfo?"default":"pointer", userSelect:"none", opacity:isInfo?0.55:1 }}>
-                            {!isInfo && (
-                              <div style={{ width:16, height:16, borderRadius:3, border:d?"2px solid #a855f7":"1.5px solid #333", background:d?"#a855f7":"transparent", flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", marginTop:2 }}>
-                                {d && <span style={{ fontSize:9, color:"#fff", fontWeight:"bold" }}>✓</span>}
-                              </div>
-                            )}
-                            {isInfo && <span style={{ fontSize:10, color:"#666", flexShrink:0, marginTop:2 }}>ℹ</span>}
-                            <span style={{ fontSize:12, color:d?"#555":isInfo?"#666":"#bbb", textDecoration:d?"line-through":"none", lineHeight:1.5 }}>{text}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* BOTÓN CONTINUAR */}
+            <button
+              onClick={() => { setTab("notes"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+              style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:`linear-gradient(135deg, ${G}20, ${G}10)`, color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer", marginBottom:24, display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+              📝 CONTINUAR → NOTAS Y FIRMA
+            </button>
           </>
         ) : (
           /* NOTAS */
@@ -2117,7 +2085,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
                 {plate && <div>📋 <span style={{ letterSpacing:2 }}>{plate}</span></div>}
                 {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
                 <div>{fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"} {is4m?"· ⚙️ 4MATIC":""}</div>
-                <div>✅ Progreso ASSYST: <span style={{ color:isComplete?"#4ade80":G }}>{doneN}/{total} ({pct}%)</span></div>
+                <div>✅ Progreso ASSYST: <span style={{ color:isComplete?"#4ade80":G }}>{doneN}/{total} ({pct}%)</span>{naN > 0 && <span style={{ color:"#555", fontSize:10 }}> · {naN} N/A</span>}</div>
                 {exDoneN > 0 && <div>🔎 Revisiones adicionales: <span style={{ color:"#a855f7" }}>{exDoneN}/{exTotal}</span></div>}
               </div>
             </div>
