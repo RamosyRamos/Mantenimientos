@@ -1770,7 +1770,11 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
 
   /* ── PASO 1: DATOS DEL VEHÍCULO ── */
   if (step === 1) return (
-    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)", display:"flex", flexDirection:"column" }}>
+    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
+
+      {/* Overlay para cerrar el buscador — PRIMERO para que quede detrás */}
+      {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40, background:"transparent" }} />}
+
       {/* Header */}
       <div style={{ background:"var(--header)", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
         <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
@@ -1795,7 +1799,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         {/* Buscador de modelo */}
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>MODELO <span style={{ color:"#f87171" }}>*</span></div>
-          <div style={{ position:"relative" }}>
+          <div style={{ position:"relative", zIndex:50 }}>
             <input
               value={modelSearch}
               onChange={e => { setModelSearch(e.target.value); setModelOpen(true); }}
@@ -1807,17 +1811,26 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
               <div style={{ marginTop:4, fontSize:10, color:"#C8A96E" }}>✓ {model}</div>
             )}
             {modelOpen && (
-              <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:240, overflowY:"auto", marginTop:2 }}>
-                {smartSearch(modelSearch).slice(0,12).map(({m, grp}) => (
-                  <div key={m} onClick={() => { setModel(m); setEngine(""); setModelSearch(m); setModelOpen(false); }}
-                    style={{ padding:"8px 12px", cursor:"pointer", borderBottom:`1px solid ${line}`, fontSize:11 }}>
-                    <div style={{ color:"#e0d8cc" }}>{m}</div>
-                    <div style={{ fontSize:9, color:"#555" }}>{grp}</div>
-                  </div>
-                ))}
-                {smartSearch(modelSearch).length === 0 && (
-                  <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>
-                )}
+              <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:260, overflowY:"auto", marginTop:2, boxShadow:"0 8px 24px #00000080" }}>
+                {(() => {
+                  const q = modelSearch.toLowerCase().trim();
+                  const results = q ? smartSearch(q) : Object.entries(MODEL_GROUPS).flatMap(([grp, ms]) => ms.map(m => ({ m, grp })));
+                  if (!results.length) return <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>;
+                  let lastGrp = null;
+                  return results.map(({ m, grp }, i) => {
+                    const showGrp = !q && grp && grp !== lastGrp;
+                    lastGrp = grp;
+                    return (
+                      <div key={m+i}>
+                        {showGrp && <div style={{ padding:"4px 10px 2px", fontSize:8, color:"#444", letterSpacing:2, background:"#0c0c12" }}>{grp.toUpperCase()}</div>}
+                        <div onClick={() => { setModel(m); setEngine(""); setModelSearch(m); setModelOpen(false); }}
+                          style={{ padding:"9px 12px", cursor:"pointer", borderBottom:`1px solid ${line}20`, fontSize:11, color:model===m?"#C8A96E":"#ccc", background:model===m?"#C8A96E08":"transparent" }}>
+                          {m}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -1858,7 +1871,6 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
         </button>
         {!model && <div style={{ textAlign:"center", fontSize:10, color:"#444", marginTop:8 }}>Seleccioná un modelo para continuar</div>}
       </div>
-      {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40 }} />}
     </div>
   );
 
