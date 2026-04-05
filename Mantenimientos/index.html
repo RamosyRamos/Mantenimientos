@@ -95,10 +95,14 @@
 
     </style>
     <script>
-      // Restaurar tema guardado antes de que React cargue (evita flash)
+      // Restaurar tema guardado antes de que React cargue
       try {
-        const saved = localStorage.getItem('theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', saved);
+        if (localStorage.getItem('theme') === 'light') {
+          document.addEventListener('DOMContentLoaded', () => {
+            const root = document.getElementById('root');
+            if (root) { root.style.filter = 'invert(1) hue-rotate(180deg)'; }
+          });
+        }
       } catch(e) {}
     </script>
   </head>

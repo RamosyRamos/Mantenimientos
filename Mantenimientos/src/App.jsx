@@ -1780,10 +1780,17 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
           </div>
         )}
         <button className="theme-toggle" onClick={() => {
-          const html = document.documentElement;
-          const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-          html.setAttribute('data-theme', next);
-          try { localStorage.setItem('theme', next); } catch(e) {}
+          const root = document.getElementById('root');
+          const isLight = root.style.filter.includes('invert');
+          if (isLight) {
+            root.style.filter = '';
+            root.style.transition = 'filter 0.2s';
+            try { localStorage.setItem('theme', 'dark'); } catch(e) {}
+          } else {
+            root.style.filter = 'invert(1) hue-rotate(180deg)';
+            root.style.transition = 'filter 0.2s';
+            try { localStorage.setItem('theme', 'light'); } catch(e) {}
+          }
         }}>
           ☀️
         </button>

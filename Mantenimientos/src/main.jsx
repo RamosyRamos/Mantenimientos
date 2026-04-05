@@ -6,18 +6,22 @@ import ClientHistory from './ClientHistory.jsx'
 
 function Router() {
   const path = window.location.pathname;
-
-  // ── Rutas públicas (sin PIN) ──
   const serviceMatch = path.match(/^\/servicio\/(.+)$/);
   if (serviceMatch) return <ClientReport binId={serviceMatch[1]} />;
   if (path === "/historial" || path === "/cliente") return <ClientHistory />;
-
-  // ── App del taller (con PIN) ──
   return <App />;
 }
 
-createRoot(document.getElementById('root')).render(
+const rootEl = document.getElementById('root');
+createRoot(rootEl).render(
   <StrictMode>
     <Router />
   </StrictMode>
-)
+);
+
+// Restaurar tema claro si estaba activo
+try {
+  if (localStorage.getItem('theme') === 'light') {
+    rootEl.style.filter = 'invert(1) hue-rotate(180deg)';
+  }
+} catch(e) {}
