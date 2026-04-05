@@ -6,29 +6,28 @@ const ITEMS = {
     "Inspección visual del motor — fugas, correas, mangueras",
     "Revisión y corrección de todos los niveles de fluidos",
     "Inspección de pastillas y discos de freno",
-    "Revisión de presión de neumáticos (incl. auxilio)",
-    "Inspección visual de neumáticos — desgaste y daños",
+    "Inspección de presión de llantas (Incluida llanta de repuesto)",
+    "Inspección visual de llantas — desgaste y daños",
     "Revisión de luces exteriores e interiores",
     "Revisión de limpiaparabrisas y lavadores",
     "Escaneo de fallas (Star Diagnosis / OBD)",
-    "Reset del contador ASSYST — documentar en DSB",
+    "Reiniciar intervalo de mantenimiento",
   ]},
   "2": { label:"Inspección B (mayor)", icon:"🔍", tasks:[
     "Inspección visual del motor — fugas, correas, mangueras",
     "Revisión y corrección de todos los niveles de fluidos",
     "Inspección de pastillas y discos de freno (todos los ejes)",
     "Revisión del freno de estacionamiento",
-    "Revisión de presión de neumáticos (incl. auxilio)",
-    "Inspección visual de neumáticos — desgaste y daños",
+    "Inspección de presión de llantas (Incluida llanta de repuesto)",
+    "Inspección visual de llantas — desgaste y daños",
     "Reemplazo del filtro de habitáculo / carbón activo",
     "Revisión de luces, alertas y sensores",
     "Inspección de sistema de escape",
     "Inspección de suspensión y dirección",
-    "Inspección de correas accesorias",
-    "Prueba de batería (carga y arranque)",
-    "Actualización de software si disponible (Xentry)",
+    "Inspección de faja de accesorios",
+    "Prueba de batería con analizador de batería (Anotar estado de salud y carga)",
     "Escaneo completo de fallas (Star Diagnosis)",
-    "Reset del contador ASSYST — documentar en DSB",
+    "Reiniciar intervalo de mantenimiento",
   ]},
   "3": { label:"Aceite y filtro de motor", icon:"⚙️", tasks:[
     "Drenaje del aceite de motor",
@@ -39,13 +38,13 @@ const ITEMS = {
   "4": { label:"Líquido de frenos", icon:"🛑", tasks:[
     "Extracción del líquido de frenos antiguo",
     "Carga de líquido de frenos nuevo DOT 4+ (MB 331.0)",
-    "Sangrado de frenos — purga en los 4 tornillos de purga",
+    "Purga del sistema de frenos — purga en los 4 tornillos de purga",
     "Verificación de hermeticidad del circuito",
   ]},
   "8": { label:"Filtro de aire del motor", icon:"🌀", tasks:[
     "Extracción del filtro de aire del motor",
     "Limpieza del alojamiento del filtro",
-    "Instalación del filtro de aire nuevo (MB original)",
+    "Instalación del filtro de aire nuevo",
   ]},
   "10": { label:"Techo corredizo", icon:"🏠", tasks:[
     "Limpieza de guías y canales de drenaje del techo",
@@ -54,7 +53,7 @@ const ITEMS = {
   ]},
   "11": { label:"Filtro de combustible — Diesel", icon:"⛽", tasks:[
     "Extracción del filtro de combustible diesel",
-    "Instalación del filtro de combustible nuevo (MB original)",
+    "Instalación del filtro de combustible nuevo",
     "Purga del sistema de combustible si aplica",
     "Verificación de ausencia de fugas",
   ]},
@@ -79,8 +78,9 @@ const ITEMS = {
     "Verificación del cableado eléctrico del enganche",
   ]},
   "20": { label:"Caja automática ATF", icon:"🔧", tasks:[
+    "Verificación de nivel y ausencia de fugas",
     "Drenaje del aceite de caja automática",
-    "Reemplazo del filtro de caja y sello del cárter",
+    "Reemplazo del filtro de caja y empaque del cárter",
     "Carga de aceite ATF — especificación MB aprobada",
     "Adaptación de la caja automática (Star Diagnosis)",
     "Prueba de carretera — verificación de cambios",
@@ -190,12 +190,12 @@ const EXTRAS = [
   },
   {
     id:"EX_ALN", fuel:"all", icon:"🎯", label:"Alineación y balanceo",
-    interval:"Con cada cambio de neumáticos · O si hay desgaste irregular",
+    interval:"Con cada cambio de llantas · O si hay desgaste irregular",
     tasks:[
-      "Inspección del patrón de desgaste de neumáticos",
+      "Inspección del patrón de desgaste de llantas",
       "Balanceo de las 4 ruedas si hay vibración en marcha",
       "Alineación 4 ruedas si hay desvío o desgaste irregular",
-      "Verificación de presión y estado del neumático de auxilio",
+      "Verificación de presión y estado del llanta de auxilio",
     ]
   },
   {
@@ -925,7 +925,7 @@ const MODEL_GROUPS = {
 
 const QUICK_NOTES = [
   "Sin novedades ✅","Pastillas al límite 🛑","Fugas detectadas 💧",
-  "Desgaste irregular de neumáticos ⚠️","Software actualizado 💻",
+  "Desgaste irregular de llantas ⚠️","Software actualizado 💻",
   "Cliente notificado 📞","Repuesto en pedido 📦",
   "Recomendado próxima visita 📅","Diferencial revisado 🔩",
 ];
