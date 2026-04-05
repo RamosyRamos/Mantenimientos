@@ -1,23 +1,44 @@
 import { useState, useEffect } from "react";
 
-const JSONBIN_KEY = import.meta.env.VITE_JSONBIN_KEY;
-
-// Logo base64 se inyecta desde App.jsx via localStorage o se importa
-// Para simplificar, usamos el mismo fetch que App.jsx
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
 export default function ClientReport({ binId }) {
-  const [data, setData]     = useState(null);
+  const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState(false);
+  const [error, setError]     = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
-          headers: { "X-Access-Key": JSONBIN_KEY }
-        });
+        const res = await fetch(
+          `${SUPABASE_URL}/rest/v1/servicios?id=eq.${binId}&select=*`,
+          {
+            headers: {
+              "apikey": SUPABASE_KEY,
+              "Authorization": `Bearer ${SUPABASE_KEY}`,
+            }
+          }
+        );
         const json = await res.json();
-        setData(json.record);
+        if (json?.[0]) {
+          // Mapear columnas de Supabase al formato que espera ReportView
+          const r = json[0];
+          setData({
+            taller:       "Ramos y Ramos",
+            fecha:        r.fecha,
+            mecanico:     r.mecanico,
+            servicio:     { codigo: r.servicio_codigo, descripcion: r.servicio_desc },
+            vehiculo:     { modelo: r.modelo, motor: r.motor, placa: r.placa, km: r.km, combustible: r.combustible, traccion: r.traccion },
+            aceite:       r.aceite_litros ? { litros: r.aceite_litros, especificacion: r.aceite_spec } : null,
+            revisiones:   r.revisiones,
+            observaciones: r.observaciones,
+            pendientes:   r.pendientes,
+            progreso:     r.progreso,
+          });
+        } else {
+          setError(true);
+        }
       } catch (e) {
         setError(true);
       } finally {

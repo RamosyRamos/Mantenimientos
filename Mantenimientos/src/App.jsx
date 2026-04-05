@@ -1507,7 +1507,8 @@ function MainApp() {
   const TRELLO_KEY    = import.meta.env.VITE_TRELLO_KEY;
   const TRELLO_TOKEN  = import.meta.env.VITE_TRELLO_TOKEN;
   const TRELLO_BOARD  = import.meta.env.VITE_TRELLO_BOARD;
-  const JSONBIN_KEY   = import.meta.env.VITE_JSONBIN_KEY;
+  const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
+  const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_KEY;
   const APP_URL       = import.meta.env.VITE_APP_URL || window.location.origin;
 
   const [trelloStatus, setTrelloStatus] = useState("idle");
@@ -1618,27 +1619,45 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
   const sendToTrello = async () => {
     setTrelloStatus("sending");
     try {
-      // 1. Guardar resumen en JSONBin → obtener link único para el cliente
-      let binId = null;
+      // 1. Guardar en Supabase → obtener ID único para el link del cliente
+      let serviceId = null;
       let generatedClientUrl = "";
       try {
-        const binRes = await fetch("https://api.jsonbin.io/v3/b", {
+        const svcData = buildServiceData();
+        const sbRes = await fetch(`${SUPABASE_URL}/rest/v1/servicios`, {
           method: "POST",
           headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
             "Content-Type": "application/json",
-            "X-Access-Key": JSONBIN_KEY,
-            "X-Bin-Name": `Servicio-${plate||"XX"}-${sel}-${Date.now()}`,
-            "X-Bin-Private": "false",
+            "Prefer": "return=representation",
           },
-          body: JSON.stringify(buildServiceData()),
+          body: JSON.stringify({
+            placa:           plate,
+            modelo:          svcData.vehiculo.modelo,
+            motor:           svcData.vehiculo.motor,
+            mecanico:        svcData.mecanico,
+            fecha:           svcData.fecha,
+            servicio_codigo: svcData.servicio.codigo,
+            servicio_desc:   svcData.servicio.descripcion,
+            km:              svcData.vehiculo.km,
+            combustible:     svcData.vehiculo.combustible,
+            traccion:        svcData.vehiculo.traccion,
+            aceite_litros:   svcData.aceite?.litros || null,
+            aceite_spec:     svcData.aceite?.especificacion || null,
+            revisiones:      svcData.revisiones,
+            observaciones:   svcData.observaciones,
+            pendientes:      svcData.pendientes,
+            progreso:        svcData.progreso,
+          }),
         });
-        const binData = await binRes.json();
-        binId = binData.metadata?.id;
-        if (binId) {
-          generatedClientUrl = `${APP_URL}/servicio/${binId}`;
+        const sbData = await sbRes.json();
+        serviceId = sbData?.[0]?.id;
+        if (serviceId) {
+          generatedClientUrl = `${APP_URL}/servicio/${serviceId}`;
           setClientUrl(generatedClientUrl);
         }
-      } catch(e) { console.warn("JSONBin error:", e); }
+      } catch(e) { console.warn("Supabase error:", e); }
 
       // 2. Obtener listas del tablero Trello
       const listsRes = await fetch(
@@ -1654,7 +1673,7 @@ _Sistema de Gestión de Taller — Mercedes-Benz_`;
       );
       if (preferred) listId = preferred.id;
 
-      // 3. Crear tarjeta en Trello incluyendo el link del cliente
+      // 3. Crear tarjeta en Trello con el link del cliente
       const clientLinkSection = generatedClientUrl
         ? `\n\n---\n\n## 🔗 Link para el Cliente\n[**Ver resumen completo →**](${generatedClientUrl})\n\n> Copiar este link y enviarlo al cliente por WhatsApp o correo.`
         : "";
