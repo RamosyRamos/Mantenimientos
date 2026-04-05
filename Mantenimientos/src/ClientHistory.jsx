@@ -45,16 +45,27 @@ export default function ClientHistory() {
   const handleKey = (e) => { if (e.key === "Enter") search(); };
 
   return (
-    <div style={{ minHeight:"100vh", background:bg, fontFamily:"monospace", color:"#e0d8cc", paddingBottom:48 }}>
+    <div id="history-root" style={{ minHeight:"100vh", background:bg, fontFamily:"monospace", color:"#e0d8cc", paddingBottom:48 }}>
 
       {/* HEADER */}
       <div style={{ background:"#0d0d16", borderBottom:`1px solid ${line}`, padding:"16px 20px" }}>
         <div style={{ maxWidth:560, margin:"0 auto", display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:38, height:38, borderRadius:"50%", border:`2px solid ${gold}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:gold, flexShrink:0 }}>★</div>
-          <div>
+          <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:38, height:38, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+          <div style={{ flex:1 }}>
             <div style={{ fontWeight:"bold", fontSize:13, letterSpacing:2 }}>RAMOS Y RAMOS</div>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>HISTORIAL DE MANTENIMIENTOS</div>
           </div>
+          <button onClick={() => {
+            const root = document.getElementById('history-root');
+            const isLight = root.style.filter.includes('invert');
+            root.style.filter = isLight ? '' : 'invert(1) hue-rotate(180deg)';
+            root.style.transition = 'filter 0.2s';
+            root.querySelectorAll('img, canvas').forEach(el => {
+              el.style.filter = isLight ? '' : 'invert(1) hue-rotate(180deg)';
+            });
+          }} style={{ padding:"5px 9px", borderRadius:8, border:`1px solid ${line}`, background:"#0f0f17", color:"#555", fontSize:15, cursor:"pointer", flexShrink:0 }}>
+            ☀️
+          </button>
         </div>
       </div>
 

@@ -87,18 +87,29 @@ function ReportView({ data }) {
   const totalItems  = Object.values(revisiones || {}).flat().filter(t => !t.text?.startsWith("⚠")).length;
 
   return (
-    <div style={{ minHeight:"100vh", background:"#09090e", fontFamily:"'Segoe UI', Arial, sans-serif", color:"#e0d8cc", paddingBottom:48 }}>
+    <div id="client-root" style={{ minHeight:"100vh", background:"#09090e", fontFamily:"'Segoe UI', Arial, sans-serif", color:"#e0d8cc", paddingBottom:48 }}>
 
       {/* HEADER */}
       <div style={{ background:"linear-gradient(180deg,#0d0d16 0%,#09090e 100%)", borderBottom:"1px solid #1c1c2a", padding:"20px 20px 16px" }}>
         <div style={{ maxWidth:600, margin:"0 auto" }}>
-          {/* Logo + Nombre */}
+          {/* Logo + Nombre + Toggle */}
           <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
             <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:52, height:52, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
-            <div>
+            <div style={{ flex:1 }}>
               <div style={{ fontWeight:"bold", fontSize:16, letterSpacing:2, color:"#e0d8cc" }}>RAMOS Y RAMOS</div>
               <div style={{ fontSize:10, color:"#555", letterSpacing:2 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
             </div>
+            <button onClick={() => {
+              const root = document.getElementById('client-root');
+              const isLight = root.style.filter.includes('invert');
+              root.style.filter = isLight ? '' : 'invert(1) hue-rotate(180deg)';
+              root.style.transition = 'filter 0.2s';
+              root.querySelectorAll('img, canvas').forEach(el => {
+                el.style.filter = isLight ? '' : 'invert(1) hue-rotate(180deg)';
+              });
+            }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #2a2a3a", background:"#0f0f17", color:"#555", fontSize:16, cursor:"pointer", flexShrink:0 }}>
+              ☀️
+            </button>
           </div>
 
           {/* Título del reporte */}
