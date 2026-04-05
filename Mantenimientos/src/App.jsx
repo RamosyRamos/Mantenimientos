@@ -1459,10 +1459,10 @@ function MainApp() {
   };
   const tasks        = buildTasks(sel, fuel, is4m);
   const extras       = getExtras(fuel);
-
-  const doneN  = tasks.filter(t => checked[t.id] || taskStatus[t.id]).length;
-  const naN    = tasks.filter(t => taskStatus[t.id] === "na").length;
-  const total  = tasks.length;
+  const trackable   = tasks.filter(t => !t.text?.startsWith("⚠"));
+  const doneN  = trackable.filter(t => checked[t.id] || taskStatus[t.id]).length;
+  const naN    = trackable.filter(t => taskStatus[t.id] === "na").length;
+  const total  = trackable.length;
   const pct    = total ? Math.round(doneN / total * 100) : 0;
   const isComplete = pct === 100;
   const exDoneN = extras.reduce((n,e) => n + e.tasks.filter((_,i) => exChk[`${e.id}_${i}`]).length, 0);
@@ -1472,7 +1472,7 @@ function MainApp() {
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
   const markAll  = ()  => {
     const newStatus = {};
-    tasks.forEach(t => { if (!t.text?.startsWith("⚠")) newStatus[t.id] = "ok"; });
+    trackable.forEach(t => { newStatus[t.id] = "ok"; });
     setTaskStatus(p => ({ ...p, ...newStatus }));
   };
   const resetAll = ()  => {
@@ -1507,9 +1507,15 @@ function MainApp() {
   const confirmIssue = (id, taskText) => {
     const txt = taskIssue[id] || "";
     if (txt.trim()) {
+      // Agregar a notas solo si no está ya incluido
       const line = `⚠️ ${taskText}: ${txt.trim()}`;
-      setNotes(n => n ? n + "\n• " + line : "• " + line);
+      setNotes(n => {
+        if (n && n.includes(txt.trim())) return n; // evitar duplicados
+        return n ? n + "\n• " + line : "• " + line;
+      });
     }
+    setTaskStatus(p => ({ ...p, [id]: "issue" }));
+    setChk(p => ({ ...p, [id]: true }));
     setActiveIssue(null);
   };
 
