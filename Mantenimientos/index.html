@@ -81,90 +81,16 @@
       .theme-toggle:hover { opacity: 0.8; }
 
       /* Transiciones suaves */
-      div, span, button, input, select, textarea {
-        transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-      }
+      #root { transition: filter 0.2s; }
 
-      /* ── OVERRIDES MODO CLARO para elementos con colores hardcodeados ── */
-      [data-theme="light"] #root > div {
-        background: var(--bg) !important;
+      /* ── TEMA CLARO: inversión de colores ── */
+      [data-theme="light"] #root {
+        filter: invert(1) hue-rotate(180deg);
       }
-
-      /* Secciones principales */
-      [data-theme="light"] div[style*="background:\"#0c0c14\""],
-      [data-theme="light"] div[style*="background:\"#0c0c12\""],
-      [data-theme="light"] div[style*="background:\"#0d0d16\""],
-      [data-theme="light"] div[style*="background:\"#0f0f17\""],
-      [data-theme="light"] div[style*="background:\"#09090e\""],
-      [data-theme="light"] div[style*="background:\"#0c0c0c\""] {
-        background: var(--card) !important;
-      }
-
-      /* Bordes */
-      [data-theme="light"] div[style*="border:\"1px solid #1c1c2a\""],
-      [data-theme="light"] div[style*="border-bottom:\"1px solid #1c1c2a\""] {
-        border-color: var(--line) !important;
-      }
-
-      /* Textos grises oscuros → grises claros */
-      [data-theme="light"] span[style*="color:\"#ccc\""],
-      [data-theme="light"] span[style*="color:\"#bbb\""],
-      [data-theme="light"] span[style*="color:\"#aaa\""],
-      [data-theme="light"] div[style*="color:\"#ccc\""],
-      [data-theme="light"] div[style*="color:\"#bbb\""],
-      [data-theme="light"] div[style*="color:\"#888\""] {
-        color: var(--text) !important;
-      }
-
-      /* Ítems del checklist — fondo por defecto */
-      [data-theme="light"] div[style*="background:#0f0f17"] {
-        background: #ffffff !important;
-        border-color: var(--line) !important;
-      }
-
-      /* Grupos/secciones del checklist */
-      [data-theme="light"] div[style*="background:\"#0c0c12\""] {
-        background: #f5f4f0 !important;
-      }
-
-      /* Labels de sección */
-      [data-theme="light"] div[style*="letterSpacing:3"] {
-        color: var(--sub) !important;
-      }
-
-      /* Botones del checklist */
-      [data-theme="light"] button[style*="background:transparent"] {
-        background: #f0eeea !important;
-      }
-
-      /* Barra de progreso fondo */
-      [data-theme="light"] div[style*="background:#1c1c2a"],
-      [data-theme="light"] div[style*="background:\"#1c1c2a\""] {
-        background: #dedad4 !important;
-      }
-
-      /* Dropdown buscador */
-      [data-theme="light"] div[style*="background:\"#0f0f17\""][style*="zIndex:50"],
-      [data-theme="light"] div[style*="background:\"#0c0c12\""][style*="zIndex"] {
-        background: #ffffff !important;
-        border-color: var(--line) !important;
-      }
-
-      /* Canvas firma */
-      [data-theme="light"] div[style*="background:\"#0c0c14\""] canvas {
-        background: #f5f4f0;
-      }
-
-      /* Notas textarea */
-      [data-theme="light"] textarea {
-        background: #ffffff !important;
-        color: #1a1a1a !important;
-        border-color: var(--line) !important;
-      }
-
-      /* Badges de código de servicio */
-      [data-theme="light"] div[style*="background:\"#1a1a2a\""] {
-        background: #eeecea !important;
+      /* Re-invertir imágenes y canvas para que se vean normales */
+      [data-theme="light"] #root img,
+      [data-theme="light"] #root canvas {
+        filter: invert(1) hue-rotate(180deg);
       }
 
     </style>
