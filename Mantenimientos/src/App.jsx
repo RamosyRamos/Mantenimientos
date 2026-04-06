@@ -27,6 +27,7 @@ const ITEMS = {
     "Inspección de faja de accesorios",
     "Prueba de batería con analizador de batería (Anotar estado de salud y carga)",
     "Escaneo completo de fallas (Star Diagnosis)",
+    "Prueba en carretera",
     "Reiniciar intervalo de mantenimiento",
   ]},
   "3": { label:"Aceite y filtro de motor", icon:"⚙️", tasks:[
