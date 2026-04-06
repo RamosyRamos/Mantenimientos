@@ -1623,79 +1623,46 @@ function MainApp() {
   const [trelloUrl, setTrelloUrl]       = useState("");
   const [clientUrl, setClientUrl]       = useState("");
 
-  // Genera el resumen HTML para la tarjeta de Trello
+  // Genera el resumen para la tarjeta de Trello — solo puntos a atender
   const buildTrelloDesc = () => {
-    const issues = Object.entries(taskIssue).filter(([,v])=>v);
-    const issueLines = issues.map(([,v]) => `⚠️ ${v}`).join("\n");
+    const issueTasks  = tasks.filter(t => taskStatus[t.id] === "issue");
+    const pendingTasks = tasks.filter(t => !taskStatus[t.id] && !checked[t.id] && !t.text?.startsWith("⚠"));
 
-    // Tareas completadas con OK
-    const okTasks = tasks.filter(t => taskStatus[t.id]==="ok").map(t => `✅ ${t.text}`);
-    // Tareas con detalle
-    const issueTasks = tasks.filter(t => taskStatus[t.id]==="issue").map(t => {
-      const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : "";
-      return `⚠️ ${t.text}${detail}`;
-    });
-    // Tareas sin estado (pendientes)
-    const pendingTasks = tasks.filter(t => !taskStatus[t.id] && !checked[t.id]).map(t => `○ ${t.text}`);
-
-    // Agrupar por categoría
-    const byGrpMap = {};
-    tasks.forEach(t => {
-      if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
-      byGrpMap[t.grp].push(t);
-    });
-
-    let taskSection = "";
-    Object.entries(byGrpMap).forEach(([grp, ts]) => {
-      taskSection += `\n**${grp}**\n`;
-      ts.forEach(t => {
-        const s = taskStatus[t.id];
-        const detail = taskIssue[t.id] ? ` → _${taskIssue[t.id]}_` : "";
-        const icon = s==="ok" ? "✅" : s==="issue" ? "⚠️" : s==="na" ? "—" : checked[t.id] ? "✅" : "○";
-        taskSection += `${icon} ${t.text}${detail}\n`;
+    let atenderSection = "";
+    if (issueTasks.length > 0) {
+      atenderSection += `### ⚠️ Detalles a atender\n`;
+      issueTasks.forEach(t => {
+        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : "";
+        atenderSection += `⚠️ ${t.text}${detail}\n`;
       });
-    });
+      atenderSection += "\n";
+    }
+    if (pendingTasks.length > 0) {
+      atenderSection += `### ○ Sin revisar\n`;
+      pendingTasks.forEach(t => { atenderSection += `○ ${t.text}\n`; });
+      atenderSection += "\n";
+    }
+    if (!atenderSection) {
+      atenderSection = "✅ _Todas las revisiones completadas sin observaciones._\n";
+    }
 
-    return `## 🚗 Resumen de Servicio — ${model || "Vehículo"}
+    return `## 🚗 ${model || "Vehículo"} · Servicio ${sel}
 
----
-
-### 📋 Datos del Vehículo
 | Campo | Detalle |
 |-------|---------|
-| **Modelo** | ${model || "—"} |
-| **Motor** | ${engine || "—"} |
 | **Placa** | ${plate || "—"} |
+| **Motor** | ${engine || "—"} |
 | **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
-| **Combustible** | ${fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"} |
-| **Tracción** | ${is4m?"⚙️ 4MATIC":"RWD"} |
-${oilLiters > 0 ? `| **Aceite cargado** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
-
----
-
-### 🔧 Servicio Realizado
-| Campo | Detalle |
-|-------|---------|
-| **Código** | **${sel}** |
-| **Descripción** | ${svc.desc} |
+| **Combustible** | ${fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"}${is4m?" · ⚙️ 4MATIC":""} |
+${oilLiters > 0 ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
 | **Mecánico** | ${mechName} |
 | **Fecha** | ${sigDate} |
-| **Progreso** | ${doneN}/${total} ítems (${pct}%) |
 
 ---
 
-### 📝 Observaciones del Mecánico
-${notes || "_Sin observaciones adicionales_"}
-
----
-
-### ✅ Detalle de Revisiones
-${taskSection}
-${issues.length > 0 ? `\n---\n\n### ⚠️ Puntos Pendientes\n${issueLines}` : ""}
-
----
-_Servicio certificado por ${mechName} · ${sigDate}_
-_Sistema de Gestión de Taller — Mercedes-Benz_`;
+${atenderSection}
+${notes ? `### 📣 Notificar a cliente de observaciones y puntos a atender\n${notes}\n\n---\n` : ""}
+_Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
   // Construye el objeto de datos del servicio para JSONBin
