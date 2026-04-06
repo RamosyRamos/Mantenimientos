@@ -1661,7 +1661,7 @@ ${oilLiters > 0 ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
 ---
 
 ${atenderSection}
-${notes ? `### 📣 Notificar a cliente de observaciones y puntos a atender\n${notes}\n\n---\n` : ""}
+${notes ? "" : ""}
 _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
@@ -1769,7 +1769,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       // 3. Crear tarjeta en Trello con el link del cliente
       const clientLinkSection = generatedClientUrl
-        ? `\n\n---\n\n## 🔗 Link para el Cliente\n[**Ver resumen completo →**](${generatedClientUrl})\n\n> Copiar este link y enviarlo al cliente por WhatsApp o correo.\n\n---\n\n## 💬 Mensaje para WhatsApp\n\`\`\`\nHola! Te comparto tu resumen de mantenimiento de Taller Ramos y Ramos:\n${generatedClientUrl}\n\`\`\``
+        ? `\n\n---\n\n## 💬 Mensaje para el cliente\n\nHola! Te compartimos el resumen de tu mantenimiento más reciente realizado en Taller Ramos y Ramos:\n${generatedClientUrl}`
         : "";
 
       const title = `🔧 ${model || "Vehículo"} | Placa: ${plate || "—"} | Servicio ${sel} | ${mechName}`;
