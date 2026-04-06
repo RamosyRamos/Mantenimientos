@@ -1485,6 +1485,8 @@ function MainApp() {
     setTaskStatus({}); setTaskIssue({}); setActiveIssue(null);
     setNotes(""); setMechName(""); setHasSig(false); setSigDate("");
     setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
+    setSel("A"); setFuel("gasolina"); setIs4m(false);
+    setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
     setTab("check"); setStep(1); setEditingId(null);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
@@ -2444,7 +2446,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     </button>
                   )}
 
-                  <button onClick={()=>{ clearSig(); setSigDate(""); setMechName(""); setTrelloStatus("idle"); setTrelloUrl(""); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                  <button onClick={()=>{ clearSig(); resetAll(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
                     ↺ Nuevo servicio
                   </button>
                 </div>
