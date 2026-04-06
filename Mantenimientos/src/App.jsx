@@ -431,8 +431,11 @@ const MODEL_DATA = {
     { name:"GLS 63 AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
   ],
   "G-Class (W463)": [
-    { name:"G 350d (OM642 3.0D V6)", fuel:"diesel", oil:9.0, spec:"MB 229.51 / 229.52" },
-    { name:"G 500 (M273 5.0 V8)", fuel:"gasolina", oil:9.0, spec:"MB 229.3 / 229.5" },
+    { name:"G 300 D / G 320 (OM606/M112 3.0-3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
+    { name:"G 300 CDI (OM642 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
+    { name:"G 350 d (OM642 3.0D V6)", fuel:"diesel", oil:9.0, spec:"MB 229.51 / 229.52" },
+    { name:"G 500 (M113 5.0 V8) 1998–2012", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
+    { name:"G 500 (M273 5.5 V8) 2012–2018", fuel:"gasolina", oil:9.0, spec:"MB 229.3 / 229.5" },
     { name:"G 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
     { name:"G 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
     { name:"G 65 AMG (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
@@ -541,11 +544,14 @@ const MODEL_DATA = {
   "C-Class (W202) 1993–2000": [
     { name:"C 180 / C 200 (M111 1.8-2.0)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
     { name:"C 220 (M111 2.2)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"C 280 (M104 2.8)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
+    { name:"C 230 Kompressor (M111 2.3T)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
+    { name:"C 240 (M112 2.4 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
+    { name:"C 280 (M104/M112 2.8 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
+    { name:"C 320 (M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
     { name:"C 220 CDI (OM604)", fuel:"diesel", oil:6.0, spec:"MB 229.1" },
     { name:"C 250 TD / C 250 Turbodiesel (OM605)", fuel:"diesel", oil:6.5, spec:"MB 229.1" },
     { name:"C 36 AMG (M104 3.6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1" },
-    { name:"C 43 AMG (M113 4.3 V8)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
+    { name:"C 43 AMG (M113 4.3 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
   ],
   "SL-Class (R129) 1990–2001": [
     { name:"SL 280 / SL 320 (M104 2.8-3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
@@ -599,14 +605,34 @@ const MODEL_DATA = {
     { name:"S 65 AMG (M275 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
   ],
   "E-Class (W210) 1995–2002": [
-    { name:"E 200 / E 220 (M111 2.0-2.2)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 280 / E 320 (M104/M112 2.8-3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 430 (M113 4.3 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.3" },
+    { name:"E 200 / E 220 (M111 2.0-2.2 4cil)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
+    { name:"E 240 (M112 2.4 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
+    { name:"E 280 (M104/M112 2.8 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
+    { name:"E 320 (M104/M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
+    { name:"E 430 (M113 4.3 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
+    { name:"E 500 (M113 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
     { name:"E 200 CDI / E 220 CDI (OM611 2.0-2.2D)", fuel:"diesel", oil:6.0, spec:"MB 229.1 / 229.3" },
-    { name:"E 270 CDI / E 300 D (OM612/OM606)", fuel:"diesel", oil:6.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 55 AMG (M113 5.4 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.3 / 229.5" },
+    { name:"E 270 CDI (OM612 2.7D)", fuel:"diesel", oil:7.0, spec:"MB 229.3" },
+    { name:"E 300 D / E 290 TD (OM606 3.0D)", fuel:"diesel", oil:6.5, spec:"MB 229.1" },
+    { name:"E 320 CDI (OM613 3.2D)", fuel:"diesel", oil:7.5, spec:"MB 229.3" },
+    { name:"E 55 AMG (M113 5.4 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
   ],
-  "C-Class (W203) 2001–2007": [
+  "E-Class (W211 / S211) 2002–2009": [
+    { name:"E 200 / E 200 Kompressor (M271 1.8T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
+    { name:"E 240 (M112 2.6 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
+    { name:"E 280 (M272 3.0 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
+    { name:"E 320 (M112/M272 3.2-3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
+    { name:"E 350 (M272 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
+    { name:"E 500 / E 550 (M113/M273 5.0-5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
+    { name:"E 200 CDI / E 220 CDI (OM646 2.0-2.2D)", fuel:"diesel", oil:6.5, spec:"MB 229.3 / 229.51" },
+    { name:"E 270 CDI (OM647 2.7D)", fuel:"diesel", oil:7.0, spec:"MB 229.3" },
+    { name:"E 320 CDI (OM648 3.2D)", fuel:"diesel", oil:7.5, spec:"MB 229.3 / 229.51" },
+    { name:"E 280 CDI / E 300 CDI (OM642 3.0D V6)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
+    { name:"E 420 CDI (OM629 4.0D V8)", fuel:"diesel", oil:9.5, spec:"MB 229.51" },
+    { name:"E 55 AMG (M113 supercharged)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"E 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+  ],
+
     { name:"C 180 / C 200 Kompressor (M271 1.8T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
     { name:"C 230 / C 280 / C 350 (M272 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
     { name:"C 220 CDI / C 270 CDI (OM611/OM612)", fuel:"diesel", oil:6.0, spec:"MB 229.3" },
@@ -834,6 +860,7 @@ const MODEL_GROUPS = {
   "Clase E": [
     "E-Class (W124) 1990–1996",
     "E-Class (W210) 1995–2002",
+    "E-Class (W211 / S211) 2002–2009",
     "E-Class Sedan / Estate (W212 / S212) 2009–2016",
     "E-Class Coupé / Cabriolet (C207 / A207) 2009–2016",
     "E-Class Sedan / Estate (W213 / S213)",
@@ -1142,12 +1169,13 @@ const MODEL_ALIASES = {
   "geländewagen": ["G-Class","W463","W464"],
   "g 350": ["W463","W464"],
   "g 400": ["W464"],
-  "g 500": ["W463","W464"],
+  "g 500": ["G-Class (W463)","G-Class (W464)"],
   "g 55": ["W463"],
   "g 63": ["W463","W464"],
   "g 65": ["W463"],
   "g350": ["W463","W464"],
-  "g500": ["W463","W464"],
+  "g500": ["G-Class (W463)","G-Class (W464)"],
+  "m113": ["G-Class (W463)","E-Class (W210) 1995–2002","E-Class (W211 / S211) 2002–2009","S-Class (W220) 1998–2005","CL-Class (C215) 1998–2006","SL-Class (R230) 2001–2011"],
   "g63": ["W463","W464"],
   // ── CLK / CLE ──
   "clk 200": ["C208","C209"],
@@ -1829,11 +1857,59 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {/* Header */}
       <div style={{ background:"var(--header)", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
         <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
-        <div>
+        <div style={{ flex:1 }}>
           <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
+        <button onClick={() => { setShowRecent(true); fetchRecent(); }} title="Mantenimientos recientes"
+          style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+          🕐
+        </button>
+        <button className="theme-toggle" onClick={() => {
+          const root = document.getElementById('root');
+          const isLight = root.style.filter.includes('invert');
+          if (isLight) { root.style.filter = ''; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = ''); try { localStorage.setItem('theme', 'dark'); } catch(e) {} }
+          else { root.style.filter = 'invert(1) hue-rotate(180deg)'; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)'); try { localStorage.setItem('theme', 'light'); } catch(e) {} }
+        }}>☀️</button>
       </div>
+
+      {/* PANEL RECIENTES */}
+      {showRecent && (
+        <div style={{ position:"fixed", inset:0, zIndex:100, background:"#000a" }} onClick={() => setShowRecent(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+            <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
+              <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+              {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+              {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
+              {!recentLoading && recentList.map(s => {
+                const d = s.datos || {};
+                const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+                const url = `${window.location.origin}/servicio/${s.id}`;
+                return (
+                  <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                      <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{d.vehiculo?.placa || "Sin placa"}</span>
+                      <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+                    </div>
+                    <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{d.vehiculo?.modelo || "—"}</div>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
+                      <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{d.servicio || "—"}</span>
+                      <span style={{ fontSize:9, color:"#555" }}>{d.mecanico || ""}</span>
+                    </div>
+                    <a href={url} target="_blank" rel="noreferrer"
+                      style={{ display:"block", marginTop:8, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                      🔗 Abrir resumen
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
         {/* Indicador de pasos */}
@@ -1954,7 +2030,55 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
         <button onClick={()=>setStep(1)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontFamily:"monospace" }}>← Vehículo</button>
+        <button onClick={() => { setShowRecent(true); fetchRecent(); }} title="Mantenimientos recientes"
+          style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+          🕐
+        </button>
+        <button className="theme-toggle" onClick={() => {
+          const root = document.getElementById('root');
+          const isLight = root.style.filter.includes('invert');
+          if (isLight) { root.style.filter = ''; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = ''); try { localStorage.setItem('theme', 'dark'); } catch(e) {} }
+          else { root.style.filter = 'invert(1) hue-rotate(180deg)'; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)'); try { localStorage.setItem('theme', 'light'); } catch(e) {} }
+        }}>☀️</button>
       </div>
+
+      {/* PANEL RECIENTES - paso 2 */}
+      {showRecent && (
+        <div style={{ position:"fixed", inset:0, zIndex:100, background:"#000a" }} onClick={() => setShowRecent(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+            <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
+              <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+            </div>
+            <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+              {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+              {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
+              {!recentLoading && recentList.map(s => {
+                const d = s.datos || {};
+                const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+                const url = `${window.location.origin}/servicio/${s.id}`;
+                return (
+                  <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                      <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{d.vehiculo?.placa || "Sin placa"}</span>
+                      <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+                    </div>
+                    <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{d.vehiculo?.modelo || "—"}</div>
+                    <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
+                      <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{d.servicio || "—"}</span>
+                      <span style={{ fontSize:9, color:"#555" }}>{d.mecanico || ""}</span>
+                    </div>
+                    <a href={url} target="_blank" rel="noreferrer"
+                      style={{ display:"block", marginTop:8, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                      🔗 Abrir resumen
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Resumen vehículo seleccionado */}
       <div style={{ padding:"10px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
