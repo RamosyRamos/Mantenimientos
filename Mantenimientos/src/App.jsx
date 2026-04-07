@@ -1425,77 +1425,18 @@ function PinScreen({ onUnlock }) {
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(false);
+  if (!unlocked) return <PinScreen onUnlock={() => setUnlocked(true)} />;
+  return <MainApp />;
+}
+}
+
+function MainApp() {
+  const [step, setStep]     = useState(1);
   const [showRecent, setShowRecent] = useState(false);
   const [recentList, setRecentList] = useState([]);
   const [recentLoading, setRecentLoading] = useState(false);
-
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-  const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
-
-  const fetchRecent = async () => {
-    setRecentLoading(true);
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
-      });
-      const data = await res.json();
-      setRecentList(Array.isArray(data) ? data : []);
-    } catch(e) { setRecentList([]); }
-    setRecentLoading(false);
-  };
-
-  const makeRecentPanel = (sr, setsr, rl, rload) => sr ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setsr(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:"1px solid #1c1c2a", display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:"1px solid #1c1c2a", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div>
-            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div>
-            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div>
-          </div>
-          <button onClick={() => setsr(false)} style={{ padding:"5px 10px", borderRadius:6, border:"1px solid #1c1c2a", background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
-        </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {rload && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
-          {!rload && rl.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
-          {!rload && rl.map(s => {
-            const d = s.datos || {};
-            const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
-            const url = `${window.location.origin}/servicio/${s.id}`;
-            return (
-              <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:"1px solid #1c1c2a" }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{d.vehiculo?.placa || "Sin placa"}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
-                </div>
-                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{d.vehiculo?.modelo || "—"}</div>
-                <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
-                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{d.servicio || "—"}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{d.mecanico || ""}</span>
-                </div>
-                <a href={url} target="_blank" rel="noreferrer"
-                  style={{ display:"block", marginTop:8, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
-                  🔗 Abrir resumen
-                </a>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  ) : null;
-
-  if (!unlocked) return (
-    <>
-      <PinScreen onUnlock={() => setUnlocked(true)} />
-    </>
-  );
-
-  return <MainApp makeRecentPanel={makeRecentPanel} showRecent={showRecent} setShowRecent={setShowRecent} fetchRecent={fetchRecent} recentList={recentList} recentLoading={recentLoading} />;
-}
-
-function MainApp({ makeRecentPanel, showRecent, setShowRecent, fetchRecent, recentList, recentLoading }) {
-  const [step, setStep]     = useState(1);
   const [editingId, setEditingId] = useState(null); // ID del servicio en edición
+  const [editingTrelloCardId, setEditingTrelloCardId] = useState(null); // ID de la tarjeta Trello
   const [sel, setSel]       = useState("A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
@@ -1568,6 +1509,7 @@ function MainApp({ makeRecentPanel, showRecent, setShowRecent, fetchRecent, rece
     setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
     setSel("A"); setFuel("gasolina"); setIs4m(false);
     setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
+    setEditingTrelloCardId(null);
     setTab("check"); setStep(1); setEditingId(null);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
@@ -1648,45 +1590,99 @@ function MainApp({ makeRecentPanel, showRecent, setShowRecent, fetchRecent, rece
   const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
   const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_KEY;
 
+  const fetchRecent = async () => {
+    setRecentLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+      });
+      const data = await res.json();
+      setRecentList(Array.isArray(data) ? data : []);
+    } catch(e) { setRecentList([]); }
+    setRecentLoading(false);
+  };
+
+  const recentPanel = showRecent ? (
+    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowRecent(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
+          <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+          {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+          {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
+          {!recentLoading && recentList.map(s => {
+            const d = s.datos || {};
+            const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+            const url = `${window.location.origin}/servicio/${s.id}`;
+            return (
+              <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{d.vehiculo?.placa || "Sin placa"}</span>
+                  <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+                </div>
+                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{d.vehiculo?.modelo || "—"}</div>
+                <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
+                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{d.servicio || "—"}</span>
+                  <span style={{ fontSize:9, color:"#555" }}>{d.mecanico || ""}</span>
+                </div>
+                <a href={url} target="_blank" rel="noreferrer"
+                  style={{ display:"block", marginTop:8, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                  🔗 Abrir resumen
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const loadService = (s) => {
+    const d = s.datos || {};
+    const v = d.vehiculo || {};
+
     // Cargar datos del vehículo
-    setModel(s.modelo || "");
-    setModelSearch(s.modelo || "");
-    setEngine(s.motor || "");
-    setPlate(s.placa || "");
-    setKm(s.km || "");
-    setFuel(s.combustible || "gasolina");
-    setIs4m(s.traccion === "4MATIC");
+    setModel(v.modelo || "");
+    setModelSearch(v.modelo || "");
+    setEngine(v.motor || "");
+    setPlate(v.placa || "");
+    setKm(v.km || "");
+    setFuel(v.combustible || "gasolina");
+    setIs4m(v.traccion === "4MATIC");
 
     // Cargar código de servicio
-    setSel(s.servicio_codigo || "A");
+    setSel(d.servicio?.codigo || "A");
 
     // Cargar mecánico y notas
-    setMechName(s.mecanico || "");
-    setNotes(s.observaciones || "");
+    setMechName(d.mecanico || "");
+    setNotes(d.observaciones || "");
 
     // Reconstruir estados del checklist desde revisiones guardadas
-    if (s.revisiones) {
+    if (d.revisiones) {
       const newStatus = {};
       const newIssue  = {};
-      Object.values(s.revisiones).flat().forEach(item => {
-        // Buscar el task por texto para encontrar su id
+      const newChecked = {};
+      Object.values(d.revisiones).flat().forEach(item => {
         const taskId = Object.keys(ITEMS).flatMap(k =>
           ITEMS[k].tasks.map((t,i) => ({ id:`${k}_${i}`, text:t }))
         ).find(t => t.text === item.text)?.id;
         if (taskId && item.status && item.status !== "pending") {
           newStatus[taskId] = item.status;
+          newChecked[taskId] = true;
           if (item.detail) newIssue[taskId] = item.detail;
         }
       });
       setTaskStatus(newStatus);
       setTaskIssue(newIssue);
+      setChk(newChecked);
     }
 
-    // Marcar que estamos editando este servicio
     setEditingId(s.id);
+    setEditingTrelloCardId(d.trello_card_id || null);
     setShowRecent(false);
-    setStep(3); // Ir directo al checklist
+    setStep(3);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const APP_URL       = import.meta.env.VITE_APP_URL || window.location.origin;
@@ -1813,6 +1809,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             observaciones:   svcData.observaciones,
             pendientes:      svcData.pendientes,
             progreso:        svcData.progreso,
+            datos: {
+              ...svcData,
+              trello_card_id: editingTrelloCardId || undefined,
+            },
           }),
         });
         const sbData = await sbRes.json();
@@ -1839,7 +1839,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       );
       if (preferred) listId = preferred.id;
 
-      // 3. Crear tarjeta en Trello con el link del cliente
+      // 3. Crear O ACTUALIZAR tarjeta en Trello
       const clientLinkSection = generatedClientUrl
         ? `\n\n---\n\n## 💬 Mensaje para el cliente\n\nHola! Te compartimos el resumen de tu mantenimiento más reciente realizado en Taller Ramos y Ramos:\n${generatedClientUrl}`
         : "";
@@ -1847,18 +1847,33 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const title = `🔧 ${model || "Vehículo"} | Placa: ${plate || "—"} | Servicio ${sel} | ${mechName}`;
       const desc  = buildTrelloDesc() + clientLinkSection;
 
-      const cardRes = await fetch(
-        `https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ idList: listId, name: title, desc, due: null })
-        }
-      );
+      let cardRes;
+      if (editingId && editingTrelloCardId) {
+        // Actualizar tarjeta existente
+        cardRes = await fetch(
+          `https://api.trello.com/1/cards/${editingTrelloCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: title, desc })
+          }
+        );
+      } else {
+        // Crear tarjeta nueva
+        cardRes = await fetch(
+          `https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idList: listId, name: title, desc, due: null })
+          }
+        );
+      }
       const card = await cardRes.json();
 
-      if (card.url) {
-        setTrelloUrl(card.url);
+      if (card.url || card.id) {
+        if (card.id && !editingTrelloCardId) setEditingTrelloCardId(card.id);
+        setTrelloUrl(card.url || trelloUrl);
         setTrelloStatus("done");
       } else {
         setTrelloStatus("error");
@@ -1914,7 +1929,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         }}>☀️</button>
       </div>
 
-      {makeRecentPanel(showRecent, setShowRecent, recentList, recentLoading)}
+      {recentPanel}
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
         {/* Indicador de pasos */}
@@ -2047,7 +2062,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         }}>☀️</button>
       </div>
 
-      {makeRecentPanel(showRecent, setShowRecent, recentList, recentLoading)}
+      {recentPanel}
 
       {/* Resumen vehículo seleccionado */}
       <div style={{ padding:"10px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
@@ -2168,7 +2183,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         </button>
       </div>
 
-      {makeRecentPanel(showRecent, setShowRecent, recentList, recentLoading)}
+      {recentPanel}
 
       {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
       <div style={{ padding:"8px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
