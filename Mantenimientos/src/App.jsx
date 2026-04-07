@@ -1597,8 +1597,12 @@ function MainApp() {
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
       });
       const data = await res.json();
+      console.log("fetchRecent status:", res.status, "data:", data);
       setRecentList(Array.isArray(data) ? data : []);
-    } catch(e) { setRecentList([]); }
+    } catch(e) { 
+      console.error("fetchRecent error:", e);
+      setRecentList([]); 
+    }
     setRecentLoading(false);
   };
 
