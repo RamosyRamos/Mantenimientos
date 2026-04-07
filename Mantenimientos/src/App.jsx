@@ -1597,10 +1597,8 @@ function MainApp() {
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
       });
       const data = await res.json();
-      console.log("fetchRecent status:", res.status, "data:", data);
       setRecentList(Array.isArray(data) ? data : []);
     } catch(e) { 
-      console.error("fetchRecent error:", e);
       setRecentList([]); 
     }
     setRecentLoading(false);
@@ -1636,10 +1634,16 @@ function MainApp() {
                   <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
                   <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
                 </div>
-                <a href={url} target="_blank" rel="noreferrer"
-                  style={{ display:"block", marginTop:8, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
-                  🔗 Abrir resumen
-                </a>
+                <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                  <button onClick={() => loadService(s)}
+                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+                    ✏️ Editar
+                  </button>
+                  <a href={url} target="_blank" rel="noreferrer"
+                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                    🔗 Resumen
+                  </a>
+                </div>
               </div>
             );
           })}
