@@ -1724,21 +1724,22 @@ function MainApp() {
 
     let atenderSection = "";
     if (issueTasks.length > 0) {
-      atenderSection += `### ⚠️ Detalles a atender\n`;
       issueTasks.forEach(t => {
         const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : "";
         atenderSection += `⚠️ ${t.text}${detail}\n`;
       });
-      atenderSection += "\n";
     }
     if (pendingTasks.length > 0) {
-      atenderSection += `### ○ Sin revisar\n`;
       pendingTasks.forEach(t => { atenderSection += `○ ${t.text}\n`; });
-      atenderSection += "\n";
     }
-    if (!atenderSection) {
-      atenderSection = "✅ _Todas las revisiones completadas sin observaciones._\n";
+    if (notes) {
+      if (atenderSection) atenderSection += "\n";
+      atenderSection += notes;
     }
+
+    const combinedSection = atenderSection
+      ? `### 📋 Detalles a atender y observaciones del mecánico:\n${atenderSection}\n`
+      : "✅ _Todas las revisiones completadas sin observaciones._\n";
 
     return `## 🚗 ${model || "Vehículo"} · Servicio ${sel}
 
@@ -1754,8 +1755,7 @@ ${oilLiters > 0 ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
 
 ---
 
-${atenderSection}
-${notes ? "" : ""}
+${combinedSection}
 _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
@@ -1906,13 +1906,25 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       let cardRes;
       if (existingCardId) {
-        // Actualizar tarjeta existente
+        // Obtener descripción actual y agregar el nuevo resumen al final
+        let existingDesc = "";
+        try {
+          const getCard = await fetch(
+            `https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=desc`
+          );
+          const cardData = await getCard.json();
+          existingDesc = cardData.desc || "";
+        } catch(e) {}
+
+        const separator = existingDesc ? "\n\n---\n\n" : "";
+        const updatedDesc = existingDesc + separator + desc;
+
         cardRes = await fetch(
           `https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ desc })
+            body: JSON.stringify({ desc: updatedDesc })
           }
         );
       } else {
@@ -2074,7 +2086,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         {/* Placa */}
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>PLACA</div>
-          <input value={plate} onChange={e=>setPlate(e.target.value.toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
+          <input value={plate} onChange={e=>setPlate(e.target.value.replace(/[^A-Z0-9]/gi,"").toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
             style={{ ...inp, width:"100%", boxSizing:"border-box", letterSpacing:2, textTransform:"uppercase" }} />
         </div>
 
