@@ -1684,10 +1684,16 @@ function MainApp() {
       const newStatus  = {};
       const newIssue   = {};
       const newChecked = {};
+
+      // Construir mapa de texto→id para fallback
+      const textToId = {};
+      Object.keys(ITEMS).forEach(k => {
+        ITEMS[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
+      });
+
       Object.values(revisiones).flat().forEach(item => {
-        const taskId = Object.keys(ITEMS).flatMap(k =>
-          ITEMS[k].tasks.map((t,i) => ({ id:`${k}_${i}`, text:t }))
-        ).find(t => t.text === item.text)?.id;
+        // Usar id guardado si existe, sino buscar por texto
+        const taskId = item.id || textToId[item.text] || null;
         if (taskId && item.status && item.status !== "pending") {
           newStatus[taskId]  = item.status;
           newChecked[taskId] = true;
@@ -1759,7 +1765,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     tasks.forEach(t => {
       if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
       byGrpMap[t.grp].push({
-        text: t.text,
+        id:     t.id,
+        text:   t.text,
         status: taskStatus[t.id] || (checked[t.id] ? "ok" : "pending"),
         detail: taskIssue[t.id] || null,
         outOfAssyst: t.outOfAssyst || false,
@@ -1843,23 +1850,53 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         }
       } catch(e) { console.warn("Supabase error:", e); }
 
-      // 2. Obtener listas del tablero Trello
+      // 2. Obtener todas las listas del tablero excepto "Finalizados"
       const listsRes = await fetch(
         `https://api.trello.com/1/boards/${TRELLO_BOARD}/lists?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`
       );
       const lists = await listsRes.json();
-      let listId = lists[0]?.id;
-      const preferred = lists.find(l =>
+
+      // Filtrar listas activas (excluir Finalizados)
+      const activeLists = lists.filter(l =>
+        !l.name.toLowerCase().includes("finalizado") &&
+        !l.name.toLowerCase().includes("finalizados") &&
+        !l.name.toLowerCase().includes("archivado") &&
+        !l.closed
+      );
+
+      // Lista destino si hay que crear tarjeta nueva
+      let targetListId = activeLists[0]?.id;
+      const preferred = activeLists.find(l =>
         l.name.toLowerCase().includes("prontos a salir") ||
         l.name.toLowerCase().includes("pronto a salir") ||
         l.name.toLowerCase().includes("prontos") ||
         l.name.toLowerCase().includes("trabajos prontos") ||
-        l.name.toLowerCase().includes("listo para entregar") ||
         l.name.toLowerCase().includes("listo")
       );
-      if (preferred) listId = preferred.id;
+      if (preferred) targetListId = preferred.id;
 
-      // 3. Crear O ACTUALIZAR tarjeta en Trello
+      // 3. Buscar tarjeta existente con la placa en su nombre
+      let existingCardId = editingTrelloCardId || null;
+
+      if (!existingCardId && plate) {
+        const plateClean = plate.trim().toUpperCase();
+        // Buscar en cada lista activa
+        for (const list of activeLists) {
+          const cardsRes = await fetch(
+            `https://api.trello.com/1/lists/${list.id}/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=id,name`
+          );
+          const cards = await cardsRes.json();
+          const match = Array.isArray(cards) && cards.find(c =>
+            c.name.toUpperCase().includes(plateClean)
+          );
+          if (match) {
+            existingCardId = match.id;
+            break;
+          }
+        }
+      }
+
+      // 4. Crear O ACTUALIZAR tarjeta
       const clientLinkSection = generatedClientUrl
         ? `\n\n---\n\n## 💬 Mensaje para el cliente\n\nHola! Te compartimos el resumen de tu mantenimiento más reciente realizado en Taller Ramos y Ramos:\n${generatedClientUrl}`
         : "";
@@ -1868,31 +1905,31 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const desc  = buildTrelloDesc() + clientLinkSection;
 
       let cardRes;
-      if (editingId && editingTrelloCardId) {
+      if (existingCardId) {
         // Actualizar tarjeta existente
         cardRes = await fetch(
-          `https://api.trello.com/1/cards/${editingTrelloCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
+          `https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: title, desc })
+            body: JSON.stringify({ desc })
           }
         );
       } else {
-        // Crear tarjeta nueva
+        // Crear tarjeta nueva en la lista destino
         cardRes = await fetch(
           `https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ idList: listId, name: title, desc, due: null })
+            body: JSON.stringify({ idList: targetListId, name: title, desc, due: null })
           }
         );
       }
       const card = await cardRes.json();
 
       if (card.url || card.id) {
-        if (card.id && !editingTrelloCardId) setEditingTrelloCardId(card.id);
+        if (card.id) setEditingTrelloCardId(card.id);
         setTrelloUrl(card.url || trelloUrl);
         setTrelloStatus("done");
       } else {
