@@ -1428,7 +1428,6 @@ export default function App() {
   if (!unlocked) return <PinScreen onUnlock={() => setUnlocked(true)} />;
   return <MainApp />;
 }
-}
 
 function MainApp() {
   const [step, setStep]     = useState(1);
