@@ -1614,18 +1614,23 @@ function MainApp() {
           {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
           {!recentLoading && recentList.map(s => {
             const d = s.datos || {};
+            const placa   = d.vehiculo?.placa   || s.placa   || "Sin placa";
+            const modelo  = d.vehiculo?.modelo  || s.modelo  || "—";
+            const servicio = d.servicio?.codigo  || s.servicio_codigo || s.servicio || "—";
+            const mecanico = d.mecanico          || s.mecanico || "";
             const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
-            const url = `${window.location.origin}/servicio/${s.id}`;
+            const slug  = s.slug || s.id;
+            const url   = `${window.location.origin}/servicio/${slug}`;
             return (
               <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{d.vehiculo?.placa || "Sin placa"}</span>
+                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{placa}</span>
                   <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
                 </div>
-                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{d.vehiculo?.modelo || "—"}</div>
+                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{modelo}</div>
                 <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
-                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{d.servicio || "—"}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{d.mecanico || ""}</span>
+                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
+                  <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
                 </div>
                 <a href={url} target="_blank" rel="noreferrer"
                   style={{ display:"block", marginTop:8, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
