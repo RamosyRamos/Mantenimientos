@@ -1656,33 +1656,40 @@ function MainApp() {
     const d = s.datos || {};
     const v = d.vehiculo || {};
 
-    // Cargar datos del vehículo
-    setModel(v.modelo || "");
-    setModelSearch(v.modelo || "");
-    setEngine(v.motor || "");
-    setPlate(v.placa || "");
-    setKm(v.km || "");
-    setFuel(v.combustible || "gasolina");
-    setIs4m(v.traccion === "4MATIC");
+    // Leer de datos nested O columnas planas (compatibilidad con registros viejos)
+    const modelo    = v.modelo    || s.modelo    || "";
+    const motor     = v.motor     || s.motor     || "";
+    const placa     = v.placa     || s.placa     || "";
+    const km        = v.km        || s.km        || "";
+    const combustible = v.combustible || s.combustible || "gasolina";
+    const traccion  = v.traccion  || s.traccion  || "";
+    const servCodigo = d.servicio?.codigo || s.servicio_codigo || "A";
+    const mecanico  = d.mecanico  || s.mecanico  || "";
+    const observaciones = d.observaciones || s.observaciones || "";
+    const revisiones = d.revisiones || s.revisiones || null;
 
-    // Cargar código de servicio
-    setSel(d.servicio?.codigo || "A");
-
-    // Cargar mecánico y notas
-    setMechName(d.mecanico || "");
-    setNotes(d.observaciones || "");
+    setModel(modelo);
+    setModelSearch(modelo);
+    setEngine(motor);
+    setPlate(placa);
+    setKm(km);
+    setFuel(combustible);
+    setIs4m(traccion === "4MATIC");
+    setSel(servCodigo);
+    setMechName(mecanico);
+    setNotes(observaciones);
 
     // Reconstruir estados del checklist desde revisiones guardadas
-    if (d.revisiones) {
-      const newStatus = {};
-      const newIssue  = {};
+    if (revisiones) {
+      const newStatus  = {};
+      const newIssue   = {};
       const newChecked = {};
-      Object.values(d.revisiones).flat().forEach(item => {
+      Object.values(revisiones).flat().forEach(item => {
         const taskId = Object.keys(ITEMS).flatMap(k =>
           ITEMS[k].tasks.map((t,i) => ({ id:`${k}_${i}`, text:t }))
         ).find(t => t.text === item.text)?.id;
         if (taskId && item.status && item.status !== "pending") {
-          newStatus[taskId] = item.status;
+          newStatus[taskId]  = item.status;
           newChecked[taskId] = true;
           if (item.detail) newIssue[taskId] = item.detail;
         }
