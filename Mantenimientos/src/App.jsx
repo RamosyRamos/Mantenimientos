@@ -2044,7 +2044,35 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         }
       );
       const text = await res.text();
-      console.log("confirmSig save status:", res.status, "body:", text.slice(0,300));
+      console.log("confirmSig save status:", res.status, "body:", text);
+      if (!res.ok) {
+        // Reintentar sin el campo datos por si la columna no existe
+        const payload2 = { ...payload };
+        delete payload2.datos;
+        const res2 = await fetch(
+          editingId
+            ? `${SURL}/rest/v1/servicios?id=eq.${editingId}`
+            : `${SURL}/rest/v1/servicios`,
+          {
+            method: editingId ? "PATCH" : "POST",
+            headers: {
+              "apikey": SKEY,
+              "Authorization": `Bearer ${SKEY}`,
+              "Content-Type": "application/json",
+              "Prefer": "return=representation",
+            },
+            body: JSON.stringify(payload2),
+          }
+        );
+        const text2 = await res2.text();
+        console.log("retry without datos:", res2.status, text2.slice(0,200));
+        const data2 = JSON.parse(text2 || "[]");
+        const savedId2 = Array.isArray(data2) ? data2?.[0]?.id : null;
+        const url = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
+        setClientUrl(url);
+        if (!editingId && savedId2) setEditingId(savedId2);
+        return;
+      }
       const data = JSON.parse(text || "[]");
       const savedId = data?.[0]?.id;
       const url = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
