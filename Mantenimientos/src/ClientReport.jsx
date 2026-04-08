@@ -133,7 +133,7 @@ function ReportView({ data }) {
 
         {/* DATOS DEL SERVICIO */}
         <Section title="🔧 Datos del Servicio">
-          <Row label="Código de servicio" value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo} — {servicio?.descripcion}</span>} />
+          <Row label="Código de servicio" value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
           <Row label="Mecánico responsable" value={mecanico} />
           <Row label="Fecha y hora" value={fecha} />
           <Row label="Motor" value={vehiculo?.motor} />
