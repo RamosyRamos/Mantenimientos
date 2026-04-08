@@ -2043,7 +2043,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           body: JSON.stringify(payload),
         }
       );
-      const data = await res.json();
+      const text = await res.text();
+      console.log("confirmSig save status:", res.status, "body:", text.slice(0,300));
+      const data = JSON.parse(text || "[]");
       const savedId = data?.[0]?.id;
       const url = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
       setClientUrl(url);
