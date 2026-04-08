@@ -1437,6 +1437,7 @@ function MainApp() {
   const [recentLoading, setRecentLoading] = useState(false);
   const [editingId, setEditingId] = useState(null); // ID del servicio en edición
   const [editingTrelloCardId, setEditingTrelloCardId] = useState(null); // ID de la tarjeta Trello
+  const [aprobado, setAprobado] = useState(false); // Si el jefe aprobó el servicio
   const [sel, setSel]       = useState("A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
@@ -1510,6 +1511,7 @@ function MainApp() {
     setSel("A"); setFuel("gasolina"); setIs4m(false);
     setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
     setEditingTrelloCardId(null);
+    setAprobado(false);
     setTab("check"); setStep(1); setEditingId(null);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
@@ -1639,6 +1641,27 @@ function MainApp() {
                     style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
                     ✏️ Editar
                   </button>
+                  {!s.aprobado && (
+                    <button onClick={async () => {
+                      try {
+                        await fetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${s.id}`, {
+                          method: "PATCH",
+                          headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
+                          body: JSON.stringify({ aprobado: true }),
+                        });
+                        // Refrescar lista
+                        fetchRecent();
+                      } catch(e) { console.error(e); }
+                    }}
+                      style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+                      ✅ Aprobar
+                    </button>
+                  )}
+                  {s.aprobado && (
+                    <div style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8008", color:"#4ade80", fontSize:10, fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                      ✅ Aprobado
+                    </div>
+                  )}
                   <a href={url} target="_blank" rel="noreferrer"
                     style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
                     🔗 Resumen
@@ -1707,6 +1730,7 @@ function MainApp() {
 
     setEditingId(s.id);
     setEditingTrelloCardId(d.trello_card_id || null);
+    setAprobado(s.aprobado || false);
     // Restaurar el link del cliente si existe
     const existingSlug = s.slug || "";
     if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
@@ -1845,6 +1869,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             observaciones:   svcData.observaciones,
             pendientes:      svcData.pendientes,
             progreso:        svcData.progreso,
+            aprobado:        true,
           }),
         });
         const sbData = await sbRes.json();
@@ -2012,6 +2037,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         observaciones:   notes,
         pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
         progreso:        { completadas: doneN, total },
+        aprobado:        false, // El mecánico guarda como pendiente de aprobación
 
       };
 
@@ -2635,28 +2661,38 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     </div>
                   )}
 
-                  {/* Botón Trello */}
-                  {trelloStatus === "done" ? (
-                    <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #4ade8050", background:"#0a1a0a", marginBottom:10 }}>
-                      <div style={{ fontSize:9, color:"#4ade80", letterSpacing:2, marginBottom:6 }}>✅ ENVIADO A TRELLO</div>
-                      <div style={{ fontSize:11, color:"#888", marginBottom:10 }}>La tarjeta fue creada en el tablero <strong style={{ color:"#ccc" }}>Gestión de Taller</strong></div>
-                      <a href={trelloUrl} target="_blank" rel="noreferrer"
-                        style={{ display:"block", textAlign:"center", padding:"10px", borderRadius:6, border:"1px solid #4ade8050", background:"#4ade8015", color:"#4ade80", fontFamily:"monospace", fontSize:11, textDecoration:"none", letterSpacing:1 }}>
-                        🔗 Ver tarjeta en Trello
-                      </a>
-                    </div>
-                  ) : trelloStatus === "error" ? (
-                    <div style={{ padding:"10px 12px", borderRadius:8, border:"1px solid #f8717150", background:"#1a0a0a", marginBottom:10 }}>
-                      <div style={{ fontSize:11, color:"#f87171" }}>❌ Error al enviar a Trello. Verificá tu conexión e intentá de nuevo.</div>
-                      <button onClick={sendToTrello} style={{ marginTop:8, width:"100%", padding:"8px", borderRadius:6, border:"1px solid #f8717150", background:"#f8717115", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
-                        🔄 Reintentar
-                      </button>
+                  {/* Flujo de aprobación */}
+                  {!aprobado ? (
+                    <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E08", marginBottom:10, textAlign:"center" }}>
+                      <div style={{ fontSize:11, color:"#C8A96E", letterSpacing:1, marginBottom:6 }}>⏳ PENDIENTE DE APROBACIÓN</div>
+                      <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>El servicio fue guardado. El jefe debe revisarlo y aprobarlo antes de enviarlo a Trello.</div>
                     </div>
                   ) : (
-                    <button onClick={sendToTrello} disabled={trelloStatus==="sending"}
-                      style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${trelloStatus==="sending"?"#2a2a3a":"#0052cc80"}`, background:trelloStatus==="sending"?"#0a0a14":"#0052cc18", color:trelloStatus==="sending"?"#444":"#4c9aff", fontFamily:"monospace", fontSize:12, cursor:trelloStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
-                      {trelloStatus==="sending" ? "⏳ Enviando..." : editingId ? "💾 Actualizar en Trello" : "📋 Enviar resumen a Trello"}
-                    </button>
+                    <>
+                      {/* Botón Trello — solo visible si está aprobado */}
+                      {trelloStatus === "done" ? (
+                        <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #4ade8050", background:"#0a1a0a", marginBottom:10 }}>
+                          <div style={{ fontSize:9, color:"#4ade80", letterSpacing:2, marginBottom:6 }}>✅ ENVIADO A TRELLO</div>
+                          <div style={{ fontSize:11, color:"#888", marginBottom:10 }}>La tarjeta fue actualizada en el tablero <strong style={{ color:"#ccc" }}>Gestión de Taller</strong></div>
+                          <a href={trelloUrl} target="_blank" rel="noreferrer"
+                            style={{ display:"block", textAlign:"center", padding:"10px", borderRadius:6, border:"1px solid #4ade8050", background:"#4ade8015", color:"#4ade80", fontFamily:"monospace", fontSize:11, textDecoration:"none", letterSpacing:1 }}>
+                            🔗 Ver tarjeta en Trello
+                          </a>
+                        </div>
+                      ) : trelloStatus === "error" ? (
+                        <div style={{ padding:"10px 12px", borderRadius:8, border:"1px solid #f8717150", background:"#1a0a0a", marginBottom:10 }}>
+                          <div style={{ fontSize:11, color:"#f87171" }}>❌ Error al enviar a Trello. Verificá tu conexión e intentá de nuevo.</div>
+                          <button onClick={sendToTrello} style={{ marginTop:8, width:"100%", padding:"8px", borderRadius:6, border:"1px solid #f8717150", background:"#f8717115", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+                            🔄 Reintentar
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={sendToTrello} disabled={trelloStatus==="sending"}
+                          style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${trelloStatus==="sending"?"#2a2a3a":"#0052cc80"}`, background:trelloStatus==="sending"?"#0a0a14":"#0052cc18", color:trelloStatus==="sending"?"#444":"#4c9aff", fontFamily:"monospace", fontSize:12, cursor:trelloStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
+                          {trelloStatus==="sending" ? "⏳ Enviando..." : "📋 Enviar resumen a Trello"}
+                        </button>
+                      )}
+                    </>
                   )}
 
                   <button onClick={()=>{ clearSig(); resetAll(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
