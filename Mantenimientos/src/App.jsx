@@ -1547,6 +1547,57 @@ function MainApp() {
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
   const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
+  const loadService = (s) => {
+    const d = s.datos || {};
+    const v = d.vehiculo || {};
+    const modelo      = v.modelo      || s.modelo      || "";
+    const motor       = v.motor       || s.motor       || "";
+    const placa       = v.placa       || s.placa       || "";
+    const km          = v.km          || s.km          || "";
+    const combustible = v.combustible || s.combustible || "gasolina";
+    const traccion    = v.traccion    || s.traccion    || "";
+    const servCodigo  = d.servicio?.codigo || s.servicio_codigo || "A";
+    const mecanico    = d.mecanico    || s.mecanico    || "";
+    const observaciones = d.observaciones || s.observaciones || "";
+    const revisiones  = d.revisiones  || s.revisiones  || null;
+
+    setModel(modelo); setModelSearch(modelo);
+    setEngine(motor); setPlate(placa); setKm(km);
+    setFuel(combustible); setIs4m(traccion === "4MATIC");
+    setSel(servCodigo); setMechName(mecanico); setNotes(observaciones);
+
+    if (revisiones) {
+      const newStatus  = {};
+      const newIssue   = {};
+      const newChecked = {};
+      const textToId   = {};
+      Object.keys(ITEMS).forEach(k => {
+        ITEMS[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
+      });
+      Object.values(revisiones).flat().forEach(item => {
+        const taskId = item.id || textToId[item.text] || null;
+        if (taskId && item.status && item.status !== "pending") {
+          newStatus[taskId]  = item.status;
+          newChecked[taskId] = true;
+          if (item.detail) newIssue[taskId] = item.detail;
+        }
+      });
+      setTaskStatus(newStatus);
+      setTaskIssue(newIssue);
+      setChk(newChecked);
+    }
+
+    setEditingId(s.id);
+    setEditingTrelloCardId(d.trello_card_id || null);
+    setAprobado(s.aprobado || false);
+    setAprobadoPor(s.aprobado_por || "");
+    const existingSlug = s.slug || "";
+    if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
+    setShowRecent(false);
+    setStep(3);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const fetchRecent = async () => {
     setRecentLoading(true);
     try {
