@@ -1459,6 +1459,12 @@ function MainApp() {
   const [showEx, setShowEx] = useState(false);
   const [mechName, setMechName] = useState("");
   const [sigDate, setSigDate]   = useState("");
+  const [taskStatus, setTaskStatus] = useState({});
+  const [taskIssue, setTaskIssue]   = useState({});
+  const [activeIssue, setActiveIssue] = useState(null);
+  const [trelloStatus, setTrelloStatus] = useState("idle");
+  const [trelloUrl, setTrelloUrl]       = useState("");
+  const [clientUrl, setClientUrl]       = useState("");
 
   const svc          = CODES[sel];
   const G            = svc.color;
