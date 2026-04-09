@@ -149,12 +149,11 @@ export default function ClientHistory() {
 function ServiceCard({ service: s, index, total }) {
   const [open, setOpen] = useState(index === 0);
 
-  const pendientes = s.pendientes || [];
-  const hasPendientes = pendientes.length > 0;
   const progreso = s.progreso || {};
+  const hasIssues = Object.values(s.revisiones || {}).flat().some(item => item.status === "issue");
 
   return (
-    <div style={{ marginBottom:10, borderRadius:10, border:`1px solid ${hasPendientes ? "#f8717130" : "#1c1c2a"}`, overflow:"hidden" }}>
+    <div style={{ marginBottom:10, borderRadius:10, border:`1px solid ${hasIssues ? "#f8717130" : "#1c1c2a"}`, overflow:"hidden" }}>
 
       {/* Encabezado */}
       <div
@@ -164,7 +163,7 @@ function ServiceCard({ service: s, index, total }) {
         <div style={{ flex:1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
             <span style={{ fontSize:13, fontWeight:"bold", color:gold }}>Servicio {s.servicio_codigo}</span>
-            {hasPendientes && <span style={{ fontSize:9, background:"#f8717120", border:"1px solid #f8717140", color:"#f87171", borderRadius:4, padding:"1px 6px" }}>⚠️ Con detalles</span>}
+            {hasIssues && <span style={{ fontSize:9, background:"#f8717120", border:"1px solid #f8717140", color:"#f87171", borderRadius:4, padding:"1px 6px" }}>⚠️ Con detalles</span>}
             {!hasPendientes && <span style={{ fontSize:9, background:"#4ade8015", border:"1px solid #4ade8030", color:"#4ade80", borderRadius:4, padding:"1px 6px" }}>✅ OK</span>}
           </div>
           <div style={{ fontSize:11, color:"#888" }}>{s.servicio_desc}</div>
@@ -210,16 +209,6 @@ function ServiceCard({ service: s, index, total }) {
               })}
             </div>
           ))}
-
-          {/* Pendientes */}
-          {hasPendientes && (
-            <div style={{ marginBottom:12, padding:"10px 12px", background:"#1a0a0a", border:"1px solid #f8717130", borderRadius:8 }}>
-              <div style={{ fontSize:9, color:"#f87171", letterSpacing:2, marginBottom:8 }}>⚠️ PUNTOS A ATENDER</div>
-              {pendientes.map((p, i) => (
-                <div key={i} style={{ fontSize:12, color:"#fca5a5", marginBottom:4, paddingLeft:8, borderLeft:"2px solid #f87171" }}>{p}</div>
-              ))}
-            </div>
-          )}
 
           {/* Observaciones */}
           {s.observaciones && (
