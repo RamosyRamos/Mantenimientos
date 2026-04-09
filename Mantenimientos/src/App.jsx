@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const ITEMS = {
@@ -1458,11 +1458,7 @@ function MainApp() {
   const [tab, setTab]       = useState("check");
   const [showEx, setShowEx] = useState(false);
   const [mechName, setMechName] = useState("");
-  const [hasSig, setHasSig]     = useState(false);
   const [sigDate, setSigDate]   = useState("");
-  const canvasRef = useRef(null);
-  const drawing   = useRef(false);
-  const lastPos   = useRef({ x:0, y:0 });
 
   const svc          = CODES[sel];
   const G            = svc.color;
@@ -1508,7 +1504,7 @@ function MainApp() {
   const resetAll = ()  => {
     const u={}; tasks.forEach(t => u[t.id]=false); setChk(p=>({...p,...u}));
     setTaskStatus({}); setTaskIssue({}); setActiveIssue(null);
-    setNotes(""); setMechName(""); setHasSig(false); setSigDate("");
+    setNotes(""); setMechName(""); setSigDate("");
     setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
     setSel("A"); setFuel("gasolina"); setIs4m(false);
     setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
@@ -1547,430 +1543,6 @@ function MainApp() {
   };
 
   // ── Firma helpers ──
-  const getPos = (e, canvas) => {
-    const r = canvas.getBoundingClientRect();
-    const src = e.touches ? e.touches[0] : e;
-    return { x: src.clientX - r.left, y: src.clientY - r.top };
-  };
-  const startDraw = e => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    drawing.current = true;
-    lastPos.current = getPos(e, canvas);
-  };
-  const draw = e => {
-    if (!drawing.current) return;
-    e.preventDefault();
-    const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const pos = getPos(e, canvas);
-    ctx.beginPath();
-    ctx.moveTo(lastPos.current.x, lastPos.current.y);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.strokeStyle = "#C8A96E";
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
-    lastPos.current = pos;
-    setHasSig(true);
-  };
-  const stopDraw = () => { drawing.current = false; };
-  const clearSig = () => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-    setHasSig(false);
-  };
-  // ── TRELLO ──────────────────────────────────────────────────────────────
-  const TRELLO_KEY    = import.meta.env.VITE_TRELLO_KEY;
-  const TRELLO_TOKEN  = import.meta.env.VITE_TRELLO_TOKEN;
-  const TRELLO_BOARD  = import.meta.env.VITE_TRELLO_BOARD;
-  const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
-  const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_KEY;
-
-  const fetchRecent = async () => {
-    setRecentLoading(true);
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
-      });
-      const data = await res.json();
-      setRecentList(Array.isArray(data) ? data : []);
-    } catch(e) { 
-      setRecentList([]); 
-    }
-    setRecentLoading(false);
-  };
-
-  const recentPanel = showRecent ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowRecent(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
-          <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
-        </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
-          {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
-          {!recentLoading && recentList.map(s => {
-            const d = s.datos || {};
-            const placa   = d.vehiculo?.placa   || s.placa   || "Sin placa";
-            const modelo  = d.vehiculo?.modelo  || s.modelo  || "—";
-            const servicio = d.servicio?.codigo  || s.servicio_codigo || s.servicio || "—";
-            const mecanico = d.mecanico          || s.mecanico || "";
-            const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
-            const slug  = s.slug || s.id;
-            const url   = `${window.location.origin}/servicio/${slug}`;
-            return (
-              <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{placa}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
-                </div>
-                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{modelo}</div>
-                <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
-                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
-                </div>
-                <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                  <button onClick={() => { setModoRevision(false); loadService(s); }}
-                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
-                    ✏️ Editar
-                  </button>
-                  <button onClick={() => { setModoRevision(true); loadService(s); }}
-                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
-                    📋 Revisión
-                  </button>
-                  <a href={url} target="_blank" rel="noreferrer"
-                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
-                    🔗 Resumen
-                  </a>
-                </div>
-                {s.aprobado && (
-                  <div style={{ marginTop:6, padding:"5px 10px", borderRadius:6, border:"1px solid #4ade8030", background:"#4ade8008", color:"#4ade80", fontSize:9, fontFamily:"monospace", textAlign:"center" }}>
-                    ✅ Aprobado por {s.aprobado_por || "—"}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  ) : null;
-
-  const loadService = (s) => {
-    const d = s.datos || {};
-    const v = d.vehiculo || {};
-
-    // Leer de datos nested O columnas planas (compatibilidad con registros viejos)
-    const modelo    = v.modelo    || s.modelo    || "";
-    const motor     = v.motor     || s.motor     || "";
-    const placa     = v.placa     || s.placa     || "";
-    const km        = v.km        || s.km        || "";
-    const combustible = v.combustible || s.combustible || "gasolina";
-    const traccion  = v.traccion  || s.traccion  || "";
-    const servCodigo = d.servicio?.codigo || s.servicio_codigo || "A";
-    const mecanico  = d.mecanico  || s.mecanico  || "";
-    const observaciones = d.observaciones || s.observaciones || "";
-    const revisiones = d.revisiones || s.revisiones || null;
-
-    setModel(modelo);
-    setModelSearch(modelo);
-    setEngine(motor);
-    setPlate(placa);
-    setKm(km);
-    setFuel(combustible);
-    setIs4m(traccion === "4MATIC");
-    setSel(servCodigo);
-    setMechName(mecanico);
-    setNotes(observaciones);
-
-    // Reconstruir estados del checklist desde revisiones guardadas
-    if (revisiones) {
-      const newStatus  = {};
-      const newIssue   = {};
-      const newChecked = {};
-
-      // Construir mapa de texto→id para fallback
-      const textToId = {};
-      Object.keys(ITEMS).forEach(k => {
-        ITEMS[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
-      });
-
-      Object.values(revisiones).flat().forEach(item => {
-        // Usar id guardado si existe, sino buscar por texto
-        const taskId = item.id || textToId[item.text] || null;
-        if (taskId && item.status && item.status !== "pending") {
-          newStatus[taskId]  = item.status;
-          newChecked[taskId] = true;
-          if (item.detail) newIssue[taskId] = item.detail;
-        }
-      });
-      setTaskStatus(newStatus);
-      setTaskIssue(newIssue);
-      setChk(newChecked);
-    }
-
-    setEditingId(s.id);
-    setEditingTrelloCardId(d.trello_card_id || null);
-    setAprobado(s.aprobado || false);
-    setAprobadoPor(s.aprobado_por || "");
-    // Restaurar el link del cliente si existe
-    const existingSlug = s.slug || "";
-    if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
-    setShowRecent(false);
-    setStep(3);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-  const APP_URL       = import.meta.env.VITE_APP_URL || window.location.origin;
-
-  const [trelloStatus, setTrelloStatus] = useState("idle");
-  const [trelloUrl, setTrelloUrl]       = useState("");
-  const [clientUrl, setClientUrl]       = useState("");
-
-  // Genera el resumen para la tarjeta de Trello — solo puntos a atender
-  const buildTrelloDesc = () => {
-    const issueTasks  = tasks.filter(t => taskStatus[t.id] === "issue");
-    const pendingTasks = tasks.filter(t => !taskStatus[t.id] && !checked[t.id] && !t.text?.startsWith("⚠"));
-
-    let atenderSection = "";
-    if (issueTasks.length > 0) {
-      issueTasks.forEach(t => {
-        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : "";
-        atenderSection += `⚠️ ${t.text}${detail}\n`;
-      });
-    }
-    if (pendingTasks.length > 0) {
-      pendingTasks.forEach(t => { atenderSection += `○ ${t.text}\n`; });
-    }
-    if (notes) {
-      if (atenderSection) atenderSection += "\n";
-      atenderSection += notes;
-    }
-
-    const combinedSection = atenderSection
-      ? `### 📋 Detalles a atender y observaciones del mecánico:\n${atenderSection}\n`
-      : "✅ _Todas las revisiones completadas sin observaciones._\n";
-
-    return `## 🚗 ${model || "Vehículo"} · Servicio ${sel}
-
-| Campo | Detalle |
-|-------|---------|
-| **Placa** | ${plate || "—"} |
-| **Motor** | ${engine || "—"} |
-| **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
-| **Combustible** | ${fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"}${is4m?" · ⚙️ 4MATIC":""} |
-${oilLiters > 0 ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
-| **Mecánico** | ${mechName} |
-| **Fecha** | ${sigDate} |
-
----
-
-${combinedSection}
-_Progreso: ${doneN}/${total} ítems (${pct}%)_`;
-  };
-
-  // Construye el objeto de datos del servicio para JSONBin
-  const buildServiceData = () => {
-    const byGrpMap = {};
-    tasks.forEach(t => {
-      if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
-      const hasDetail = !!taskIssue[t.id];
-      const rawStatus = taskStatus[t.id] || (checked[t.id] ? "ok" : "pending");
-      // Si tiene detalle siempre es issue, independientemente del botón presionado
-      const finalStatus = hasDetail ? "issue" : rawStatus;
-      byGrpMap[t.grp].push({
-        id:     t.id,
-        text:   t.text,
-        status: finalStatus,
-        detail: taskIssue[t.id] || null,
-        outOfAssyst: t.outOfAssyst || false,
-      });
-    });
-    return {
-      taller: "Ramos y Ramos",
-      fecha: sigDate,
-      mecanico: mechName,
-      servicio: { codigo: sel, descripcion: svc.desc },
-      vehiculo: { modelo: model, motor: engine, placa: plate, km: km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD" },
-      aceite: oilLiters > 0 ? { litros: oilLiters, especificacion: oilSpec } : null,
-      revisiones: byGrpMap,
-      observaciones: notes,
-      pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
-      progreso: { completadas: doneN, total },
-    };
-  };
-
-  const sendToTrello = async () => {
-    setTrelloStatus("sending");
-    try {
-      // 1. Guardar en Supabase → obtener ID único para el link del cliente
-      let serviceId = null;
-      let generatedClientUrl = clientUrl || ""; // Si ya existe (edición), reutilizarlo
-      try {
-        const svcData = buildServiceData();
-
-        // Para edición: reusar slug existente si está en clientUrl
-        // Para nuevo: generar slug fresco
-        let slug;
-        if (editingId && clientUrl) {
-          // Extraer slug del URL existente
-          slug = clientUrl.split("/servicio/")[1] || "";
-        }
-        if (!slug) {
-          const now = new Date();
-          const dd   = String(now.getDate()).padStart(2,"0");
-          const mm   = String(now.getMonth()+1).padStart(2,"0");
-          const yyyy = now.getFullYear();
-          const plateClean = (plate || "XX").replace(/[^A-Z0-9]/gi,"").toUpperCase();
-          const suffix = Math.random().toString(36).slice(2,5).toUpperCase();
-          slug = `${plateClean}-${sel}-${dd}${mm}${yyyy}-${suffix}`;
-        }
-
-        const sbRes = await fetch(
-          editingId
-            ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`
-            : `${SUPABASE_URL}/rest/v1/servicios`,
-          {
-          method: editingId ? "PATCH" : "POST",
-          headers: {
-            "apikey": SUPABASE_KEY,
-            "Authorization": `Bearer ${SUPABASE_KEY}`,
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-          },
-          body: JSON.stringify({
-            slug,
-            placa:           plate,
-            modelo:          svcData.vehiculo.modelo,
-            motor:           svcData.vehiculo.motor,
-            mecanico:        svcData.mecanico,
-            fecha:           svcData.fecha,
-            servicio_codigo: svcData.servicio.codigo,
-            servicio_desc:   svcData.servicio.descripcion,
-            km:              svcData.vehiculo.km,
-            combustible:     svcData.vehiculo.combustible,
-            traccion:        svcData.vehiculo.traccion,
-            aceite_litros:   svcData.aceite?.litros || null,
-            aceite_spec:     svcData.aceite?.especificacion || null,
-            revisiones:      svcData.revisiones,
-            observaciones:   svcData.observaciones,
-            pendientes:      svcData.pendientes,
-            progreso:        svcData.progreso,
-            aprobado:        true,
-          }),
-        });
-        const sbData = await sbRes.json();
-        const savedId = sbData?.[0]?.id || editingId;
-        if (savedId || slug) {
-          generatedClientUrl = `${APP_URL}/servicio/${slug}`;
-          setClientUrl(generatedClientUrl);
-        }
-      } catch(e) { console.warn("Supabase error:", e); }
-
-      // 2. Obtener todas las listas del tablero excepto "Finalizados"
-      const listsRes = await fetch(
-        `https://api.trello.com/1/boards/${TRELLO_BOARD}/lists?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`
-      );
-      const lists = await listsRes.json();
-
-      // Filtrar listas activas (excluir Finalizados)
-      const activeLists = lists.filter(l =>
-        !l.name.toLowerCase().includes("finalizado") &&
-        !l.name.toLowerCase().includes("finalizados") &&
-        !l.name.toLowerCase().includes("archivado") &&
-        !l.closed
-      );
-
-      // Lista destino si hay que crear tarjeta nueva
-      let targetListId = activeLists[0]?.id;
-      const preferred = activeLists.find(l =>
-        l.name.toLowerCase().includes("prontos a salir") ||
-        l.name.toLowerCase().includes("pronto a salir") ||
-        l.name.toLowerCase().includes("prontos") ||
-        l.name.toLowerCase().includes("trabajos prontos") ||
-        l.name.toLowerCase().includes("listo")
-      );
-      if (preferred) targetListId = preferred.id;
-
-      // 3. Buscar tarjeta existente con la placa en su nombre
-      let existingCardId = editingTrelloCardId || null;
-
-      if (!existingCardId && plate) {
-        const plateClean = plate.trim().toUpperCase();
-        // Buscar en cada lista activa
-        for (const list of activeLists) {
-          const cardsRes = await fetch(
-            `https://api.trello.com/1/lists/${list.id}/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=id,name`
-          );
-          const cards = await cardsRes.json();
-          const match = Array.isArray(cards) && cards.find(c =>
-            c.name.toUpperCase().includes(plateClean)
-          );
-          if (match) {
-            existingCardId = match.id;
-            break;
-          }
-        }
-      }
-
-      // 4. Crear O ACTUALIZAR tarjeta
-      const clientLinkSection = generatedClientUrl
-        ? `\n\n---\n\n## 💬 Mensaje para el cliente\n\nHola! Te compartimos el resumen de tu mantenimiento más reciente realizado en Taller Ramos y Ramos:\n${generatedClientUrl}`
-        : "";
-
-      const title = `🔧 ${model || "Vehículo"} | Placa: ${plate || "—"} | Servicio ${sel} | ${mechName}`;
-      const desc  = buildTrelloDesc() + clientLinkSection;
-
-      let cardRes;
-      if (existingCardId) {
-        // Obtener descripción actual y agregar el nuevo resumen al final
-        let existingDesc = "";
-        try {
-          const getCard = await fetch(
-            `https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=desc`
-          );
-          const cardData = await getCard.json();
-          existingDesc = cardData.desc || "";
-        } catch(e) {}
-
-        const separator = existingDesc ? "\n\n---\n\n" : "";
-        const updatedDesc = existingDesc + separator + desc;
-
-        cardRes = await fetch(
-          `https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ desc: updatedDesc })
-          }
-        );
-      } else {
-        // Crear tarjeta nueva en la lista destino
-        cardRes = await fetch(
-          `https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ idList: targetListId, name: title, desc, due: null })
-          }
-        );
-      }
-      const card = await cardRes.json();
-
-      if (card.url || card.id) {
-        if (card.id) setEditingTrelloCardId(card.id);
-        setTrelloUrl(card.url || trelloUrl);
-        setTrelloStatus("done");
-      } else {
-        setTrelloStatus("error");
-      }
-    } catch (e) {
-      console.error(e);
-      setTrelloStatus("error");
-    }
-  };
-
   const confirmSig = async () => {
     const now = new Date();
     const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
@@ -2572,58 +2144,26 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 </div>
               </div>
 
-              {/* Pad de firma */}
-              <div style={{ marginBottom:10 }}>
-                <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:6 }}>FIRMA DIGITAL</div>
-                <div style={{ position:"relative", borderRadius:8, overflow:"hidden", border:`1.5px solid ${hasSig?"#C8A96E":line}`, background:"#0c0c14" }}>
-                  <canvas
-                    ref={canvasRef}
-                    width={600}
-                    height={160}
-                    style={{ width:"100%", height:160, display:"block", cursor:"crosshair", touchAction:"none" }}
-                    onMouseDown={startDraw}
-                    onMouseMove={draw}
-                    onMouseUp={stopDraw}
-                    onMouseLeave={stopDraw}
-                    onTouchStart={startDraw}
-                    onTouchMove={draw}
-                    onTouchEnd={stopDraw}
-                  />
-                  {!hasSig && (
-                    <div style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", fontSize:12, color:"#2a2a3a", pointerEvents:"none", letterSpacing:2 }}>
-                      ✍ FIRMAR AQUÍ
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize:9, color:"#333", marginTop:4, textAlign:"center" }}>Usá el dedo o el mouse para firmar</div>
-              </div>
-
-              {/* Botones */}
-              <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-                <button onClick={clearSig} style={{ flex:1, padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
-                  🗑 Borrar
-                </button>
+              {/* Botón confirmar */}
+              <div style={{ marginBottom:12 }}>
                 <button
                   onClick={confirmSig}
-                  disabled={!hasSig || !mechName.trim()}
-                  style={{ flex:2, padding:"10px", borderRadius:6, border:`1px solid ${hasSig && mechName.trim()?"#C8A96E60":"#2a2a3a"}`, background:hasSig && mechName.trim()?"#C8A96E20":card, color:hasSig && mechName.trim()?"#C8A96E":"#444", fontFamily:"monospace", fontSize:11, letterSpacing:1, cursor:hasSig && mechName.trim()?"pointer":"default", fontWeight:"bold" }}
+                  disabled={!mechName.trim()}
+                  style={{ width:"100%", padding:"12px", borderRadius:6, border:`1px solid ${mechName.trim()?"#C8A96E60":"#2a2a3a"}`, background:mechName.trim()?"#C8A96E20":card, color:mechName.trim()?"#C8A96E":"#444", fontFamily:"monospace", fontSize:11, letterSpacing:1, cursor:mechName.trim()?"pointer":"default", fontWeight:"bold" }}
                 >
-                  ✓ CONFIRMAR Y CERTIFICAR
+                  ✓ CONFIRMAR Y GUARDAR
                 </button>
               </div>
 
-              {/* Indicador de pasos */}
-              {!sigDate && (
+              {/* Indicador */}
+              {!sigDate && !mechName.trim() && (
                 <div style={{ fontSize:10, color:"#444", textAlign:"center", padding:"6px", borderRadius:6, border:"1px dashed #2a2a3a" }}>
-                  {!mechName.trim() && !hasSig ? "① Seleccioná el mecánico  ②  Firmá  ③ Confirmá"
-                  : !mechName.trim() ? "① Seleccioná el mecánico responsable"
-                  : !hasSig ? "② Falta la firma"
-                  : "③ Presioná Confirmar para certificar"}
+                  ① Seleccioná el mecánico  ② Confirmá
                 </div>
               )}
 
               {/* ── PANTALLA DE FINALIZACIÓN ── */}
-              {sigDate && mechName.trim() && hasSig && (
+              {sigDate && mechName.trim() && (
                 <div style={{ marginTop:4 }}>
                   {/* Declaración principal */}
                   <div style={{ padding:"20px 16px", borderRadius:10, border:"2px solid #C8A96E60", background:"linear-gradient(180deg,#C8A96E0a 0%,#09090e 100%)", textAlign:"center", marginBottom:14 }}>
@@ -2712,7 +2252,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     </>
                   )}
 
-                  <button onClick={()=>{ clearSig(); resetAll(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                  <button onClick={()=>{ resetAll(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
                     ↺ Nuevo servicio
                   </button>
                 </div>
