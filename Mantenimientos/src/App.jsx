@@ -1670,6 +1670,152 @@ function MainApp() {
     </div>
   ) : null;
 
+  const TRELLO_KEY   = import.meta.env.VITE_TRELLO_KEY;
+  const TRELLO_TOKEN = import.meta.env.VITE_TRELLO_TOKEN;
+  const TRELLO_BOARD = import.meta.env.VITE_TRELLO_BOARD;
+  const APP_URL      = import.meta.env.VITE_APP_URL || window.location.origin;
+
+  const buildServiceData = () => {
+    const byGrpMap = {};
+    tasks.forEach(t => {
+      if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
+      const hasDetail = !!taskIssue[t.id];
+      const rawStatus = taskStatus[t.id] || (checked[t.id] ? "ok" : "pending");
+      byGrpMap[t.grp].push({
+        id: t.id, text: t.text,
+        status: hasDetail ? "issue" : rawStatus,
+        detail: taskIssue[t.id] || null,
+        outOfAssyst: t.outOfAssyst || false,
+      });
+    });
+    return {
+      taller: "Ramos y Ramos", fecha: sigDate, mecanico: mechName,
+      servicio: { codigo: sel, descripcion: svc.desc },
+      vehiculo: { modelo: model, motor: engine, placa: plate, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD" },
+      aceite: oilLiters > 0 ? { litros: oilLiters, especificacion: oilSpec } : null,
+      revisiones: byGrpMap,
+      observaciones: notes,
+      pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
+      progreso: { completadas: doneN, total },
+    };
+  };
+
+  const buildTrelloDesc = () => {
+    const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
+    let atenderSection = "";
+    if (issueTasks.length > 0) {
+      issueTasks.forEach(t => {
+        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : "";
+        atenderSection += `⚠️ ${t.text}${detail}\n`;
+      });
+    }
+    if (notes) { if (atenderSection) atenderSection += "\n"; atenderSection += notes; }
+    const combinedSection = atenderSection
+      ? `### 📋 Detalles a atender y observaciones del mecánico:\n${atenderSection}\n`
+      : "✅ _Todas las revisiones completadas sin observaciones._\n";
+    return `## 🚗 ${model || "Vehículo"} · Servicio ${sel}
+
+| Campo | Detalle |
+|-------|---------|
+| **Placa** | ${plate || "—"} |
+| **Motor** | ${engine || "—"} |
+| **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
+| **Combustible** | ${fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"}${is4m?" · ⚙️ 4MATIC":""} |
+${oilLiters > 0 ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
+| **Mecánico** | ${mechName} |
+| **Fecha** | ${sigDate} |
+
+---
+
+${combinedSection}
+_Progreso: ${doneN}/${total} ítems (${pct}%)_`;
+  };
+
+  const sendToTrello = async () => {
+    setTrelloStatus("sending");
+    try {
+      const svcData = buildServiceData();
+      let generatedClientUrl = clientUrl || "";
+      let slug = "";
+      if (editingId && clientUrl) slug = clientUrl.split("/servicio/")[1] || "";
+      if (!slug) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2,"0");
+        const mm = String(now.getMonth()+1).padStart(2,"0");
+        const yyyy = now.getFullYear();
+        const plateClean = (plate||"XX").replace(/[^A-Z0-9]/gi,"").toUpperCase();
+        slug = `${plateClean}-${sel}-${dd}${mm}${yyyy}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
+      }
+      try {
+        const sbRes = await fetch(
+          editingId ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}` : `${SUPABASE_URL}/rest/v1/servicios`,
+          { method: editingId ? "PATCH" : "POST",
+            headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" },
+            body: JSON.stringify({
+              slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
+              mecanico: svcData.mecanico, fecha: svcData.fecha, servicio_codigo: svcData.servicio.codigo,
+              servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m?"4MATIC":"RWD",
+              aceite_litros: svcData.aceite?.litros||null, aceite_spec: svcData.aceite?.especificacion||null,
+              revisiones: svcData.revisiones, observaciones: svcData.observaciones,
+              pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true,
+            }),
+          }
+        );
+        const sbData = await sbRes.json();
+        const savedId = sbData?.[0]?.id;
+        generatedClientUrl = `${APP_URL}/servicio/${slug}`;
+        setClientUrl(generatedClientUrl);
+        if (!editingId && savedId) setEditingId(savedId);
+      } catch(e) { console.warn("Supabase error:", e); }
+
+      const listsRes = await fetch(`https://api.trello.com/1/boards/${TRELLO_BOARD}/lists?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
+      const lists = await listsRes.json();
+      const activeLists = lists.filter(l => !l.name.toLowerCase().includes("finalizado") && !l.name.toLowerCase().includes("archivado") && !l.closed);
+      let targetListId = activeLists[0]?.id;
+      const preferred = activeLists.find(l => l.name.toLowerCase().includes("prontos") || l.name.toLowerCase().includes("listo"));
+      if (preferred) targetListId = preferred.id;
+
+      let existingCardId = editingTrelloCardId || null;
+      if (!existingCardId && plate) {
+        const plateClean = plate.trim().toUpperCase();
+        for (const list of activeLists) {
+          const cardsRes = await fetch(`https://api.trello.com/1/lists/${list.id}/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=id,name`);
+          const cards = await cardsRes.json();
+          const match = Array.isArray(cards) && cards.find(c => c.name.toUpperCase().includes(plateClean));
+          if (match) { existingCardId = match.id; break; }
+        }
+      }
+
+      const clientLinkSection = generatedClientUrl
+        ? `\n\n---\n\n## 💬 Mensaje para el cliente\n\nHola! Te compartimos el resumen de tu mantenimiento realizado en Taller Ramos y Ramos:\n${generatedClientUrl}`
+        : "";
+      const title = `🔧 ${model||"Vehículo"} | Placa: ${plate||"—"} | Servicio ${sel} | ${mechName}`;
+      const desc = buildTrelloDesc() + clientLinkSection;
+
+      let cardRes;
+      if (existingCardId) {
+        let existingDesc = "";
+        try {
+          const getCard = await fetch(`https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=desc`);
+          const cardData = await getCard.json();
+          existingDesc = cardData.desc || "";
+        } catch(e) {}
+        const separator = existingDesc ? "\n\n---\n\n" : "";
+        cardRes = await fetch(`https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
+          { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ desc: existingDesc + separator + desc }) });
+      } else {
+        cardRes = await fetch(`https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
+          { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ idList: targetListId, name: title, desc, due: null }) });
+      }
+      const card = await cardRes.json();
+      if (card.url || card.id) {
+        if (card.id) setEditingTrelloCardId(card.id);
+        setTrelloUrl(card.url || trelloUrl);
+        setTrelloStatus("done");
+      } else { setTrelloStatus("error"); }
+    } catch(e) { console.error(e); setTrelloStatus("error"); }
+  };
+
   const confirmSig = async () => {
     const now = new Date();
     const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
