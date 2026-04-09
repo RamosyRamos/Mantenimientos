@@ -1537,15 +1537,6 @@ function MainApp() {
   };
 
   const confirmIssue = (id, taskText) => {
-    const txt = taskIssue[id] || "";
-    if (txt.trim()) {
-      // Agregar a notas solo si no está ya incluido
-      const line = `⚠️ ${taskText}: ${txt.trim()}`;
-      setNotes(n => {
-        if (n && n.includes(txt.trim())) return n; // evitar duplicados
-        return n ? n + "\n• " + line : "• " + line;
-      });
-    }
     setTaskStatus(p => ({ ...p, [id]: "issue" }));
     setChk(p => ({ ...p, [id]: true }));
     setActiveIssue(null);
