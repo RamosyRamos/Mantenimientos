@@ -1791,10 +1791,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     const byGrpMap = {};
     tasks.forEach(t => {
       if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
+      const hasDetail = !!taskIssue[t.id];
+      const rawStatus = taskStatus[t.id] || (checked[t.id] ? "ok" : "pending");
+      // Si tiene detalle siempre es issue, independientemente del botón presionado
+      const finalStatus = hasDetail ? "issue" : rawStatus;
       byGrpMap[t.grp].push({
         id:     t.id,
         text:   t.text,
-        status: taskStatus[t.id] || (checked[t.id] ? "ok" : "pending"),
+        status: finalStatus,
         detail: taskIssue[t.id] || null,
         outOfAssyst: t.outOfAssyst || false,
       });
@@ -1997,10 +2001,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const byGrpMap = {};
       tasks.forEach(t => {
         if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
+        const hasDetail = !!taskIssue[t.id];
+        const rawStatus = taskStatus[t.id] || (checked[t.id] ? "ok" : "pending");
         byGrpMap[t.grp].push({
           id: t.id,
           text: t.text,
-          status: taskStatus[t.id] || (checked[t.id] ? "ok" : "pending"),
+          status: hasDetail ? "issue" : rawStatus,
           detail: taskIssue[t.id] || null,
         });
       });
