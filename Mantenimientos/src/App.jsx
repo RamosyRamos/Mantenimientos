@@ -1544,6 +1544,9 @@ function MainApp() {
 
   // ── Firma helpers ──
 
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+  const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
+
   const fetchRecent = async () => {
     setRecentLoading(true);
     try {
