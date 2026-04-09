@@ -1543,6 +1543,76 @@ function MainApp() {
   };
 
   // ── Firma helpers ──
+
+  const fetchRecent = async () => {
+    setRecentLoading(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+      });
+      const data = await res.json();
+      setRecentList(Array.isArray(data) ? data : []);
+    } catch(e) { setRecentList([]); }
+    setRecentLoading(false);
+  };
+
+  const recentPanel = showRecent ? (
+    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowRecent(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
+          <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+          {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+          {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
+          {!recentLoading && recentList.map(s => {
+            const d = s.datos || {};
+            const placa    = d.vehiculo?.placa   || s.placa   || "Sin placa";
+            const modelo   = d.vehiculo?.modelo  || s.modelo  || "—";
+            const servicio = d.servicio?.codigo  || s.servicio_codigo || "—";
+            const mecanico = d.mecanico          || s.mecanico || "";
+            const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+            const slug  = s.slug || s.id;
+            const url   = `${window.location.origin}/servicio/${slug}`;
+            return (
+              <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{placa}</span>
+                  <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+                </div>
+                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{modelo}</div>
+                <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
+                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
+                  <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
+                </div>
+                <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                  <button onClick={() => { setModoRevision(false); loadService(s); }}
+                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+                    ✏️ Editar
+                  </button>
+                  <button onClick={() => { setModoRevision(true); loadService(s); }}
+                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+                    📋 Revisión
+                  </button>
+                  <a href={url} target="_blank" rel="noreferrer"
+                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
+                    🔗 Resumen
+                  </a>
+                </div>
+                {s.aprobado && (
+                  <div style={{ marginTop:6, padding:"5px 10px", borderRadius:6, border:"1px solid #4ade8030", background:"#4ade8008", color:"#4ade80", fontSize:9, fontFamily:"monospace", textAlign:"center" }}>
+                    ✅ Aprobado por {s.aprobado_por || "—"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   const confirmSig = async () => {
     const now = new Date();
     const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
