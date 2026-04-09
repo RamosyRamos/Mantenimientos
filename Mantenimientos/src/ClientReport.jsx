@@ -33,6 +33,7 @@ export default function ClientReport({ binId }) {
             taller:       "Ramos y Ramos",
             fecha:        r.fecha,
             mecanico:     r.mecanico,
+            aprobado_por: r.aprobado_por || null,
             servicio:     { codigo: r.servicio_codigo, descripcion: r.servicio_desc },
             vehiculo:     { modelo: r.modelo, motor: r.motor, placa: r.placa, km: r.km, combustible: r.combustible, traccion: r.traccion },
             aceite:       r.aceite_litros ? { litros: r.aceite_litros, especificacion: r.aceite_spec } : null,
@@ -81,7 +82,7 @@ function ErrorScreen() {
 
 function ReportView({ data }) {
   const {
-    taller, fecha, mecanico, servicio, vehiculo,
+    taller, fecha, mecanico, aprobado_por, servicio, vehiculo,
     aceite, revisiones, observaciones, pendientes, progreso
   } = data;
 
@@ -134,7 +135,8 @@ function ReportView({ data }) {
         {/* DATOS DEL SERVICIO */}
         <Section title="🔧 Datos del Servicio">
           <Row label="Código de servicio" value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
-          <Row label="Mecánico responsable" value={mecanico} />
+          <Row label="Realizado por" value={mecanico} />
+          {aprobado_por && <Row label="Aprobado por" value={<span style={{ color:"#4ade80" }}>✅ {aprobado_por}</span>} />}
           <Row label="Fecha y hora" value={fecha} />
           <Row label="Motor" value={vehiculo?.motor} />
           <Row label="Combustible" value={vehiculo?.combustible === "diesel" ? "🛢️ Diesel" : "⛽ Gasolina"} />

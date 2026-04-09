@@ -170,6 +170,7 @@ function ServiceCard({ service: s, index, total }) {
           <div style={{ fontSize:11, color:"#888" }}>{s.servicio_desc}</div>
           <div style={{ fontSize:10, color:"#555", marginTop:4 }}>
             📅 {s.fecha} · 👤 {s.mecanico}
+            {s.aprobado_por && <span style={{ color:"#4ade80" }}> · ✅ {s.aprobado_por}</span>}
             {s.km && ` · 📍 ${parseInt(s.km).toLocaleString()} km`}
           </div>
         </div>

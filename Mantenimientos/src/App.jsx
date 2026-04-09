@@ -1437,7 +1437,9 @@ function MainApp() {
   const [recentLoading, setRecentLoading] = useState(false);
   const [editingId, setEditingId] = useState(null); // ID del servicio en edición
   const [editingTrelloCardId, setEditingTrelloCardId] = useState(null); // ID de la tarjeta Trello
-  const [aprobado, setAprobado] = useState(false); // Si el jefe aprobó el servicio
+  const [aprobado, setAprobado] = useState(false);
+  const [aprobadoPor, setAprobadoPor] = useState("");
+  const [modoRevision, setModoRevision] = useState(false); // true = jefe revisando, false = mecánico editando // Quién aprobó
   const [sel, setSel]       = useState("A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
@@ -1512,6 +1514,8 @@ function MainApp() {
     setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
     setEditingTrelloCardId(null);
     setAprobado(false);
+    setAprobadoPor("");
+    setModoRevision(false);
     setTab("check"); setStep(1); setEditingId(null);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
@@ -1628,36 +1632,24 @@ function MainApp() {
                   <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
                 </div>
                 <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                  <button onClick={() => loadService(s)}
+                  <button onClick={() => { setModoRevision(false); loadService(s); }}
                     style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
                     ✏️ Editar
                   </button>
-                  {!s.aprobado && (
-                    <button onClick={async () => {
-                      try {
-                        await fetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${s.id}`, {
-                          method: "PATCH",
-                          headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
-                          body: JSON.stringify({ aprobado: true }),
-                        });
-                        // Refrescar lista
-                        fetchRecent();
-                      } catch(e) { console.error(e); }
-                    }}
-                      style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
-                      ✅ Aprobar
-                    </button>
-                  )}
-                  {s.aprobado && (
-                    <div style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8008", color:"#4ade80", fontSize:10, fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
-                      ✅ Aprobado
-                    </div>
-                  )}
+                  <button onClick={() => { setModoRevision(true); loadService(s); }}
+                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+                    📋 Revisión
+                  </button>
                   <a href={url} target="_blank" rel="noreferrer"
                     style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
                     🔗 Resumen
                   </a>
                 </div>
+                {s.aprobado && (
+                  <div style={{ marginTop:6, padding:"5px 10px", borderRadius:6, border:"1px solid #4ade8030", background:"#4ade8008", color:"#4ade80", fontSize:9, fontFamily:"monospace", textAlign:"center" }}>
+                    ✅ Aprobado por {s.aprobado_por || "—"}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1722,6 +1714,7 @@ function MainApp() {
     setEditingId(s.id);
     setEditingTrelloCardId(d.trello_card_id || null);
     setAprobado(s.aprobado || false);
+    setAprobadoPor(s.aprobado_por || "");
     // Restaurar el link del cliente si existe
     const existingSlug = s.slug || "";
     if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
@@ -2659,13 +2652,40 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                   )}
 
                   {/* Flujo de aprobación */}
-                  {!aprobado ? (
-                    <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E08", marginBottom:10, textAlign:"center" }}>
-                      <div style={{ fontSize:11, color:"#C8A96E", letterSpacing:1, marginBottom:6 }}>⏳ PENDIENTE DE APROBACIÓN</div>
-                      <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>El servicio fue guardado. El jefe debe revisarlo y aprobarlo antes de enviarlo a Trello.</div>
+                  {modoRevision && !aprobado && (
+                    <div style={{ marginBottom:10, padding:"14px", borderRadius:8, border:"1px solid #4ade8040", background:"#4ade8006" }}>
+                      <div style={{ fontSize:10, color:"#4ade80", letterSpacing:1, marginBottom:10, textAlign:"center" }}>📋 REVISIÓN DE APROBACIÓN</div>
+                      <div style={{ fontSize:9, color:"#555", marginBottom:10, textAlign:"center" }}>Seleccioná quién realiza la aprobación:</div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                        {["Otto Ramos","Gustavo Ramos","Arturo Ramos"].map(nombre => (
+                          <button key={nombre} onClick={async () => {
+                            try {
+                              await fetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`, {
+                                method: "PATCH",
+                                headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
+                                body: JSON.stringify({ aprobado: true, aprobado_por: nombre }),
+                              });
+                              setAprobado(true);
+                              setAprobadoPor(nombre);
+                            } catch(e) { console.error(e); }
+                          }}
+                            style={{ width:"100%", padding:"10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8010", color:"#4ade80", fontFamily:"monospace", fontSize:11, cursor:"pointer", letterSpacing:1, textAlign:"center" }}>
+                            ✅ Revisión de aprobación — {nombre}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ) : (
+                  )}
+                  {!modoRevision && !aprobado && (
+                    <div style={{ padding:"10px 14px", borderRadius:8, border:"1px solid #C8A96E30", background:"#C8A96E06", marginBottom:10, textAlign:"center" }}>
+                      <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:1 }}>⏳ PENDIENTE DE APROBACIÓN</div>
+                    </div>
+                  )}
+                  {aprobado && (
                     <>
+                      <div style={{ padding:"8px 12px", borderRadius:6, border:"1px solid #4ade8030", background:"#4ade8008", marginBottom:10, textAlign:"center", fontSize:10, color:"#4ade80" }}>
+                        ✅ Aprobado por {aprobadoPor}
+                      </div>
                       {/* Botón Trello — solo visible si está aprobado */}
                       {trelloStatus === "done" ? (
                         <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #4ade8050", background:"#0a1a0a", marginBottom:10 }}>
