@@ -11,6 +11,7 @@ const card = "#0f0f17";
 const line = "#1c1c2a";
 const gold = "#C8A96E";
 
+// v2.1
 export default function ClientHistory() {
   const [placa, setPlaca]       = useState("");
   const [results, setResults]   = useState(null);
@@ -164,7 +165,7 @@ function ServiceCard({ service: s, index, total }) {
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
             <span style={{ fontSize:13, fontWeight:"bold", color:gold }}>Servicio {s.servicio_codigo}</span>
             {hasIssues && <span style={{ fontSize:9, background:"#f8717120", border:"1px solid #f8717140", color:"#f87171", borderRadius:4, padding:"1px 6px" }}>⚠️ Con detalles</span>}
-            {!hasPendientes && <span style={{ fontSize:9, background:"#4ade8015", border:"1px solid #4ade8030", color:"#4ade80", borderRadius:4, padding:"1px 6px" }}>✅ OK</span>}
+            {!hasIssues && <span style={{ fontSize:9, background:"#4ade8015", border:"1px solid #4ade8030", color:"#4ade80", borderRadius:4, padding:"1px 6px" }}>✅ OK</span>}
           </div>
           <div style={{ fontSize:11, color:"#888" }}>{s.servicio_desc}</div>
           <div style={{ fontSize:10, color:"#555", marginTop:4 }}>
