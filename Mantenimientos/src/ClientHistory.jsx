@@ -205,6 +205,15 @@ function ServiceCard({ service: s, index, total }) {
                         {item.text}{isNA && <span style={{ fontSize:10, color:"#444", marginLeft:6 }}>No aplica</span>}
                       </div>
                       {item.detail && <div style={{ fontSize:11, color:"#f87171", marginTop:3 }}>→ {item.detail}</div>}
+                      {item.fotos?.length > 0 && (
+                        <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:6 }}>
+                          {item.fotos.map((url, idx) => (
+                            <a key={idx} href={url} target="_blank" rel="noreferrer">
+                              <img src={url} alt="" style={{ width:52, height:52, objectFit:"cover", borderRadius:4, border:"1px solid #f8717130" }} />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

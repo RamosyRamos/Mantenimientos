@@ -180,6 +180,15 @@ function ReportView({ data }) {
                         {item.detail}
                       </div>
                     )}
+                    {item.fotos?.length > 0 && (
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
+                        {item.fotos.map((url, idx) => (
+                          <a key={idx} href={url} target="_blank" rel="noreferrer">
+                            <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:6, border:"1px solid #f8717140" }} />
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

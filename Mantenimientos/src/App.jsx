@@ -1452,6 +1452,7 @@ function MainApp() {
   const [checked, setChk]   = useState({});
   const [taskStatus, setTaskStatus] = useState({}); // id -> "ok" | "issue"
   const [taskIssue, setTaskIssue]   = useState({}); // id -> texto del detalle
+  const [taskPhotos, setTaskPhotos] = useState({}); // id -> string[] (URLs ImgBB)
   const [activeIssue, setActiveIssue] = useState(null); // id del ítem abierto
   const [exChk, setExChk]   = useState({});
   const [notes, setNotes]   = useState("");
@@ -1506,7 +1507,7 @@ function MainApp() {
   };
   const resetAll = ()  => {
     const u={}; tasks.forEach(t => u[t.id]=false); setChk(p=>({...p,...u}));
-    setTaskStatus({}); setTaskIssue({}); setActiveIssue(null);
+    setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setActiveIssue(null);
     setNotes(""); setMechName(""); setSigDate("");
     setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
     setSel("A"); setFuel("gasolina"); setIs4m(false);
@@ -1545,6 +1546,27 @@ function MainApp() {
     setActiveIssue(null);
   };
 
+  const IMGBB_KEY = import.meta.env.VITE_IMGBB_KEY;
+  const uploadPhoto = (id) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment";
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const form = new FormData();
+      form.append("image", file);
+      try {
+        const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_KEY}`, { method: "POST", body: form });
+        const json = await res.json();
+        const url = json?.data?.url;
+        if (url) setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
+      } catch(e) { console.warn("ImgBB upload error:", e); }
+    };
+    input.click();
+  };
+
   // ── Firma helpers ──
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -1577,16 +1599,19 @@ function MainApp() {
       Object.keys(ITEMS).forEach(k => {
         ITEMS[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
       });
+      const newPhotos = {};
       Object.values(revisiones).flat().forEach(item => {
         const taskId = item.id || textToId[item.text] || null;
         if (taskId && item.status && item.status !== "pending") {
           newStatus[taskId]  = item.status;
           newChecked[taskId] = true;
           if (item.detail) newIssue[taskId] = item.detail;
+          if (item.fotos?.length) newPhotos[taskId] = item.fotos;
         }
       });
       setTaskStatus(newStatus);
       setTaskIssue(newIssue);
+      setTaskPhotos(newPhotos);
       setChk(newChecked);
     }
 
@@ -1685,6 +1710,7 @@ function MainApp() {
         id: t.id, text: t.text,
         status: hasDetail ? "issue" : rawStatus,
         detail: taskIssue[t.id] || null,
+        fotos: taskPhotos[t.id] || null,
         outOfAssyst: t.outOfAssyst || false,
       });
     });
@@ -1758,6 +1784,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               aceite_litros: svcData.aceite?.litros||null, aceite_spec: svcData.aceite?.especificacion||null,
               revisiones: svcData.revisiones, observaciones: svcData.observaciones,
               pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true,
+              fotos: taskPhotos,
             }),
           }
         );
@@ -1837,6 +1864,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           text: t.text,
           status: hasDetail ? "issue" : rawStatus,
           detail: taskIssue[t.id] || null,
+          fotos: taskPhotos[t.id] || null,
         });
       });
 
@@ -2323,10 +2351,24 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                               rows={2}
                               style={{ width:"100%", background:"#0c0808", border:"1px solid #f8717130", borderRadius:4, color:"#f0c0c0", fontSize:12, fontFamily:"monospace", padding:"6px 8px", resize:"none", boxSizing:"border-box", outline:"none", lineHeight:1.5 }}
                             />
+                            {/* Fotos de evidencia */}
+                            {taskPhotos[id]?.length > 0 && (
+                              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
+                                {taskPhotos[id].map((url, idx) => (
+                                  <a key={idx} href={url} target="_blank" rel="noreferrer">
+                                    <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:60, height:60, objectFit:"cover", borderRadius:4, border:"1px solid #f8717140" }} />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
                             <div style={{ display:"flex", gap:6, marginTop:6 }}>
                               <button onClick={()=>{ setTaskStatus(p=>({...p,[id]:undefined})); setActiveIssue(null); }}
                                 style={{ flex:1, padding:"6px", borderRadius:4, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
                                 Cancelar
+                              </button>
+                              <button onClick={()=>uploadPhoto(id)}
+                                style={{ flex:1, padding:"6px", borderRadius:4, border:"1px solid #60a5fa60", background:"#60a5fa18", color:"#60a5fa", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                                📷 Foto
                               </button>
                               <button onClick={()=>confirmIssue(id,text)}
                                 style={{ flex:2, padding:"6px", borderRadius:4, border:"1px solid #f8717150", background:"#f8717118", color:"#f87171", fontFamily:"monospace", fontSize:10, cursor:"pointer", fontWeight:"bold" }}>
@@ -2337,9 +2379,16 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                         )}
 
                         {/* Resumen del detalle guardado */}
-                        {status==="issue" && !isOpen && taskIssue[id] && (
-                          <div onClick={()=>setActiveIssue(id)} style={{ padding:"4px 10px", borderRadius:"0 0 6px 6px", background:"#1a0808", border:`1px solid #f8717140`, borderTop:"none", fontSize:11, color:"#f87171", cursor:"pointer" }}>
-                            ✎ {taskIssue[id]}
+                        {status==="issue" && !isOpen && (taskIssue[id] || taskPhotos[id]?.length > 0) && (
+                          <div onClick={()=>setActiveIssue(id)} style={{ padding:"6px 10px", borderRadius:"0 0 6px 6px", background:"#1a0808", border:`1px solid #f8717140`, borderTop:"none", cursor:"pointer" }}>
+                            {taskIssue[id] && <div style={{ fontSize:11, color:"#f87171" }}>✎ {taskIssue[id]}</div>}
+                            {taskPhotos[id]?.length > 0 && (
+                              <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop: taskIssue[id] ? 6 : 0 }}>
+                                {taskPhotos[id].map((url, idx) => (
+                                  <img key={idx} src={url} alt="" style={{ width:40, height:40, objectFit:"cover", borderRadius:3, border:"1px solid #f8717130" }} onClick={e=>{ e.stopPropagation(); window.open(url,"_blank"); }} />
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
