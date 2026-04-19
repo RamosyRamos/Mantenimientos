@@ -1548,21 +1548,30 @@ function MainApp() {
 
   const IMGBB_KEY = import.meta.env.VITE_IMGBB_KEY;
   const uploadPhoto = (id) => {
+    console.log("[ImgBB] VITE_IMGBB_KEY:", IMGBB_KEY);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
     input.capture = "environment";
     input.onchange = async (e) => {
       const file = e.target.files?.[0];
-      if (!file) return;
+      if (!file) { console.warn("[ImgBB] No file selected"); return; }
+      console.log("[ImgBB] Uploading file:", file.name, file.type, file.size, "bytes");
       const form = new FormData();
       form.append("image", file);
       try {
         const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_KEY}`, { method: "POST", body: form });
+        console.log("[ImgBB] HTTP status:", res.status);
         const json = await res.json();
+        console.log("[ImgBB] Response:", JSON.stringify(json));
         const url = json?.data?.url;
-        if (url) setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
-      } catch(e) { console.warn("ImgBB upload error:", e); }
+        if (url) {
+          console.log("[ImgBB] Upload success, URL:", url);
+          setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
+        } else {
+          console.error("[ImgBB] No URL in response:", json);
+        }
+      } catch(err) { console.error("[ImgBB] Fetch error:", err); }
     };
     input.click();
   };
