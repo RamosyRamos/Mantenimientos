@@ -1368,21 +1368,30 @@ function LoginScreen({ onLogin }) {
     try {
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const queryUser = username.trim();
+      console.log("[Auth] Querying usuario:", queryUser);
       const res = await fetch(
-        `${SURL}/rest/v1/usuarios?username=eq.${encodeURIComponent(username.trim().toLowerCase())}&activo=eq.true&select=id,username,nombre,rol,app,password`,
+        `${SURL}/rest/v1/usuarios?username=ilike.${encodeURIComponent(queryUser)}&activo=eq.true&select=id,username,nombre,rol,app,password`,
         { headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` } }
       );
       const rows = await res.json();
+      console.log("[Auth] Rows returned:", JSON.stringify(rows));
       const user = Array.isArray(rows) && rows.find(u => u.app === "mantenimientos" || u.app === "ambas");
+      console.log("[Auth] User match for app:", user ? `${user.username} (app=${user.app})` : "none");
       if (!user) { setError("Usuario o contraseña incorrectos"); setLoading(false); return; }
-      const [salt, storedHash] = (user.password || "").split(":");
+      const parts = (user.password || "").split(":");
+      const salt = parts[0];
+      const storedHash = parts.slice(1).join(":");
+      console.log("[Auth] salt:", salt, "storedHash:", storedHash);
       if (!salt || !storedHash) { setError("Usuario o contraseña incorrectos"); setLoading(false); return; }
       const computed = await sha256hex(salt + password);
+      console.log("[Auth] computed:", computed, "match:", computed === storedHash);
       if (computed !== storedHash) { setError("Usuario o contraseña incorrectos"); setLoading(false); return; }
       const session = { id: user.id, username: user.username, nombre: user.nombre, rol: user.rol, app: user.app };
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       onLogin(session);
     } catch(err) {
+      console.error("[Auth] Exception:", err);
       setError("Error de conexión. Intentá de nuevo.");
       setLoading(false);
     }
