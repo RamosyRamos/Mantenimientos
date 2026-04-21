@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const ITEMS = {
@@ -1463,6 +1463,12 @@ function MainApp() {
   const [trelloStatus, setTrelloStatus] = useState("idle");
   const [trelloUrl, setTrelloUrl]       = useState("");
   const [clientUrl, setClientUrl]       = useState("");
+  const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  const [draftPrompt, setDraftPrompt]   = useState(false);
+  const [pendingDraft, setPendingDraft] = useState(null);
+  const autoSaveTimer = useRef(null);
+  const editingIdRef  = useRef(null);
+  const autoSaveRef   = useRef({});
 
   const svc          = CODES[sel];
   const G            = svc.color;
@@ -1498,6 +1504,9 @@ function MainApp() {
   const exDoneN = extras.reduce((n,e) => n + e.tasks.filter((_,i) => exChk[`${e.id}_${i}`]).length, 0);
   const exTotal = extras.reduce((n,e) => n + e.tasks.length, 0);
 
+  // Keep ref current so debounced timer always reads latest values
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total };
+
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
   const markAll  = ()  => {
@@ -1517,8 +1526,79 @@ function MainApp() {
     setAprobadoPor("");
     setModoRevision(false);
     setTab("check"); setStep(1); setEditingId(null);
+    setAutoSaveStatus(null);
   };
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
+
+  // Keep editingIdRef in sync so the async save callback always has the latest ID
+  useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
+
+  // On mount: check for an unfinished draft from today
+  useEffect(() => {
+    const SURL = import.meta.env.VITE_SUPABASE_URL;
+    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+    const today = new Date().toISOString().split("T")[0];
+    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&created_at=gte.${today}T00:00:00&order=created_at.desc&limit=1`, {
+      headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setPendingDraft(data[0]);
+          setDraftPrompt(true);
+        }
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save: debounce 2 s whenever checklist state changes while in step 3
+  useEffect(() => {
+    if (step !== 3) return;
+    clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      const d  = autoSaveRef.current;
+      const id = editingIdRef.current;
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      setAutoSaveStatus("saving");
+      try {
+        const byGrpMap = {};
+        d.tasks.forEach(t => {
+          if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
+          const hasDetail = !!d.taskIssue[t.id];
+          const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
+          byGrpMap[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null });
+        });
+        const draftSlug = id ? undefined : `draft-${(d.plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+        const payload = {
+          ...(draftSlug ? { slug: draftSlug } : {}),
+          estado: "borrador",
+          placa: d.plate, modelo: d.model, motor: d.engine,
+          mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
+          km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
+          aceite_litros: d.oilLiters > 0 ? d.oilLiters : null,
+          aceite_spec:   d.oilLiters > 0 ? d.oilSpec  : null,
+          revisiones: byGrpMap, observaciones: d.notes,
+          pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
+          progreso: { completadas: d.doneN, total: d.total },
+          aprobado: false, fotos: d.taskPhotos,
+        };
+        const res = await fetch(
+          id ? `${SURL}/rest/v1/servicios?id=eq.${id}` : `${SURL}/rest/v1/servicios`,
+          { method: id ? "PATCH" : "POST", headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json", "Prefer": "return=representation" }, body: JSON.stringify(payload) }
+        );
+        const saved = await res.json();
+        if (!id) { const newId = saved?.[0]?.id; if (newId) setEditingId(newId); }
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus(s => s === "saved" ? null : s), 3000);
+      } catch(e) {
+        console.warn("Auto-save failed:", e);
+        setAutoSaveStatus("error");
+        setTimeout(() => setAutoSaveStatus(s => s === "error" ? null : s), 5000);
+      }
+    }, 2000);
+    return () => clearTimeout(autoSaveTimer.current);
+  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setStatus = (id, status, text, taskText) => {
     setTaskStatus(p => ({ ...p, [id]: status }));
@@ -1909,8 +1989,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         observaciones:   notes,
         pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
         progreso:        { completadas: doneN, total },
-        aprobado:        false, // El mecánico guarda como pendiente de aprobación
-
+        estado:          "pendiente", // promueve desde borrador al confirmar
+        aprobado:        false,
       };
 
       const res = await fetch(
@@ -1953,6 +2033,33 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   /* ── PASO 1: DATOS DEL VEHÍCULO ── */
   if (step === 1) return (
     <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
+
+      {/* Draft-recovery prompt */}
+      {draftPrompt && pendingDraft && (
+        <div style={{ position:"fixed", inset:0, zIndex:500, background:"#000c", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:"#0f0f17", border:`1px solid ${line}`, borderRadius:10, padding:"24px 20px", maxWidth:320, width:"100%", fontFamily:"monospace" }}>
+            <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold", marginBottom:8 }}>⚠️ Servicio en progreso</div>
+            <div style={{ fontSize:11, color:"#888", lineHeight:1.7, marginBottom:16 }}>
+              Hay un borrador de hoy sin finalizar:
+              <div style={{ marginTop:6, color:"#ccc" }}>
+                {pendingDraft.placa && <span style={{ letterSpacing:1 }}>{pendingDraft.placa}</span>}
+                {pendingDraft.servicio_codigo && <span> — Serv. {pendingDraft.servicio_codigo}</span>}
+                {pendingDraft.mecanico && <span style={{ color:"#888" }}> · {pendingDraft.mecanico}</span>}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => { loadService(pendingDraft); setDraftPrompt(false); }}
+                style={{ flex:1, padding:"10px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+                ▶ Continuar
+              </button>
+              <button onClick={() => setDraftPrompt(false)}
+                style={{ flex:1, padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+                Empezar nuevo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Overlay para cerrar el buscador — PRIMERO para que quede detrás */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40, background:"transparent" }} />}
@@ -2275,6 +2382,13 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ height:"100%", width:pct+"%", background:isComplete?"#4ade80":G, borderRadius:2, transition:"width .3s" }} />
         </div>
       </div>
+
+      {/* Auto-save indicator */}
+      {autoSaveStatus && (
+        <div style={{ padding:"3px 16px", textAlign:"right", fontSize:9, letterSpacing:1, color: autoSaveStatus === "saved" ? "#4ade80" : autoSaveStatus === "error" ? "#f87171" : "#888" }}>
+          {autoSaveStatus === "saving" ? "⏳ Guardando..." : autoSaveStatus === "saved" ? "💾 Guardado" : "⚠️ Error al guardar"}
+        </div>
+      )}
 
       {/* TABS */}
       <div style={{ display:"flex", borderBottom:`1px solid ${line}`, padding:"0 16px" }}>
