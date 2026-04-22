@@ -1874,7 +1874,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" },
             body: JSON.stringify({
               slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
-              mecanico: svcData.mecanico, fecha: svcData.fecha, servicio_codigo: svcData.servicio.codigo,
+              mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
               servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m?"4MATIC":"RWD",
               aceite_litros: svcData.aceite?.litros||null, aceite_spec: svcData.aceite?.especificacion||null,
               revisiones: svcData.revisiones, observaciones: svcData.observaciones,
@@ -1883,12 +1883,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             }),
           }
         );
-        const sbData = await sbRes.json();
-        const savedId = sbData?.[0]?.id;
-        generatedClientUrl = `${APP_URL}/servicio/${slug}`;
-        setClientUrl(generatedClientUrl);
-        if (!editingId && savedId) setEditingId(savedId);
-      } catch(e) { console.warn("Supabase error:", e); }
+        if (!sbRes.ok) {
+          const errText = await sbRes.text();
+          console.error("[sendToTrello] Supabase error", sbRes.status, errText);
+        } else {
+          const sbData = await sbRes.json();
+          const savedId = sbData?.[0]?.id;
+          generatedClientUrl = `${APP_URL}/servicio/${slug}`;
+          setClientUrl(generatedClientUrl);
+          if (!editingId && savedId) setEditingId(savedId);
+        }
+      } catch(e) { console.error("[sendToTrello] Supabase save failed:", e.message); }
 
       const listsRes = await fetch(`https://api.trello.com/1/boards/${TRELLO_BOARD}/lists?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
       const lists = await listsRes.json();
@@ -1983,7 +1988,6 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         modelo:          model,
         motor:           engine,
         mecanico:        mechName,
-        fecha,
         servicio_codigo: sel,
         servicio_desc:   svc?.desc || "",
         km,
@@ -1995,31 +1999,39 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         observaciones:   notes,
         pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
         progreso:        { completadas: doneN, total },
-        estado:          "pendiente", // promueve desde borrador al confirmar
+        estado:          "pendiente",
         aprobado:        false,
+        fotos:           taskPhotos,
       };
 
-      const res = await fetch(
-        editingId
-          ? `${SURL}/rest/v1/servicios?id=eq.${editingId}`
-          : `${SURL}/rest/v1/servicios`,
-        {
-          method: editingId ? "PATCH" : "POST",
-          headers: {
-            "apikey": SKEY,
-            "Authorization": `Bearer ${SKEY}`,
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
+      console.log("[confirmSig] payload:", JSON.stringify(payload).slice(0, 300));
+      const url = editingId
+        ? `${SURL}/rest/v1/servicios?id=eq.${editingId}`
+        : `${SURL}/rest/v1/servicios`;
+      const res = await fetch(url, {
+        method: editingId ? "PATCH" : "POST",
+        headers: {
+          "apikey": SKEY,
+          "Authorization": `Bearer ${SKEY}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=representation",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[confirmSig] Supabase error", res.status, errText);
+        throw new Error(`Supabase ${res.status}: ${errText}`);
+      }
+
       const data = await res.json();
+      console.log("[confirmSig] saved:", data?.[0]?.id);
       const savedId = data?.[0]?.id;
-      const url = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
-      setClientUrl(url);
+      const clientUrlVal = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
+      setClientUrl(clientUrlVal);
       if (!editingId && savedId) setEditingId(savedId);
-    } catch(e) { console.warn("Auto-save error:", e); }
+    } catch(e) { console.error("[confirmSig] save failed:", e.message); }
   };
 
   const byGrp = tasks.reduce((a,t) => {
