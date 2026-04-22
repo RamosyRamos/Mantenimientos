@@ -1441,6 +1441,10 @@ function MainApp({ session, onLogout }) {
   const [showRecent, setShowRecent] = useState(false);
   const [recentList, setRecentList] = useState([]);
   const [recentLoading, setRecentLoading] = useState(false);
+  const [showVerTodos, setShowVerTodos] = useState(false);
+  const [verTodosList, setVerTodosList] = useState([]);
+  const [verTodosLoading, setVerTodosLoading] = useState(false);
+  const [verTodosSearch, setVerTodosSearch] = useState("");
   const [editingId, setEditingId] = useState(null); // ID del servicio en edición
   const [editingTrelloCardId, setEditingTrelloCardId] = useState(null); // ID de la tarjeta Trello
   const [aprobado, setAprobado] = useState(false);
@@ -1724,13 +1728,48 @@ function MainApp({ session, onLogout }) {
   const fetchRecent = async () => {
     setRecentLoading(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
       });
-      const data = await res.json();
-      setRecentList(Array.isArray(data) ? data : []);
-    } catch(e) { setRecentList([]); }
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[fetchRecent] error", res.status, errText);
+        setRecentList([]);
+      } else {
+        const data = await res.json();
+        console.log("[fetchRecent] got", data?.length, "records");
+        setRecentList(Array.isArray(data) ? data : []);
+      }
+    } catch(e) {
+      console.error("[fetchRecent] fetch failed:", e.message);
+      setRecentList([]);
+    }
     setRecentLoading(false);
+  };
+
+  const fetchVerTodos = async () => {
+    setVerTodosLoading(true);
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/servicios?select=*&order=created_at.desc&limit=500`, {
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[fetchVerTodos] error", res.status, errText);
+        setVerTodosList([]);
+      } else {
+        const data = await res.json();
+        setVerTodosList(Array.isArray(data) ? data : []);
+      }
+    } catch(e) {
+      console.error("[fetchVerTodos] fetch failed:", e.message);
+      setVerTodosList([]);
+    }
+    setVerTodosLoading(false);
   };
 
   const recentPanel = showRecent ? (
@@ -1786,6 +1825,107 @@ function MainApp({ session, onLogout }) {
             );
           })}
         </div>
+        {/* Ver todos button */}
+        <div style={{ padding:"12px 16px", borderTop:`1px solid ${line}`, flexShrink:0 }}>
+          <button
+            onClick={() => { setShowVerTodos(true); fetchVerTodos(); }}
+            style={{ width:"100%", padding:"9px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E10", color:"#C8A96E", fontSize:11, fontFamily:"monospace", cursor:"pointer", letterSpacing:1, fontWeight:"bold" }}>
+            📋 VER TODOS LOS MANTENIMIENTOS
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  // ── Ver Todos Panel ──
+  const verTodosFiltered = verTodosList.filter(s => {
+    if (!verTodosSearch.trim()) return true;
+    const q = verTodosSearch.trim().toLowerCase();
+    const placa   = (s.placa   || s.datos?.vehiculo?.placa  || "").toLowerCase();
+    const modelo  = (s.modelo  || s.datos?.vehiculo?.modelo || "").toLowerCase();
+    const mec     = (s.mecanico || "").toLowerCase();
+    return placa.includes(q) || modelo.includes(q) || mec.includes(q);
+  });
+
+  const verTodosPanel = showVerTodos ? (
+    <div style={{ position:"fixed", inset:0, zIndex:300, background:"#09090e", display:"flex", flexDirection:"column", overflowY:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"14px 20px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", gap:14, flexShrink:0 }}>
+        <button onClick={() => setShowVerTodos(false)}
+          style={{ padding:"6px 12px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#888", fontSize:12, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+          ← VOLVER
+        </button>
+        <div>
+          <div style={{ fontWeight:"bold", fontSize:14, color:"#e0d8cc", letterSpacing:1 }}>TODOS LOS MANTENIMIENTOS</div>
+          <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>{verTodosList.length} REGISTROS</div>
+        </div>
+        <div style={{ marginLeft:"auto", position:"relative" }}>
+          <input
+            value={verTodosSearch}
+            onChange={e => setVerTodosSearch(e.target.value)}
+            placeholder="Buscar placa, modelo o mecánico…"
+            style={{ background:"#0c0c14", border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"7px 12px", fontSize:12, fontFamily:"monospace", outline:"none", width:260 }}
+          />
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
+        {verTodosLoading && (
+          <div style={{ textAlign:"center", color:"#555", padding:60, fontSize:12 }}>Cargando...</div>
+        )}
+        {!verTodosLoading && verTodosFiltered.length === 0 && (
+          <div style={{ textAlign:"center", color:"#555", padding:60, fontSize:12 }}>
+            {verTodosSearch ? "Sin resultados." : "No hay mantenimientos registrados."}
+          </div>
+        )}
+        {!verTodosLoading && verTodosFiltered.length > 0 && (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:10 }}>
+            {verTodosFiltered.map(s => {
+              const placa    = s.placa   || s.datos?.vehiculo?.placa   || "Sin placa";
+              const modelo   = s.modelo  || s.datos?.vehiculo?.modelo  || "—";
+              const mecanico = s.mecanico || "—";
+              const servCod  = s.servicio_codigo || s.datos?.servicio?.codigo || "—";
+              const fecha    = s.created_at
+                ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" })
+                : "—";
+              const estadoColor = s.aprobado ? "#4ade80" : s.estado === "pendiente" ? "#C8A96E" : "#888";
+              const estadoLabel = s.aprobado ? "Aprobado" : s.estado === "pendiente" ? "Pendiente" : (s.estado || "Borrador");
+              const slug = s.slug || s.id;
+              const url  = `${window.location.origin}/servicio/${slug}`;
+              return (
+                <div key={s.id}
+                  style={{ padding:"12px 14px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}`, cursor:"pointer", transition:"border-color 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = "#C8A96E60"}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = line}
+                  onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); setShowRecent(false); }}
+                >
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
+                    <span style={{ fontSize:14, fontWeight:"bold", color:"#C8A96E", letterSpacing:2 }}>{placa}</span>
+                    <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+                  </div>
+                  <div style={{ fontSize:12, color:"#ccc", marginBottom:4 }}>{modelo}</div>
+                  <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:8 }}>
+                    <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 7px", letterSpacing:1 }}>
+                      {servCod}
+                    </span>
+                    <span style={{ fontSize:10, color:"#888" }}>{mecanico}</span>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ fontSize:9, color:estadoColor, background:estadoColor+"15", border:`1px solid ${estadoColor}40`, borderRadius:4, padding:"2px 8px", letterSpacing:1, fontFamily:"monospace" }}>
+                      {estadoLabel.toUpperCase()}
+                    </span>
+                    <a href={url} target="_blank" rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      style={{ fontSize:9, color:"#555", textDecoration:"none", letterSpacing:1, fontFamily:"monospace" }}>
+                      🔗 ver resumen
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   ) : null;
@@ -2104,6 +2244,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       <div style={{ padding:"3px 16px", background:"#09090e", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
 
       {recentPanel}
+      {verTodosPanel}
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
         {/* Indicador de pasos */}
@@ -2239,6 +2380,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       <div style={{ padding:"3px 16px", background:"#09090e", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
 
       {recentPanel}
+      {verTodosPanel}
 
       {/* Resumen vehículo seleccionado */}
       <div style={{ padding:"10px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
@@ -2362,6 +2504,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       <div style={{ padding:"3px 16px", background:"#09090e", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
 
       {recentPanel}
+      {verTodosPanel}
 
       {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
       <div style={{ padding:"8px 16px", background:"#0c0c14", borderBottom:`1px solid ${line}` }}>
