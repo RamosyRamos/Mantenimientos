@@ -1445,6 +1445,7 @@ function MainApp({ session, onLogout }) {
   const [verTodosList, setVerTodosList] = useState([]);
   const [verTodosLoading, setVerTodosLoading] = useState(false);
   const [verTodosSearch, setVerTodosSearch] = useState("");
+  const [verTodosPage, setVerTodosPage] = useState(0);
   const [editingId, setEditingId] = useState(null); // ID del servicio en edición
   const [editingTrelloCardId, setEditingTrelloCardId] = useState(null); // ID de la tarjeta Trello
   const [aprobado, setAprobado] = useState(false);
@@ -1839,6 +1840,7 @@ function MainApp({ session, onLogout }) {
   ) : null;
 
   // ── Ver Todos Panel ──
+  const VT_PAGE_SIZE = 30;
   const verTodosFiltered = verTodosList.filter(s => {
     if (!verTodosSearch.trim()) return true;
     const q = verTodosSearch.trim().toLowerCase();
@@ -1847,32 +1849,37 @@ function MainApp({ session, onLogout }) {
     const mec     = (s.mecanico || "").toLowerCase();
     return placa.includes(q) || modelo.includes(q) || mec.includes(q);
   });
+  const verTodosPages = Math.max(1, Math.ceil(verTodosFiltered.length / VT_PAGE_SIZE));
+  const verTodosPaged = verTodosFiltered.slice(verTodosPage * VT_PAGE_SIZE, (verTodosPage + 1) * VT_PAGE_SIZE);
 
   const verTodosPanel = showVerTodos ? (
-    <div style={{ position:"fixed", inset:0, zIndex:300, background:"#09090e", display:"flex", flexDirection:"column", overflowY:"hidden" }}>
+    <div style={{ position:"fixed", inset:0, zIndex:300, background:"#09090e", display:"flex", flexDirection:"column" }}>
       {/* Header */}
-      <div style={{ padding:"14px 20px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", gap:14, flexShrink:0 }}>
+      <div style={{ padding:"12px 20px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", gap:12, flexShrink:0, flexWrap:"wrap" }}>
         <button onClick={() => setShowVerTodos(false)}
-          style={{ padding:"6px 12px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#888", fontSize:12, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
-          ← VOLVER
+          style={{ padding:"6px 12px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#888", fontSize:12, fontFamily:"monospace", cursor:"pointer", letterSpacing:1, flexShrink:0 }}>
+          ✕ CERRAR
         </button>
-        <div>
-          <div style={{ fontWeight:"bold", fontSize:14, color:"#e0d8cc", letterSpacing:1 }}>TODOS LOS MANTENIMIENTOS</div>
-          <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>{verTodosList.length} REGISTROS</div>
+        <div style={{ flexShrink:0 }}>
+          <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc", letterSpacing:1 }}>TODOS LOS MANTENIMIENTOS</div>
+          <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>{verTodosFiltered.length} REGISTROS{verTodosSearch ? " (filtrados)" : ""}</div>
         </div>
-        <div style={{ marginLeft:"auto", position:"relative" }}>
-          <input
-            value={verTodosSearch}
-            onChange={e => setVerTodosSearch(e.target.value)}
-            placeholder="Buscar placa, modelo o mecánico…"
-            style={{ background:"#0c0c14", border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"7px 12px", fontSize:12, fontFamily:"monospace", outline:"none", width:260 }}
-          />
-        </div>
+        <input
+          value={verTodosSearch}
+          onChange={e => { setVerTodosSearch(e.target.value); setVerTodosPage(0); }}
+          placeholder="Buscar placa, modelo o mecánico…"
+          style={{ marginLeft:"auto", background:"#0c0c14", border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"7px 12px", fontSize:12, fontFamily:"monospace", outline:"none", width:"min(260px,100%)", flexShrink:0 }}
+        />
       </div>
 
-      {/* Body */}
-      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
-        {verTodosLoading && (
+      {/* Table header */}
+      <div style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"8px 20px", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:2, flexShrink:0 }}>
+        <span>FECHA</span><span>PLACA</span><span>MODELO</span><span>MECÁNICO</span><span>SERV.</span><span>ESTADO</span><span></span>
+      </div>
+
+      {/* Rows */}
+      <div style={{ flex:1, overflowY:"auto" }}>
+        {verTodosLoading && verTodosPaged.length === 0 && (
           <div style={{ textAlign:"center", color:"#555", padding:60, fontSize:12 }}>Cargando...</div>
         )}
         {!verTodosLoading && verTodosFiltered.length === 0 && (
@@ -1880,54 +1887,56 @@ function MainApp({ session, onLogout }) {
             {verTodosSearch ? "Sin resultados." : "No hay mantenimientos registrados."}
           </div>
         )}
-        {!verTodosLoading && verTodosFiltered.length > 0 && (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(300px, 1fr))", gap:10 }}>
-            {verTodosFiltered.map(s => {
-              const placa    = s.placa   || s.datos?.vehiculo?.placa   || "Sin placa";
-              const modelo   = s.modelo  || s.datos?.vehiculo?.modelo  || "—";
-              const mecanico = s.mecanico || "—";
-              const servCod  = s.servicio_codigo || s.datos?.servicio?.codigo || "—";
-              const fecha    = s.created_at
-                ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" })
-                : "—";
-              const estadoColor = s.aprobado ? "#4ade80" : s.estado === "pendiente" ? "#C8A96E" : "#888";
-              const estadoLabel = s.aprobado ? "Aprobado" : s.estado === "pendiente" ? "Pendiente" : (s.estado || "Borrador");
-              const slug = s.slug || s.id;
-              const url  = `${window.location.origin}/servicio/${slug}`;
-              return (
-                <div key={s.id}
-                  style={{ padding:"12px 14px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}`, cursor:"pointer", transition:"border-color 0.15s" }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = "#C8A96E60"}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = line}
-                  onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); setShowRecent(false); }}
-                >
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
-                    <span style={{ fontSize:14, fontWeight:"bold", color:"#C8A96E", letterSpacing:2 }}>{placa}</span>
-                    <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
-                  </div>
-                  <div style={{ fontSize:12, color:"#ccc", marginBottom:4 }}>{modelo}</div>
-                  <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:8 }}>
-                    <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 7px", letterSpacing:1 }}>
-                      {servCod}
-                    </span>
-                    <span style={{ fontSize:10, color:"#888" }}>{mecanico}</span>
-                  </div>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <span style={{ fontSize:9, color:estadoColor, background:estadoColor+"15", border:`1px solid ${estadoColor}40`, borderRadius:4, padding:"2px 8px", letterSpacing:1, fontFamily:"monospace" }}>
-                      {estadoLabel.toUpperCase()}
-                    </span>
-                    <a href={url} target="_blank" rel="noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      style={{ fontSize:9, color:"#555", textDecoration:"none", letterSpacing:1, fontFamily:"monospace" }}>
-                      🔗 ver resumen
-                    </a>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {verTodosPaged.map((s, i) => {
+          const placa    = s.placa   || s.datos?.vehiculo?.placa   || "Sin placa";
+          const modelo   = s.modelo  || s.datos?.vehiculo?.modelo  || "—";
+          const mecanico = s.mecanico || "—";
+          const servCod  = s.servicio_codigo || s.datos?.servicio?.codigo || "—";
+          const fecha    = s.created_at
+            ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" })
+            : "—";
+          const estadoColor = s.aprobado ? "#4ade80" : s.estado === "pendiente" ? "#C8A96E" : "#888";
+          const estadoLabel = s.aprobado ? "Aprobado" : s.estado === "pendiente" ? "Pendiente" : (s.estado || "Borrador");
+          const slug = s.slug || s.id;
+          const url  = `${window.location.origin}/servicio/${slug}`;
+          return (
+            <div key={s.id}
+              style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"11px 20px", borderBottom:`1px solid ${line}20`, cursor:"pointer", background: i % 2 === 0 ? "transparent" : "#ffffff04", alignItems:"center" }}
+              onMouseEnter={e => e.currentTarget.style.background = "#C8A96E10"}
+              onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "#ffffff04"}
+              onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); setShowRecent(false); }}
+            >
+              <span style={{ fontSize:10, color:"#666" }}>{fecha}</span>
+              <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E", letterSpacing:1 }}>{placa}</span>
+              <span style={{ fontSize:11, color:"#bbb", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{modelo}</span>
+              <span style={{ fontSize:10, color:"#888", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{mecanico}</span>
+              <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"2px 6px", letterSpacing:1, textAlign:"center" }}>{servCod}</span>
+              <span style={{ fontSize:9, color:estadoColor, background:estadoColor+"18", border:`1px solid ${estadoColor}40`, borderRadius:4, padding:"2px 6px", letterSpacing:1, textAlign:"center", fontFamily:"monospace" }}>{estadoLabel.toUpperCase()}</span>
+              <a href={url} target="_blank" rel="noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={{ fontSize:10, color:"#555", textDecoration:"none", textAlign:"center" }}
+                title="Ver resumen">🔗</a>
+            </div>
+          );
+        })}
       </div>
+
+      {/* Pagination */}
+      {verTodosPages > 1 && (
+        <div style={{ padding:"10px 20px", borderTop:`1px solid ${line}`, display:"flex", alignItems:"center", gap:10, flexShrink:0, justifyContent:"center" }}>
+          <button onClick={() => setVerTodosPage(p => Math.max(0, p - 1))} disabled={verTodosPage === 0}
+            style={{ padding:"5px 14px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color: verTodosPage === 0 ? "#333" : "#888", fontSize:12, fontFamily:"monospace", cursor: verTodosPage === 0 ? "default" : "pointer" }}>
+            ← Anterior
+          </button>
+          <span style={{ fontSize:11, color:"#555", fontFamily:"monospace", minWidth:120, textAlign:"center" }}>
+            Página {verTodosPage + 1} de {verTodosPages}
+          </span>
+          <button onClick={() => setVerTodosPage(p => Math.min(verTodosPages - 1, p + 1))} disabled={verTodosPage === verTodosPages - 1}
+            style={{ padding:"5px 14px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color: verTodosPage === verTodosPages - 1 ? "#333" : "#888", fontSize:12, fontFamily:"monospace", cursor: verTodosPage === verTodosPages - 1 ? "default" : "pointer" }}>
+            Siguiente →
+          </button>
+        </div>
+      )}
     </div>
   ) : null;
 
