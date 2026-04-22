@@ -1547,8 +1547,7 @@ function MainApp({ session, onLogout }) {
   useEffect(() => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
     const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    const today = new Date().toISOString().split("T")[0];
-    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&created_at=gte.${today}T00:00:00&order=created_at.desc&limit=1`, {
+    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&order=created_at.desc&limit=1`, {
       headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
     })
       .then(r => r.json())
@@ -1739,8 +1738,10 @@ function MainApp({ session, onLogout }) {
         setRecentList([]);
       } else {
         const data = await res.json();
-        console.log("[fetchRecent] got", data?.length, "records");
-        setRecentList(Array.isArray(data) ? data : []);
+        console.log("[fetchRecent] got", data?.length, "records, isArray:", Array.isArray(data), "first:", data?.[0]);
+        const list = Array.isArray(data) ? data : [];
+        setRecentList(list);
+        console.log("[fetchRecent] setRecentList called with", list.length, "items");
       }
     } catch(e) {
       console.error("[fetchRecent] fetch failed:", e.message);
@@ -1780,9 +1781,9 @@ function MainApp({ session, onLogout }) {
           <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {recentLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+          {recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
           {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
-          {!recentLoading && recentList.map(s => {
+          {recentList.length > 0 && recentList.map(s => {
             const d = s.datos || {};
             const placa    = d.vehiculo?.placa   || s.placa   || "Sin placa";
             const modelo   = d.vehiculo?.modelo  || s.modelo  || "—";
