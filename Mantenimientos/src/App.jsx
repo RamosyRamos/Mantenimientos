@@ -1561,6 +1561,22 @@ function MainApp({ session, onLogout }) {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pre-fill from URL params (placa, modelo, mecanico) — never auto-advances step
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pPlaca   = params.get('placa')?.toUpperCase().trim()   || '';
+    const pModelo  = params.get('modelo')?.trim()                || '';
+    const pMecanico = params.get('mecanico')?.trim()             || '';
+    if (pPlaca)    setPlate(pPlaca);
+    if (pModelo) {
+      setModelSearch(pModelo);
+      // Only lock the model selection if it exactly matches a key in MODEL_DATA
+      if (MODEL_DATA[pModelo]) setModel(pModelo);
+    }
+    if (pMecanico) setMechName(pMecanico);
+    // step intentionally NOT changed — mechanic must verify and fill kilometraje first
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-save: debounce 2 s whenever checklist state changes while in step 3
   useEffect(() => {
     if (step !== 3) return;
