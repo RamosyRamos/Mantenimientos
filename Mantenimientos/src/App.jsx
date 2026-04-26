@@ -1792,7 +1792,7 @@ function MainApp({ session, onLogout }) {
 
   const recentPanel = showRecent ? (
     <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowRecent(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+      <div onClick={e => e.stopPropagation()} className="recent-panel-inner" style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
           <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
@@ -2212,7 +2212,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     </button>
   );
 
-  const inp = { background:card, border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"7px 10px", fontSize:12, fontFamily:"monospace", outline:"none" };
+  const inp = { background:card, border:`1px solid ${line}`, color:"#e0d8cc", borderRadius:6, padding:"10px 12px", fontSize:16, fontFamily:"monospace", outline:"none" };
 
   /* ── PASO 1: DATOS DEL VEHÍCULO ── */
   if (step === 1) return (
@@ -2369,13 +2369,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ ...inp, width:"100%", boxSizing:"border-box" }} />
         </div>
 
-        <button
-          onClick={() => { if (model) { setModelOpen(false); setStep(2); } }}
-          disabled={!model}
-          style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${model?G+"60":"#2a2a3a"}`, background:model?G+"18":"transparent", color:model?G:"#333", fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:model?"pointer":"default" }}>
-          CONTINUAR → TIPO DE SERVICIO
-        </button>
-        {!model && <div style={{ textAlign:"center", fontSize:10, color:"#444", marginTop:8 }}>Seleccioná un modelo para continuar</div>}
+        <div className="sticky-action">
+          <button
+            onClick={() => { if (model) { setModelOpen(false); setStep(2); } }}
+            disabled={!model}
+            style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${model?G+"60":"#2a2a3a"}`, background:model?G+"18":"transparent", color:model?G:"#333", fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:model?"pointer":"default" }}>
+            CONTINUAR → TIPO DE SERVICIO
+          </button>
+          {!model && <div style={{ textAlign:"center", fontSize:10, color:"#444", marginTop:8 }}>Seleccioná un modelo para continuar</div>}
+        </div>
       </div>
     </div>
   );
@@ -2437,7 +2439,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
             {A_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
-              <button key={k} onClick={()=>setSel(k)}
+              <button key={k} onClick={()=>setSel(k)} className="svc-btn"
                 style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
                 {k}
               </button>
@@ -2446,7 +2448,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:9, color:"#7EB8F780", letterSpacing:2, marginBottom:6 }}>SERIE B — INSPECCIÓN MAYOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
             {B_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
-              <button key={k} onClick={()=>setSel(k)}
+              <button key={k} onClick={()=>setSel(k)} className="svc-btn"
                 style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
                 {k}
               </button>
@@ -2476,10 +2478,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </button>
         </div>
 
-        <button onClick={()=>setStep(3)}
-          style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer" }}>
-          INICIAR INSPECCIÓN →
-        </button>
+        <div className="sticky-action">
+          <button onClick={()=>setStep(3)}
+            style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer" }}>
+            INICIAR INSPECCIÓN →
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2639,15 +2643,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                           {/* Botones OK / Detalle / N/A */}
                           {!isInfo && (
                             <div style={{ display:"flex", gap:4, flexShrink:0, marginTop:1 }}>
-                              <button
+                              <button className="chk-btn"
                                 onClick={()=> status==="ok" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"ok","",text)}
                                 style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="ok"?"#4ade8060":"#2a3a2a"}`, background:status==="ok"?"#4ade8020":"transparent", color:status==="ok"?"#4ade80":"#3a5a3a", fontWeight:status==="ok"?"bold":"normal" }}
                               >✓ OK</button>
-                              <button
+                              <button className="chk-btn"
                                 onClick={()=> status==="issue" && !isOpen ? setActiveIssue(id) : setStatus(id,"issue","",text)}
                                 style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="issue"?"#f8717160":"#3a2a2a"}`, background:status==="issue"?"#f8717120":"transparent", color:status==="issue"?"#f87171":"#5a3a3a", fontWeight:status==="issue"?"bold":"normal" }}
                               >⚠ Det.</button>
-                              <button
+                              <button className="chk-btn"
                                 onClick={()=> status==="na" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"na","",text)}
                                 style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="na"?"#55555560":"#2a2a2a"}`, background:status==="na"?"#33333320":"transparent", color:status==="na"?"#666":"#3a3a3a", fontWeight:status==="na"?"bold":"normal" }}
                               >— N/A</button>
@@ -2721,11 +2725,13 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             </div>
 
             {/* BOTÓN CONTINUAR */}
-            <button
-              onClick={() => { setTab("notes"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-              style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:`linear-gradient(135deg, ${G}20, ${G}10)`, color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer", marginBottom:24, display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-              📝 CONTINUAR → NOTAS Y FIRMA
-            </button>
+            <div className="sticky-action">
+              <button
+                onClick={() => { setTab("notes"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:`linear-gradient(135deg, ${G}20, ${G}10)`, color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+                📝 CONTINUAR → NOTAS Y FIRMA
+              </button>
+            </div>
           </>
         ) : (
           /* NOTAS */
@@ -2783,11 +2789,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </div>
 
               {/* Botón confirmar */}
-              <div style={{ marginBottom:12 }}>
+              <div className="sticky-action">
                 <button
                   onClick={confirmSig}
                   disabled={!mechName.trim()}
-                  style={{ width:"100%", padding:"12px", borderRadius:6, border:`1px solid ${mechName.trim()?"#C8A96E60":"#2a2a3a"}`, background:mechName.trim()?"#C8A96E20":card, color:mechName.trim()?"#C8A96E":"#444", fontFamily:"monospace", fontSize:11, letterSpacing:1, cursor:mechName.trim()?"pointer":"default", fontWeight:"bold" }}
+                  style={{ width:"100%", padding:"14px", borderRadius:6, border:`1px solid ${mechName.trim()?"#C8A96E60":"#2a2a3a"}`, background:mechName.trim()?"#C8A96E20":card, color:mechName.trim()?"#C8A96E":"#444", fontFamily:"monospace", fontSize:13, letterSpacing:1, cursor:mechName.trim()?"pointer":"default", fontWeight:"bold" }}
                 >
                   ✓ CONFIRMAR Y GUARDAR
                 </button>
