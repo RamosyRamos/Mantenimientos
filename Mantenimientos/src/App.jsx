@@ -1,3 +1,11 @@
+// SECURITY DEBT: The ordenes table has an open RLS policy ("acceso_app" — public ALL).
+// This means the anon key can read/write/delete any row. Same situation likely exists for
+// other tables (cotizaciones, clientes, finanzas, etc).
+//
+// TODO: Migrate to Supabase Auth + role-based RLS policies. Planned for next weekend's session.
+// Until then, the app trusts client-side discipline. Do NOT expose this app's anon key beyond
+// what's already in the bundle, and do NOT enable public sign-up.
+
 import { useState, useEffect, useRef } from "react";
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
@@ -1502,11 +1510,41 @@ function LoginScreen({ onLogin }) {
 }
 
 export default function App() {
+  // Note: auto-session logic runs synchronously in the initializer so the login guard
+  // never fires for Taller-launched sessions — a useEffect would render LoginScreen first.
   const [session, setSession] = useState(() => {
-    try { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch(e) { return null; }
+    try {
+      const params   = new URLSearchParams(window.location.search);
+      const mecanico = params.get('mecanico')?.trim() || '';
+      const ordenId  = params.get('orden_id')?.trim() || '';
+
+      // If a previous auto-session exists but this visit has no orden_id, clear it
+      const source = localStorage.getItem('ryr_session_source');
+      if (source === 'taller' && !ordenId) {
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem('ryr_session_source');
+        return null;
+      }
+
+      // Auto-create session when launched from Taller (both params required)
+      if (mecanico && ordenId) {
+        const synth = { id: null, username: null, nombre: mecanico, rol: 'mecanico', app: 'mantenimientos', source: 'taller' };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(synth));
+        localStorage.setItem('ryr_session_source', 'taller');
+        return synth;
+      }
+
+      // Normal session restore
+      const s = localStorage.getItem(SESSION_KEY);
+      return s ? JSON.parse(s) : null;
+    } catch(e) { return null; }
   });
   if (!session) return <LoginScreen onLogin={setSession} />;
-  return <MainApp session={session} onLogout={() => { localStorage.removeItem(SESSION_KEY); setSession(null); }} />;
+  return <MainApp session={session} onLogout={() => {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem('ryr_session_source');
+    setSession(null);
+  }} />;
 }
 
 function MainApp({ session, onLogout }) {
@@ -1547,6 +1585,12 @@ function MainApp({ session, onLogout }) {
   const [trelloStatus, setTrelloStatus] = useState("idle");
   const [trelloUrl, setTrelloUrl]       = useState("");
   const [clientUrl, setClientUrl]       = useState("");
+  const [ordenId,       setOrdenId]       = useState("");
+  const [ordenNumero,   setOrdenNumero]   = useState("");
+  const [ordenFalla,    setOrdenFalla]    = useState("");
+  const [vehAnio,       setVehAnio]       = useState("");
+  const [vehVersion,    setVehVersion]    = useState("");
+  const [ordenEnvioStatus, setOrdenEnvioStatus] = useState("idle"); // 'idle'|'sending'|'done'
   const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [draftPrompt, setDraftPrompt]   = useState(false);
   const [pendingDraft, setPendingDraft] = useState(null);
@@ -1605,6 +1649,7 @@ function MainApp({ session, onLogout }) {
     setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
     setSel("A"); setFuel("gasolina"); setIs4m(false);
     setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
+    setOrdenEnvioStatus("idle");
     setEditingTrelloCardId(null);
     setAprobado(false);
     setAprobadoPor("");
@@ -1634,12 +1679,17 @@ function MainApp({ session, onLogout }) {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pre-fill from URL params (placa, modelo, mecanico) — never auto-advances step
+  // Pre-fill from URL params — never auto-advances step
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const pPlaca   = params.get('placa')?.toUpperCase().trim()   || '';
-    const pModelo  = params.get('modelo')?.trim()                || '';
-    const pMecanico = params.get('mecanico')?.trim()             || '';
+    const pPlaca    = params.get('placa')?.toUpperCase().trim() || '';
+    const pModelo   = params.get('modelo')?.trim()              || '';
+    const pMecanico = params.get('mecanico')?.trim()            || '';
+    const pOrdenId  = params.get('orden_id')?.trim()            || '';
+    const pNumero   = params.get('numero')?.trim()              || '';
+    const pFalla    = params.get('falla')?.trim()               || '';
+    const pAnio     = params.get('anio')?.trim()                || '';
+    const pVersion  = params.get('version')?.trim()             || '';
     if (pPlaca)    setPlate(pPlaca);
     if (pModelo) {
       setModelSearch(pModelo);
@@ -1647,6 +1697,11 @@ function MainApp({ session, onLogout }) {
       if (MODEL_DATA[pModelo]) setModel(pModelo);
     }
     if (pMecanico) setMechName(pMecanico);
+    if (pOrdenId)  setOrdenId(pOrdenId);
+    if (pNumero)   setOrdenNumero(pNumero);
+    if (pFalla)    setOrdenFalla(pFalla);
+    if (pAnio)     setVehAnio(pAnio);
+    if (pVersion)  setVehVersion(pVersion);
     // step intentionally NOT changed — mechanic must verify and fill kilometraje first
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2091,7 +2146,105 @@ ${combinedSection}
 _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
-  const sendToTrello = async () => {
+  // ── Markdown builder for ordenes.informe_mantenimiento ──
+  const buildInformeMarkdown = (overrideClientUrl) => {
+    const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
+    let md = `## 🔧 Servicio ${sel} — ${sigDate}\n\n`;
+    md += `**Mecánico:** ${mechName}\n`;
+    md += `**Aprobado por:** ${aprobadoPor}\n`;
+    md += `**Kilometraje:** ${km ? parseInt(km).toLocaleString() : "—"} km`;
+    if (issueTasks.length > 0) {
+      md += `\n\n---\n\n### ⚠️ Detalles marcados en el checklist\n`;
+      issueTasks.forEach(t => {
+        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : " (sin detalle escrito)";
+        md += `- ⚠️ ${t.text}${detail}\n`;
+      });
+    }
+    if (notes.trim()) {
+      md += `\n\n### 📝 Observaciones del mecánico\n${notes.trim()}`;
+    }
+    const finalUrl = overrideClientUrl || clientUrl;
+    md += `\n\n---\n\n### 🔗 Detalle completo del mantenimiento\n${finalUrl || "(enlace pendiente)"}`;
+    return md;
+  };
+
+  // ── Save informe to ordenes.informe_mantenimiento ──
+  const enviarAOrden = async () => {
+    setOrdenEnvioStatus("sending");
+    try {
+      // 1. Check if already filled
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=informe_mantenimiento`,
+        { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` } }
+      );
+      const checkData = await checkRes.json();
+      if (checkData?.[0]?.informe_mantenimiento) {
+        const ok = confirm("⚠️ Esta orden ya tiene un informe de mantenimiento guardado. ¿Sobrescribir?");
+        if (!ok) { setOrdenEnvioStatus("idle"); return; }
+      }
+
+      // 2. Save/update servicios to get the client link slug
+      let finalClientUrl = clientUrl || "";
+      let slug = "";
+      if (editingId && clientUrl) slug = clientUrl.split("/servicio/")[1] || "";
+      if (!slug) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, "0");
+        const mm = String(now.getMonth() + 1).padStart(2, "0");
+        const yyyy = now.getFullYear();
+        const plateClean = (plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+        slug = `${plateClean}-${sel}-${dd}${mm}${yyyy}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+      }
+      try {
+        const svcData = buildServiceData();
+        const sbRes = await fetch(
+          editingId ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}` : `${SUPABASE_URL}/rest/v1/servicios`,
+          { method: editingId ? "PATCH" : "POST",
+            headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" },
+            body: JSON.stringify({
+              slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
+              mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
+              servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD",
+              aceite_litros: svcData.aceite?.litros || null, aceite_spec: svcData.aceite?.especificacion || null,
+              revisiones: svcData.revisiones, observaciones: svcData.observaciones,
+              pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, fotos: taskPhotos,
+            }),
+          }
+        );
+        if (sbRes.ok) {
+          const sbData = await sbRes.json();
+          const savedId = sbData?.[0]?.id;
+          finalClientUrl = `${APP_URL}/servicio/${slug}`;
+          setClientUrl(finalClientUrl);
+          if (!editingId && savedId) setEditingId(savedId);
+        } else {
+          console.error("[enviarAOrden] servicios save failed:", await sbRes.text());
+        }
+      } catch(e) { console.error("[enviarAOrden] servicios save exception:", e.message); }
+
+      // 3. PATCH ordenes.informe_mantenimiento
+      const markdown = buildInformeMarkdown(finalClientUrl);
+      const ordenRes = await fetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ informe_mantenimiento: markdown }),
+      });
+      if (!ordenRes.ok) {
+        const errText = await ordenRes.text();
+        console.error("[enviarAOrden] ordenes patch failed:", ordenRes.status, errText);
+        throw new Error(`ordenes patch ${ordenRes.status}`);
+      }
+
+      setOrdenEnvioStatus("done");
+    } catch(e) {
+      console.error("[enviarAOrden]", e);
+      alert("Error al enviar el informe a la orden. Intentá de nuevo.");
+      setOrdenEnvioStatus("idle");
+    }
+  };
+
+  // TODO: Trello integration deprecated — replaced by enviarAOrden(). Kept commented for reference, can be removed after Phase B.
+  /* const sendToTrello = async () => {
     setTrelloStatus("sending");
     try {
       const svcData = buildServiceData();
@@ -2180,7 +2333,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         setTrelloStatus("done");
       } else { setTrelloStatus("error"); }
     } catch(e) { console.error(e); setTrelloStatus("error"); }
-  };
+  }; */
 
   const confirmSig = async () => {
     const now = new Date();
@@ -2943,28 +3096,27 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                       <div style={{ padding:"8px 12px", borderRadius:6, border:"1px solid #4ade8030", background:"#4ade8008", marginBottom:10, textAlign:"center", fontSize:10, color:"#4ade80" }}>
                         ✅ Aprobado por {aprobadoPor}
                       </div>
-                      {/* Botón Trello — solo visible si está aprobado */}
-                      {trelloStatus === "done" ? (
-                        <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #4ade8050", background:"#0a1a0a", marginBottom:10 }}>
-                          <div style={{ fontSize:9, color:"#4ade80", letterSpacing:2, marginBottom:6 }}>✅ ENVIADO A TRELLO</div>
-                          <div style={{ fontSize:11, color:"#888", marginBottom:10 }}>La tarjeta fue actualizada en el tablero <strong style={{ color:"#ccc" }}>Gestión de Taller</strong></div>
-                          <a href={trelloUrl} target="_blank" rel="noreferrer"
-                            style={{ display:"block", textAlign:"center", padding:"10px", borderRadius:6, border:"1px solid #4ade8050", background:"#4ade8015", color:"#4ade80", fontFamily:"monospace", fontSize:11, textDecoration:"none", letterSpacing:1 }}>
-                            🔗 Ver tarjeta en Trello
-                          </a>
-                        </div>
-                      ) : trelloStatus === "error" ? (
-                        <div style={{ padding:"10px 12px", borderRadius:8, border:"1px solid #f8717150", background:"#1a0a0a", marginBottom:10 }}>
-                          <div style={{ fontSize:11, color:"#f87171" }}>❌ Error al enviar a Trello. Verificá tu conexión e intentá de nuevo.</div>
-                          <button onClick={sendToTrello} style={{ marginTop:8, width:"100%", padding:"8px", borderRadius:6, border:"1px solid #f8717150", background:"#f8717115", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
-                            🔄 Reintentar
+                      {/* Enviar a la orden — solo visible si está aprobado */}
+                      {ordenId ? (
+                        ordenEnvioStatus === "done" ? (
+                          <div style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #4ade8050", background:"#0a1a0a", marginBottom:10 }}>
+                            <div style={{ fontSize:9, color:"#4ade80", letterSpacing:2, marginBottom:6 }}>✅ ENVIADO A LA ORDEN {ordenNumero}</div>
+                            <div style={{ fontSize:11, color:"#888", marginBottom:10 }}>El informe fue guardado en la orden de trabajo.</div>
+                            <a href="https://taller.ramosyramoscr.com" target="_blank" rel="noreferrer"
+                              style={{ display:"block", textAlign:"center", padding:"10px", borderRadius:6, border:"1px solid #4ade8050", background:"#4ade8015", color:"#4ade80", fontFamily:"monospace", fontSize:11, textDecoration:"none", letterSpacing:1 }}>
+                              🔗 Ver orden →
+                            </a>
+                          </div>
+                        ) : (
+                          <button onClick={enviarAOrden} disabled={ordenEnvioStatus === "sending"}
+                            style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${ordenEnvioStatus==="sending"?"#2a2a3a":"#C8A96E80"}`, background:ordenEnvioStatus==="sending"?"#0a0a14":"#C8A96E18", color:ordenEnvioStatus==="sending"?"#444":"#C8A96E", fontFamily:"monospace", fontSize:12, cursor:ordenEnvioStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
+                            {ordenEnvioStatus === "sending" ? "⏳ Enviando..." : "📋 Enviar a la orden de trabajo"}
                           </button>
-                        </div>
+                        )
                       ) : (
-                        <button onClick={sendToTrello} disabled={trelloStatus==="sending"}
-                          style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${trelloStatus==="sending"?"#2a2a3a":"#0052cc80"}`, background:trelloStatus==="sending"?"#0a0a14":"#0052cc18", color:trelloStatus==="sending"?"#444":"#4c9aff", fontFamily:"monospace", fontSize:12, cursor:trelloStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
-                          {trelloStatus==="sending" ? "⏳ Enviando..." : "📋 Enviar resumen a Trello"}
-                        </button>
+                        <div style={{ padding:"10px 12px", borderRadius:8, border:"1px solid #2a2a3a", background:"#0c0c14", marginBottom:10, fontSize:11, color:"#555", lineHeight:1.6 }}>
+                          ℹ️ Este servicio fue creado manualmente. Para asociarlo a una orden, abrilo desde el sistema del Taller.
+                        </div>
                       )}
                     </>
                   )}
