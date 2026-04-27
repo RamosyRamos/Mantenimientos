@@ -1650,6 +1650,7 @@ function MainApp({ session, onLogout }) {
     setSel("A"); setFuel("gasolina"); setIs4m(false);
     setTrelloStatus("idle"); setTrelloUrl(""); setClientUrl("");
     setOrdenEnvioStatus("idle");
+    setOrdenId(""); setOrdenNumero(""); setOrdenFalla(""); setVehAnio(""); setVehVersion("");
     setEditingTrelloCardId(null);
     setAprobado(false);
     setAprobadoPor("");
@@ -1864,6 +1865,8 @@ function MainApp({ session, onLogout }) {
     setAprobadoPor(s.aprobado_por || "");
     const existingSlug = s.slug || "";
     if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
+    setOrdenId(s.orden_id || "");
+    setOrdenNumero(s.orden_numero || "");
     setShowRecent(false);
     setStep(3);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2208,6 +2211,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               aceite_litros: svcData.aceite?.litros || null, aceite_spec: svcData.aceite?.especificacion || null,
               revisiones: svcData.revisiones, observaciones: svcData.observaciones,
               pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, fotos: taskPhotos,
+              orden_id: ordenId || null, orden_numero: ordenNumero || null,
             }),
           }
         );
@@ -2394,6 +2398,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         estado:          "pendiente",
         aprobado:        false,
         fotos:           taskPhotos,
+        orden_id:        ordenId     || null,
+        orden_numero:    ordenNumero || null,
       };
 
       console.log("[confirmSig] payload:", JSON.stringify(payload).slice(0, 300));
