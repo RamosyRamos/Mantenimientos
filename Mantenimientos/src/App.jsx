@@ -2152,23 +2152,23 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   // ── Markdown builder for ordenes.informe_mantenimiento ──
   const buildInformeMarkdown = (overrideClientUrl) => {
     const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
-    let md = `## 🔧 Servicio ${sel} — ${sigDate}\n\n`;
-    md += `**Mecánico:** ${mechName}\n`;
-    md += `**Aprobado por:** ${aprobadoPor}\n`;
-    md += `**Kilometraje:** ${km ? parseInt(km).toLocaleString() : "—"} km`;
+    let txt = `🔧 Servicio ${sel} — ${sigDate}\n\n`;
+    txt += `Mecánico: ${mechName}\n`;
+    txt += `Aprobado por: ${aprobadoPor}\n`;
+    txt += `Kilometraje: ${km ? parseInt(km).toLocaleString() : "—"} km`;
     if (issueTasks.length > 0) {
-      md += `\n\n---\n\n### ⚠️ Detalles marcados en el checklist\n`;
+      txt += `\n\n⚠️ Detalles marcados en el checklist:\n`;
       issueTasks.forEach(t => {
         const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : " (sin detalle escrito)";
-        md += `- ⚠️ ${t.text}${detail}\n`;
+        txt += `- ${t.text}${detail}\n`;
       });
     }
     if (notes.trim()) {
-      md += `\n\n### 📝 Observaciones del mecánico\n${notes.trim()}`;
+      txt += `\n\n📝 Observaciones del mecánico:\n${notes.trim()}`;
     }
     const finalUrl = overrideClientUrl || clientUrl;
-    md += `\n\n---\n\n### 🔗 Detalle completo del mantenimiento\n${finalUrl || "(enlace pendiente)"}`;
-    return md;
+    txt += `\n\n🔗 Detalle completo del mantenimiento:\n${finalUrl || "(enlace pendiente)"}`;
+    return txt;
   };
 
   // ── Save informe to ordenes.informe_mantenimiento ──
