@@ -1339,16 +1339,19 @@ const MODEL_ALIASES = {
   "s680": ["W223"],
 };
 
+const normalize = s => s?.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '') ?? ''
+
 // Función de búsqueda inteligente
 function smartSearch(query) {
-  const q = query.toLowerCase().trim();
+  const q = normalize(query);
   if (!q) return null; // null = mostrar todos
 
   // 1. Buscar alias exacto
   const aliasKeys = Object.keys(MODEL_ALIASES).filter(k => {
-    if (q === k) return true;                          // coincidencia exacta siempre
-    if (k.startsWith(q) && q.length >= 2) return true; // alias empieza con la búsqueda (mín 2 chars)
-    if (q.startsWith(k) && k.length >= 3) return true; // búsqueda empieza con alias (mín 3 chars — evita "c" matcheando "c230")
+    const nk = normalize(k);
+    if (q === nk) return true;                           // coincidencia exacta siempre
+    if (nk.startsWith(q) && q.length >= 2) return true; // alias empieza con la búsqueda (mín 2 chars)
+    if (q.startsWith(nk) && nk.length >= 3) return true; // búsqueda empieza con alias (mín 3 chars — evita "c" matcheando "c230")
     return false;
   });
   const chassisTags = new Set(aliasKeys.flatMap(k => MODEL_ALIASES[k]));
@@ -1357,9 +1360,9 @@ function smartSearch(query) {
   const results = [];
   Object.entries(MODEL_GROUPS).forEach(([grp, models]) => {
     models.forEach(m => {
-      const mLow = m.toLowerCase();
+      const mNorm = normalize(m);
       // Coincidencia directa en el nombre
-      const directMatch = mLow.includes(q);
+      const directMatch = mNorm.includes(q);
       // Coincidencia por chassis tag
       const chassisMatch = [...chassisTags].some(tag => m.includes(tag));
       if (directMatch || chassisMatch) {
@@ -2371,7 +2374,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             {modelOpen && (
               <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:260, overflowY:"auto", marginTop:2, boxShadow:"0 8px 24px #00000080" }}>
                 {(() => {
-                  const q = modelSearch.toLowerCase().trim();
+                  const q = normalize(modelSearch);
                   const results = q ? smartSearch(q) : Object.entries(MODEL_GROUPS).flatMap(([grp, ms]) => ms.map(m => ({ m, grp })));
                   if (!results.length) return <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>;
                   let lastGrp = null;
