@@ -1593,7 +1593,7 @@ function MainApp({ session, onLogout }) {
   const [ordenEnvioStatus, setOrdenEnvioStatus] = useState("idle"); // 'idle'|'sending'|'done'
   const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [draftPrompt, setDraftPrompt]   = useState(false);
-  const [pendingDraft, setPendingDraft] = useState(null);
+  const [pendingDrafts, setPendingDrafts] = useState([]);
   const autoSaveTimer = useRef(null);
   const editingIdRef  = useRef(null);
   const autoSaveRef   = useRef({});
@@ -1633,7 +1633,7 @@ function MainApp({ session, onLogout }) {
   const exTotal = extras.reduce((n,e) => n + e.tasks.length, 0);
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -1658,6 +1658,43 @@ function MainApp({ session, onLogout }) {
     setTab("check"); setStep(1); setEditingId(null);
     setAutoSaveStatus(null);
   };
+  const continuarDraft = (draft) => {
+    loadService(draft);
+    setDraftPrompt(false);
+  };
+
+  const descartarDraft = async (draft) => {
+    const SURL = import.meta.env.VITE_SUPABASE_URL;
+    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+    setPendingDrafts(prev => prev.filter(d => d.id !== draft.id));
+    try {
+      await fetch(`${SURL}/rest/v1/servicios?id=eq.${draft.id}`, {
+        method: 'PATCH',
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ estado: 'descartado' }),
+      });
+    } catch(e) { console.error('[descartarDraft]', e); }
+  };
+
+  const handleReset = async () => {
+    if (editingId && !sigDate) {
+      if (!window.confirm('Tenés un servicio en progreso sin firmar. ¿Seguro que querés empezar uno nuevo?')) return;
+      const discard = window.confirm('¿Descartar el borrador? Presioná Cancelar para guardarlo y continuar más tarde.');
+      if (discard) {
+        const SURL = import.meta.env.VITE_SUPABASE_URL;
+        const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+        try {
+          await fetch(`${SURL}/rest/v1/servicios?id=eq.${editingId}`, {
+            method: 'PATCH',
+            headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ estado: 'descartado' }),
+          });
+        } catch(e) { console.error('[handleReset discard]', e); }
+      }
+    }
+    resetAll();
+  };
+
   const addNote  = q   => setNotes(n => n ? n+"\n• "+q : "• "+q);
 
   // Keep editingIdRef in sync so the async save callback always has the latest ID
@@ -1667,13 +1704,13 @@ function MainApp({ session, onLogout }) {
   useEffect(() => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
     const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&order=created_at.desc&limit=1`, {
+    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&order=created_at.desc`, {
       headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
     })
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
-          setPendingDraft(data[0]);
+          setPendingDrafts(data);
           setDraftPrompt(true);
         }
       })
@@ -1712,6 +1749,7 @@ function MainApp({ session, onLogout }) {
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       const d  = autoSaveRef.current;
+      if (d.sigDate) return; // Already signed — don't overwrite estado to borrador
       const id = editingIdRef.current;
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
@@ -1859,11 +1897,14 @@ function MainApp({ session, onLogout }) {
       setChk(newChecked);
     }
 
+    const existingSlug = s.slug || "";
+    setSigDate("");
+    if (!existingSlug) setClientUrl("");
+    if (!revisiones) { setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setChk({}); }
     setEditingId(s.id);
     setEditingTrelloCardId(d.trello_card_id || null);
     setAprobado(s.aprobado || false);
     setAprobadoPor(s.aprobado_por || "");
-    const existingSlug = s.slug || "";
     if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
     setOrdenId(s.orden_id || "");
     setOrdenNumero(s.orden_numero || "");
@@ -2210,7 +2251,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD",
               aceite_litros: svcData.aceite?.litros || null, aceite_spec: svcData.aceite?.especificacion || null,
               revisiones: svcData.revisiones, observaciones: svcData.observaciones,
-              pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, fotos: taskPhotos,
+              pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: taskPhotos,
               orden_id: ordenId || null, orden_numero: ordenNumero || null,
             }),
           }
@@ -2340,6 +2381,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   }; */
 
   const confirmSig = async () => {
+    clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = null;
     const now = new Date();
     const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
     setSigDate(fecha);
@@ -2451,28 +2494,39 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
 
       {/* Draft-recovery prompt */}
-      {draftPrompt && pendingDraft && (
+      {draftPrompt && pendingDrafts.length > 0 && (
         <div style={{ position:"fixed", inset:0, zIndex:500, background:"#000c", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ background:"#0f0f17", border:`1px solid ${line}`, borderRadius:10, padding:"24px 20px", maxWidth:320, width:"100%", fontFamily:"monospace" }}>
+          <div style={{ background:"#0f0f17", border:`1px solid ${line}`, borderRadius:10, padding:"24px 20px", maxWidth:360, width:"100%", fontFamily:"monospace", maxHeight:"80vh", overflowY:"auto" }}>
             <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold", marginBottom:8 }}>⚠️ Servicio en progreso</div>
-            <div style={{ fontSize:11, color:"#888", lineHeight:1.7, marginBottom:16 }}>
-              Hay un borrador de hoy sin finalizar:
-              <div style={{ marginTop:6, color:"#ccc" }}>
-                {pendingDraft.placa && <span style={{ letterSpacing:1 }}>{pendingDraft.placa}</span>}
-                {pendingDraft.servicio_codigo && <span> — Serv. {pendingDraft.servicio_codigo}</span>}
-                {pendingDraft.mecanico && <span style={{ color:"#888" }}> · {pendingDraft.mecanico}</span>}
+            <div style={{ fontSize:11, color:"#888", lineHeight:1.7, marginBottom:12 }}>
+              {pendingDrafts.length === 1 ? "Hay un borrador sin finalizar:" : `Hay ${pendingDrafts.length} borradores sin finalizar:`}
+            </div>
+            {pendingDrafts.map(draft => (
+              <div key={draft.id} style={{ marginBottom:10, padding:"10px 12px", borderRadius:6, border:`1px solid ${line}`, background:"#161622" }}>
+                <div style={{ fontSize:11, color:"#ccc", marginBottom:8 }}>
+                  {draft.placa && <span style={{ letterSpacing:1 }}>{draft.placa}</span>}
+                  {draft.servicio_codigo && <span> — Serv. {draft.servicio_codigo}</span>}
+                  {draft.mecanico && <span style={{ color:"#888" }}> · {draft.mecanico}</span>}
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={() => continuarDraft(draft)}
+                    style={{ flex:1, padding:"8px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:10, cursor:"pointer", fontWeight:"bold" }}>
+                    ▶ Continuar
+                  </button>
+                  <button onClick={() => descartarDraft(draft)}
+                    style={{ flex:1, padding:"8px", borderRadius:6, border:"1px solid #ff444460", background:"#ff444418", color:"#ff6666", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                    🗑 Descartar
+                  </button>
+                </div>
               </div>
-            </div>
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={() => { loadService(pendingDraft); setDraftPrompt(false); }}
-                style={{ flex:1, padding:"10px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-                ▶ Continuar
-              </button>
-              <button onClick={() => setDraftPrompt(false)}
-                style={{ flex:1, padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
-                Empezar nuevo
-              </button>
-            </div>
+            ))}
+            <button onClick={() => {
+              if (!window.confirm(`Tenés ${pendingDrafts.length} borrador${pendingDrafts.length > 1 ? 'es' : ''} sin finalizar. ¿Seguro que querés empezar un servicio nuevo?`)) return;
+              setDraftPrompt(false);
+            }}
+              style={{ width:"100%", padding:"10px", marginTop:6, borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+              + Empezar nuevo servicio
+            </button>
           </div>
         </div>
       )}
@@ -2952,7 +3006,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
             {/* BOTONES */}
             <div style={{ display:"flex", gap:8, marginTop:10, marginBottom:16 }}>
-              <button onClick={resetAll} style={{ flex:1, padding:10, borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:11, letterSpacing:2, cursor:"pointer" }}>↺ REINICIAR</button>
+              <button onClick={handleReset} style={{ flex:1, padding:10, borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:11, letterSpacing:2, cursor:"pointer" }}>↺ REINICIAR</button>
               <button onClick={markAll} style={{ flex:1, padding:10, borderRadius:6, border:`1px solid ${G}50`, background:G+"18", color:G, fontFamily:"monospace", fontSize:11, letterSpacing:2, cursor:"pointer" }}>✓ MARCAR TODO</button>
             </div>
 
@@ -3127,7 +3181,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     </>
                   )}
 
-                  <button onClick={()=>{ resetAll(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                  <button onClick={()=>{ handleReset(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
                     ↺ Nuevo servicio
                   </button>
                 </div>
