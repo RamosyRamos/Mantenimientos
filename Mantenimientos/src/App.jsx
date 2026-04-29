@@ -1549,9 +1549,18 @@ export default function App() {
 
 function MainApp({ session, onLogout }) {
   const [step, setStep]     = useState(1);
-  const [showRecent, setShowRecent] = useState(false);
-  const [recentList, setRecentList] = useState([]);
-  const [recentLoading, setRecentLoading] = useState(false);
+  const [cameFromTaller] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return !!(p.get('orden_id') || p.get('mecanico'));
+  });
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifList, setNotifList]                 = useState([]);
+  const [notifLoading, setNotifLoading]           = useState(false);
+  const [notifCount, setNotifCount]               = useState(0);
+  const [showCompleted, setShowCompleted]         = useState(false);
+  const [completedList, setCompletedList]         = useState([]);
+  const [completedLoading, setCompletedLoading]   = useState(false);
+  // TODO: orphaned — was triggered by removed "VER TODOS" button. Remove in cleanup commit.
   const [showVerTodos, setShowVerTodos] = useState(false);
   const [verTodosList, setVerTodosList] = useState([]);
   const [verTodosLoading, setVerTodosLoading] = useState(false);
@@ -1631,6 +1640,8 @@ function MainApp({ session, onLogout }) {
   const isComplete = pct === 100;
   const exDoneN = extras.reduce((n,e) => n + e.tasks.filter((_,i) => exChk[`${e.id}_${i}`]).length, 0);
   const exTotal = extras.reduce((n,e) => n + e.tasks.length, 0);
+
+  const showAdminButtons = !cameFromTaller && (session?.rol === 'admin' || session?.rol === 'jefe');
 
   // Keep ref current so debounced timer always reads latest values
   autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate };
@@ -1908,36 +1919,45 @@ function MainApp({ session, onLogout }) {
     if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
     setOrdenId(s.orden_id || "");
     setOrdenNumero(s.orden_numero || "");
-    setShowRecent(false);
+    setShowNotifications(false);
+    setShowCompleted(false);
     setStep(3);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const fetchRecent = async () => {
-    setRecentLoading(true);
+  const fetchNotifications = async () => {
+    setNotifLoading(true);
     try {
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-      const res = await fetch(`${SURL}/rest/v1/servicios?select=*&order=created_at.desc&limit=15`, {
+      const res = await fetch(`${SURL}/rest/v1/servicios?estado=eq.pendiente&aprobado=eq.false&order=created_at.desc`, {
         headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
       });
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error("[fetchRecent] error", res.status, errText);
-        setRecentList([]);
-      } else {
-        const data = await res.json();
-        console.log("[fetchRecent] got", data?.length, "records, isArray:", Array.isArray(data), "first:", data?.[0]);
-        const list = Array.isArray(data) ? data : [];
-        setRecentList(list);
-        console.log("[fetchRecent] setRecentList called with", list.length, "items");
-      }
-    } catch(e) {
-      console.error("[fetchRecent] fetch failed:", e.message);
-      setRecentList([]);
-    }
-    setRecentLoading(false);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      setNotifList(list);
+      setNotifCount(list.length);
+    } catch(e) { console.error("[fetchNotifications]", e); }
+    setNotifLoading(false);
   };
+
+  const fetchCompleted = async () => {
+    setCompletedLoading(true);
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/servicios?estado=eq.aprobado&order=created_at.desc&limit=100`, {
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
+      });
+      const data = await res.json();
+      setCompletedList(Array.isArray(data) ? data : []);
+    } catch(e) { console.error("[fetchCompleted]", e); }
+    setCompletedLoading(false);
+  };
+
+  useEffect(() => {
+    if (showAdminButtons) fetchNotifications();
+  }, [showAdminButtons]);
 
   const fetchVerTodos = async () => {
     setVerTodosLoading(true);
@@ -1962,66 +1982,74 @@ function MainApp({ session, onLogout }) {
     setVerTodosLoading(false);
   };
 
-  const recentPanel = showRecent ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowRecent(false)}>
-      <div onClick={e => e.stopPropagation()} className="recent-panel-inner" style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <div><div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🕐 Recientes</div><div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>ÚLTIMOS 15 SERVICIOS</div></div>
-          <button onClick={() => setShowRecent(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+  const serviceRow = (s, actionBtn) => {
+    const d = s.datos || {};
+    const placa    = d.vehiculo?.placa  || s.placa  || "Sin placa";
+    const modelo   = d.vehiculo?.modelo || s.modelo || "—";
+    const servicio = d.servicio?.codigo || s.servicio_codigo || "—";
+    const mecanico = d.mecanico         || s.mecanico || "";
+    const fecha    = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+    return (
+      <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+          <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{placa}</span>
+          <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
+        </div>
+        <div style={{ fontSize:11, color:"#aaa", marginBottom:4 }}>{modelo}</div>
+        <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:8 }}>
+          <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
+          <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
+        </div>
+        {actionBtn}
+      </div>
+    );
+  };
+
+  const notificationsPanel = showNotifications ? (
+    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowNotifications(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+          <div>
+            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🔔 Pendientes de aprobación</div>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>{notifList.length} SERVICIO{notifList.length !== 1 ? "S" : ""}</div>
+          </div>
+          <button onClick={() => setShowNotifications(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
-          {!recentLoading && recentList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios registrados.</div>}
-          {recentList.length > 0 && recentList.map(s => {
-            const d = s.datos || {};
-            const placa    = d.vehiculo?.placa   || s.placa   || "Sin placa";
-            const modelo   = d.vehiculo?.modelo  || s.modelo  || "—";
-            const servicio = d.servicio?.codigo  || s.servicio_codigo || "—";
-            const mecanico = d.mecanico          || s.mecanico || "";
-            const fecha = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
-            const slug  = s.slug || s.id;
-            const url   = `${window.location.origin}/servicio/${slug}`;
-            return (
-              <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${line}` }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-                  <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E" }}>{placa}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{fecha}</span>
-                </div>
-                <div style={{ fontSize:11, color:"#aaa", marginBottom:2 }}>{modelo}</div>
-                <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:4 }}>
-                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
-                  <span style={{ fontSize:9, color:"#555" }}>{mecanico}</span>
-                </div>
-                <div style={{ display:"flex", gap:6, marginTop:8 }}>
-                  <button onClick={() => { setModoRevision(false); loadService(s); }}
-                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E12", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
-                    ✏️ Editar
-                  </button>
-                  <button onClick={() => { setModoRevision(true); loadService(s); }}
-                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
-                    📋 Revisión
-                  </button>
-                  <a href={url} target="_blank" rel="noreferrer"
-                    style={{ flex:1, padding:"6px 10px", borderRadius:6, border:"1px solid #2a2a3a", background:"#1a1a2a", color:"#888", fontSize:10, textDecoration:"none", fontFamily:"monospace", textAlign:"center", letterSpacing:1 }}>
-                    🔗 Resumen
-                  </a>
-                </div>
-                {s.aprobado && (
-                  <div style={{ marginTop:6, padding:"5px 10px", borderRadius:6, border:"1px solid #4ade8030", background:"#4ade8008", color:"#4ade80", fontSize:9, fontFamily:"monospace", textAlign:"center" }}>
-                    ✅ Aprobado por {s.aprobado_por || "—"}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {notifLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+          {!notifLoading && notifList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios pendientes de aprobación.</div>}
+          {notifList.map(s => serviceRow(s,
+            <button onClick={() => { setModoRevision(true); loadService(s); }}
+              style={{ width:"100%", padding:"7px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", fontWeight:"bold", letterSpacing:1 }}>
+              ▶ Ver / Aprobar
+            </button>
+          ))}
         </div>
-        {/* Ver todos button */}
-        <div style={{ padding:"12px 16px", borderTop:`1px solid ${line}`, flexShrink:0 }}>
-          <button
-            onClick={() => { setShowVerTodos(true); fetchVerTodos(); }}
-            style={{ width:"100%", padding:"9px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E10", color:"#C8A96E", fontSize:11, fontFamily:"monospace", cursor:"pointer", letterSpacing:1, fontWeight:"bold" }}>
-            📋 VER TODOS LOS MANTENIMIENTOS
-          </button>
+      </div>
+    </div>
+  ) : null;
+
+  const completedPanel = showCompleted ? (
+    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowCompleted(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+          <div>
+            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>📋 Mantenimientos realizados</div>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>
+              {completedList.length === 100 ? "MOSTRANDO LOS 100 MÁS RECIENTES" : `${completedList.length} REGISTRO${completedList.length !== 1 ? "S" : ""}`}
+            </div>
+          </div>
+          <button onClick={() => setShowCompleted(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+          {completedLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+          {!completedLoading && completedList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay mantenimientos completados todavía.</div>}
+          {completedList.map(s => serviceRow(s,
+            <button onClick={() => { setModoRevision(true); loadService(s); }}
+              style={{ width:"100%", padding:"7px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
+              👁 Ver
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -2092,7 +2120,7 @@ function MainApp({ session, onLogout }) {
               style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"11px 20px", borderBottom:`1px solid ${line}20`, cursor:"pointer", background: i % 2 === 0 ? "transparent" : "#ffffff04", alignItems:"center" }}
               onMouseEnter={e => e.currentTarget.style.background = "#C8A96E10"}
               onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "#ffffff04"}
-              onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); setShowRecent(false); }}
+              onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); }}
             >
               <span style={{ fontSize:10, color:"#666" }}>{fecha}</span>
               <span style={{ fontSize:11, fontWeight:"bold", color:"#C8A96E", letterSpacing:1 }}>{placa}</span>
@@ -2541,10 +2569,21 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
-        <button onClick={() => { setShowRecent(true); fetchRecent(); }} title="Mantenimientos recientes"
-          style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
-          🕐
-        </button>
+        {showAdminButtons && (<>
+          <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
+            style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            🔔
+            {notifCount > 0 && (
+              <span style={{ position:"absolute", top:-5, right:-5, background:"#ef4444", color:"#fff", borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"monospace", fontWeight:"bold", padding:"0 2px" }}>
+                {notifCount > 9 ? "9+" : notifCount}
+              </span>
+            )}
+          </button>
+          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Mantenimientos realizados"
+            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            📋
+          </button>
+        </>)}
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
           const isLight = root.style.filter.includes('invert');
@@ -2555,7 +2594,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       </div>
       <div style={{ padding:"3px 16px", background:"#09090e", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
 
-      {recentPanel}
+      {notificationsPanel}
+      {completedPanel}
       {verTodosPanel}
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
@@ -2679,10 +2719,21 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
         <button onClick={()=>setStep(1)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontFamily:"monospace" }}>← Vehículo</button>
-        <button onClick={() => { setShowRecent(true); fetchRecent(); }} title="Mantenimientos recientes"
-          style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
-          🕐
-        </button>
+        {showAdminButtons && (<>
+          <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
+            style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            🔔
+            {notifCount > 0 && (
+              <span style={{ position:"absolute", top:-5, right:-5, background:"#ef4444", color:"#fff", borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"monospace", fontWeight:"bold", padding:"0 2px" }}>
+                {notifCount > 9 ? "9+" : notifCount}
+              </span>
+            )}
+          </button>
+          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Mantenimientos realizados"
+            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            📋
+          </button>
+        </>)}
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
           const isLight = root.style.filter.includes('invert');
@@ -2693,7 +2744,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       </div>
       <div style={{ padding:"3px 16px", background:"#09090e", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
 
-      {recentPanel}
+      {notificationsPanel}
+      {completedPanel}
       {verTodosPanel}
 
       {/* Resumen vehículo seleccionado */}
@@ -2796,10 +2848,21 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             {isComplete ? "✓ COMPLETO" : pct+"%"}
           </div>
         )}
-        <button onClick={() => { setShowRecent(true); fetchRecent(); }} title="Mantenimientos recientes"
-          style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
-          🕐
-        </button>
+        {showAdminButtons && (<>
+          <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
+            style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            🔔
+            {notifCount > 0 && (
+              <span style={{ position:"absolute", top:-5, right:-5, background:"#ef4444", color:"#fff", borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"monospace", fontWeight:"bold", padding:"0 2px" }}>
+                {notifCount > 9 ? "9+" : notifCount}
+              </span>
+            )}
+          </button>
+          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Mantenimientos realizados"
+            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            📋
+          </button>
+        </>)}
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
           const isLight = root.style.filter.includes('invert');
@@ -2819,7 +2882,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       </div>
       <div style={{ padding:"3px 16px", background:"#09090e", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
 
-      {recentPanel}
+      {notificationsPanel}
+      {completedPanel}
       {verTodosPanel}
 
       {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
