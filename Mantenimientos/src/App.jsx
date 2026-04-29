@@ -2051,6 +2051,13 @@ function MainApp({ session, onLogout }) {
             </button>
           ))}
         </div>
+        <div style={{ padding:"12px 16px", borderTop:`1px solid ${line}`, flexShrink:0 }}>
+          <button
+            onClick={() => { setShowVerTodos(true); fetchVerTodos(); setShowCompleted(false); }}
+            style={{ width:"100%", padding:"9px", borderRadius:6, border:"1px solid #C8A96E40", background:"#C8A96E10", color:"#C8A96E", fontSize:11, fontFamily:"monospace", cursor:"pointer", letterSpacing:1, fontWeight:"bold" }}>
+            🔍 VER TODOS / BUSCAR
+          </button>
+        </div>
       </div>
     </div>
   ) : null;
