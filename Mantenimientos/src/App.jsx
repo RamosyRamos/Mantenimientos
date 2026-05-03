@@ -7,7 +7,6 @@
 // what's already in the bundle, and do NOT enable public sign-up.
 
 import { useState, useEffect, useRef } from "react";
-import { subscribeUserToPush } from './push.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const ITEMS = {
@@ -1472,7 +1471,6 @@ function LoginScreen({ onLogin }) {
       const session = { id: user.id, username: user.username, nombre: user.nombre, rol: user.rol, app: user.app };
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       onLogin(session);
-      subscribeUserToPush(session);
     } catch(err) {
       console.error("[Auth] Exception:", err);
       setError("Error de conexión. Intentá de nuevo.");
@@ -1541,9 +1539,6 @@ export default function App() {
       return s ? JSON.parse(s) : null;
     } catch(e) { return null; }
   });
-  useEffect(() => {
-    if (session?.id) subscribeUserToPush(session);
-  }, [session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!session) return <LoginScreen onLogin={setSession} />;
   return <MainApp session={session} onLogout={() => {
     localStorage.removeItem(SESSION_KEY);

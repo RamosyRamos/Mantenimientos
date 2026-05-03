@@ -19,12 +19,6 @@ createRoot(rootEl).render(
   </StrictMode>
 );
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
-}
-
 // Restaurar tema claro si estaba activo
 try {
   if (localStorage.getItem('theme') === 'light') {
