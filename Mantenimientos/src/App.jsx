@@ -7,6 +7,7 @@
 // what's already in the bundle, and do NOT enable public sign-up.
 
 import { useState, useEffect, useRef } from "react";
+import { subscribeUserToPush } from './push.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const ITEMS = {
@@ -1471,6 +1472,7 @@ function LoginScreen({ onLogin }) {
       const session = { id: user.id, username: user.username, nombre: user.nombre, rol: user.rol, app: user.app };
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
       onLogin(session);
+      subscribeUserToPush(session);
     } catch(err) {
       console.error("[Auth] Exception:", err);
       setError("Error de conexión. Intentá de nuevo.");
@@ -1539,6 +1541,9 @@ export default function App() {
       return s ? JSON.parse(s) : null;
     } catch(e) { return null; }
   });
+  useEffect(() => {
+    if (session?.id) subscribeUserToPush(session);
+  }, [session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!session) return <LoginScreen onLogin={setSession} />;
   return <MainApp session={session} onLogout={() => {
     localStorage.removeItem(SESSION_KEY);
@@ -1864,6 +1869,23 @@ function MainApp({ session, onLogout }) {
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
   const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
+
+  const notifyPush = async (userNombres, title, body) => {
+    try {
+      const results = await Promise.all(userNombres.map(nombre =>
+        fetch(`${SUPABASE_URL}/rest/v1/usuarios?nombre=eq.${encodeURIComponent(nombre)}&select=id&limit=1`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        }).then(r => r.json())
+      ));
+      const ids = results.flatMap(rows => rows?.[0]?.id ? [String(rows[0].id)] : []);
+      if (!ids.length) return;
+      await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ user_ids: ids, title, body }),
+      });
+    } catch(e) { console.warn('notifyPush failed:', e); }
+  };
 
   const loadService = (s) => {
     const d = s.datos || {};
@@ -2507,6 +2529,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const clientUrlVal = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
       setClientUrl(clientUrlVal);
       if (!editingId && savedId) setEditingId(savedId);
+      notifyPush(
+        ["Otto Ramos","Gustavo Ramos","Arturo Ramos"],
+        "Servicio pendiente de aprobación",
+        `${mechName} — ${plate} (${model})`
+      );
     } catch(e) { console.error("[confirmSig] save failed:", e.message); }
   };
 
@@ -3208,6 +3235,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                               });
                               setAprobado(true);
                               setAprobadoPor(nombre);
+                              if (mechName) notifyPush([mechName], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
                             } catch(e) { console.error(e); }
                           }}
                             style={{ width:"100%", padding:"10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8010", color:"#4ade80", fontFamily:"monospace", fontSize:11, cursor:"pointer", letterSpacing:1, textAlign:"center" }}>
