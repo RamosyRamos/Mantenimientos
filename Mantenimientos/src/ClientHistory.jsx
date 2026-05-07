@@ -164,10 +164,31 @@ function ServiceCard({ service: s, index, total }) {
         <div style={{ flex:1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
             <span style={{ fontSize:13, fontWeight:"bold", color:gold }}>Servicio {s.servicio_codigo}</span>
-            {hasIssues && <span style={{ fontSize:9, background:"#f8717120", border:"1px solid #f8717140", color:"#f87171", borderRadius:4, padding:"1px 6px" }}>⚠️ Con detalles</span>}
-            {!hasIssues && <span style={{ fontSize:9, background:"#4ade8015", border:"1px solid #4ade8030", color:"#4ade80", borderRadius:4, padding:"1px 6px" }}>✅ OK</span>}
+            {s.rechazado === true ? (
+              <span style={{ fontSize:9, background:"#f8717125", border:"1px solid #f8717155", color:"#f87171", borderRadius:4, padding:"1px 6px", fontWeight:700 }}>❌ Rechazado</span>
+            ) : (
+              <>
+                {hasIssues && (
+                  <span style={{ fontSize:9, background:"#f8717120", border:"1px solid #f8717140", color:"#f87171", borderRadius:4, padding:"1px 6px" }}>⚠️ Con detalles</span>
+                )}
+                {!hasIssues && (
+                  <span style={{ fontSize:9, background:"#4ade8015", border:"1px solid #4ade8030", color:"#4ade80", borderRadius:4, padding:"1px 6px" }}>✅ OK</span>
+                )}
+              </>
+            )}
           </div>
           <div style={{ fontSize:11, color:"#888" }}>{s.servicio_desc}</div>
+          {s.rechazado === true && (
+            <div style={{ background:"#f8717110", border:"1px solid #f8717140", borderRadius:6, padding:"8px 10px", margin:"8px 0", fontSize:11 }}>
+              <div style={{ color:"#f87171", fontWeight:700, marginBottom:4 }}>❌ Servicio rechazado</div>
+              {s.rechazado_por && (
+                <div style={{ color:"#cbd5e1", fontSize:10 }}>Por: <strong>{s.rechazado_por}</strong></div>
+              )}
+              {s.motivo_rechazo && (
+                <div style={{ color:"#cbd5e1", fontSize:10, marginTop:3 }}>Motivo: <em>{s.motivo_rechazo}</em></div>
+              )}
+            </div>
+          )}
           <div style={{ fontSize:10, color:"#555", marginTop:4 }}>
             📅 {s.fecha} · 👤 {s.mecanico}
             {s.aprobado_por && <span style={{ color:"#4ade80" }}> · ✅ {s.aprobado_por}</span>}

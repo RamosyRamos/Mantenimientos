@@ -38,9 +38,12 @@ export default function ClientReport({ binId }) {
             vehiculo:     { modelo: r.modelo, motor: r.motor, placa: r.placa, km: r.km, combustible: r.combustible, traccion: r.traccion },
             aceite:       r.aceite_litros ? { litros: r.aceite_litros, especificacion: r.aceite_spec } : null,
             revisiones:   r.revisiones,
-            observaciones: r.observaciones,
-            pendientes:   r.pendientes,
-            progreso:     r.progreso,
+            observaciones:  r.observaciones,
+            pendientes:     r.pendientes,
+            progreso:       r.progreso,
+            rechazado:      r.rechazado,
+            rechazado_por:  r.rechazado_por,
+            motivo_rechazo: r.motivo_rechazo,
           });
         } else {
           setError(true);
@@ -83,7 +86,8 @@ function ErrorScreen() {
 function ReportView({ data }) {
   const {
     taller, fecha, mecanico, aprobado_por, servicio, vehiculo,
-    aceite, revisiones, observaciones, pendientes, progreso
+    aceite, revisiones, observaciones, pendientes, progreso,
+    rechazado, rechazado_por, motivo_rechazo,
   } = data;
 
   const totalOk     = Object.values(revisiones || {}).flat().filter(t => t.status === "ok").length;
@@ -131,6 +135,19 @@ function ReportView({ data }) {
       </div>
 
       <div style={{ maxWidth:600, margin:"0 auto", padding:"0 16px" }}>
+
+        {/* RECHAZADO */}
+        {rechazado === true && (
+          <div style={{ margin:"16px 0", background:"#f8717110", border:"1px solid #f8717140", borderRadius:10, padding:"14px 16px" }}>
+            <div style={{ color:"#f87171", fontWeight:700, fontSize:13, marginBottom:6 }}>❌ Servicio rechazado</div>
+            {rechazado_por && (
+              <div style={{ color:"#cbd5e1", fontSize:11 }}>Por: <strong>{rechazado_por}</strong></div>
+            )}
+            {motivo_rechazo && (
+              <div style={{ color:"#cbd5e1", fontSize:11, marginTop:4 }}>Motivo: <em>{motivo_rechazo}</em></div>
+            )}
+          </div>
+        )}
 
         {/* DATOS DEL SERVICIO */}
         <Section title="🔧 Datos del Servicio">
