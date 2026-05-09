@@ -1603,6 +1603,7 @@ function MainApp({ session, onLogout }) {
   const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [draftPrompt, setDraftPrompt]   = useState(false);
   const [pendingDrafts, setPendingDrafts] = useState([]);
+  const [differentOrdenPrompt, setDifferentOrdenPrompt] = useState(null);
   const autoSaveTimer = useRef(null);
   const editingIdRef  = useRef(null);
   const autoSaveRef   = useRef({});
@@ -1644,7 +1645,7 @@ function MainApp({ session, onLogout }) {
   const showAdminButtons = !cameFromTaller && (session?.rol === 'admin' || session?.rol === 'jefe');
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -1713,16 +1714,18 @@ function MainApp({ session, onLogout }) {
 
   // On mount: check for an unfinished draft from today
   useEffect(() => {
+    if (!session?.nombre) return;
     const SURL = import.meta.env.VITE_SUPABASE_URL;
     const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&order=created_at.desc`, {
+    const mechFilter = encodeURIComponent(session.nombre);
+    fetch(`${SURL}/rest/v1/servicios?estado=eq.borrador&mecanico=eq.${mechFilter}&order=created_at.desc`, {
       headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
     })
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
           setPendingDrafts(data);
-          setDraftPrompt(true);
+          // Draft modal is NOT auto-shown — mechanic opens it via the header button
         }
       })
       .catch(() => {});
@@ -1753,6 +1756,27 @@ function MainApp({ session, onLogout }) {
     if (pVersion)  setVehVersion(pVersion);
     // step intentionally NOT changed — mechanic must verify and fill kilometraje first
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Smart draft auto-load: runs after mount when both URL params and draft list are ready
+  useEffect(() => {
+    if (!cameFromTaller) return;
+    if (!ordenId) return;
+    if (!pendingDrafts.length) return;
+    if (editingId) return; // already loaded a draft, don't double-load
+
+    const exactMatch = pendingDrafts.find(d => d.orden_id === ordenId);
+    if (exactMatch) {
+      loadService(exactMatch);
+      return;
+    }
+
+    const samePlacaDifferentOrden = pendingDrafts.filter(d =>
+      d.placa === plate && d.orden_id !== ordenId
+    );
+    if (samePlacaDifferentOrden.length > 0) {
+      setDifferentOrdenPrompt({ drafts: samePlacaDifferentOrden, currentOrden: ordenNumero });
+    }
+  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-save: debounce 2 s whenever checklist state changes while in step 3
   useEffect(() => {
@@ -1786,6 +1810,7 @@ function MainApp({ session, onLogout }) {
           pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
           progreso: { completadas: d.doneN, total: d.total },
           aprobado: false, fotos: d.taskPhotos,
+          orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
         };
         const res = await fetch(
           id ? `${SURL}/rest/v1/servicios?id=eq.${id}` : `${SURL}/rest/v1/servicios`,
@@ -1934,8 +1959,11 @@ function MainApp({ session, onLogout }) {
     setAprobado(s.aprobado || false);
     setAprobadoPor(s.aprobado_por || "");
     if (existingSlug) setClientUrl(`${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${existingSlug}`);
-    setOrdenId(s.orden_id || "");
-    setOrdenNumero(s.orden_numero || "");
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlOrdenId = urlParams.get('orden_id')?.trim() || '';
+    const urlOrdenNumero = urlParams.get('numero')?.trim() || '';
+    setOrdenId(urlOrdenId || s.orden_id || "");
+    setOrdenNumero(urlOrdenNumero || s.orden_numero || "");
     setShowNotifications(false);
     setShowCompleted(false);
     setStep(3);
@@ -2550,40 +2578,84 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   if (step === 1) return (
     <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
 
-      {/* Draft-recovery prompt */}
-      {draftPrompt && pendingDrafts.length > 0 && (
-        <div style={{ position:"fixed", inset:0, zIndex:500, background:"#000c", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ background:"#0f0f17", border:`1px solid ${line}`, borderRadius:10, padding:"24px 20px", maxWidth:360, width:"100%", fontFamily:"monospace", maxHeight:"80vh", overflowY:"auto" }}>
-            <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold", marginBottom:8 }}>⚠️ Servicio en progreso</div>
-            <div style={{ fontSize:11, color:"#888", lineHeight:1.7, marginBottom:12 }}>
-              {pendingDrafts.length === 1 ? "Hay un borrador sin finalizar:" : `Hay ${pendingDrafts.length} borradores sin finalizar:`}
+      {/* Borradores panel */}
+      {draftPrompt && (
+        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:420, width:"100%", fontFamily:"monospace", maxHeight:"85vh", overflowY:"auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold" }}>📝 Tus mantenimientos en progreso ({pendingDrafts.length})</div>
+              <button onClick={() => setDraftPrompt(false)} style={{ background:"transparent", border:"none", fontSize:20, cursor:"pointer", color:"#666", lineHeight:1 }}>×</button>
             </div>
-            {pendingDrafts.map(draft => (
-              <div key={draft.id} style={{ marginBottom:10, padding:"10px 12px", borderRadius:6, border:`1px solid ${line}`, background:"#161622" }}>
-                <div style={{ fontSize:11, color:"#ccc", marginBottom:8 }}>
-                  {draft.placa && <span style={{ letterSpacing:1 }}>{draft.placa}</span>}
-                  {draft.servicio_codigo && <span> — Serv. {draft.servicio_codigo}</span>}
-                  {draft.mecanico && <span style={{ color:"#888" }}> · {draft.mecanico}</span>}
+            {pendingDrafts.length === 0 ? (
+              <div style={{ textAlign:"center", padding:24, color:"#666", fontSize:12 }}>No tenés borradores pendientes.</div>
+            ) : pendingDrafts.map((draft, idx) => {
+              const draftDate = draft.created_at ? new Date(draft.created_at) : null;
+              const ageDays = draftDate ? Math.floor((Date.now() - draftDate.getTime()) / 86400000) : 0;
+              const isOld = ageDays >= 15;
+              const ageText = ageDays === 0 ? 'hoy' : ageDays === 1 ? 'ayer' : `hace ${ageDays} días`;
+              const progreso = draft.progreso?.completadas != null && draft.progreso?.total != null
+                ? `${draft.progreso.completadas}/${draft.progreso.total} items` : null;
+              return (
+                <div key={draft.id || idx} style={{ border:`1px solid ${isOld ? '#f97316' : line}`, borderRadius:8, padding:"10px 12px", marginBottom:10, background:"#161622" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:5 }}>
+                    <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:1, color:"#e0d8cc" }}>{draft.placa || '—'}</div>
+                    {isOld && (
+                      <span style={{ fontSize:9, fontWeight:"bold", color:"#f97316", background:"rgba(249,115,22,0.15)", padding:"2px 7px", borderRadius:4, letterSpacing:1 }}>
+                        ⚠️ {ageDays} DÍAS
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:11, color:"#C8A96E", marginBottom:3 }}>
+                    {draft.orden_numero ? `📋 Orden ${draft.orden_numero}` : '⚠️ Sin orden vinculada'}
+                    {' · '}Serv. {draft.servicio_codigo || '—'}
+                  </div>
+                  <div style={{ fontSize:10, color:"#666", marginBottom:9 }}>
+                    👤 {draft.mecanico || '—'} · {ageText}{progreso ? ` · ✓ ${progreso}` : ''}
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={() => continuarDraft(draft)}
+                      style={{ flex:1, padding:"8px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+                      ▶ Continuar
+                    </button>
+                    <button onClick={() => descartarDraft(draft)}
+                      style={{ padding:"8px 12px", borderRadius:6, border:"1px solid #ff444460", background:"#ff444418", color:"#ff6666", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+                      🗑
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display:"flex", gap:8 }}>
-                  <button onClick={() => continuarDraft(draft)}
-                    style={{ flex:1, padding:"8px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:10, cursor:"pointer", fontWeight:"bold" }}>
-                    ▶ Continuar
-                  </button>
-                  <button onClick={() => descartarDraft(draft)}
-                    style={{ flex:1, padding:"8px", borderRadius:6, border:"1px solid #ff444460", background:"#ff444418", color:"#ff6666", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
-                    🗑 Descartar
-                  </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Borrador de otra orden — mismo placa */}
+      {differentOrdenPrompt && (
+        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:"monospace" }}>
+            <div style={{ fontSize:13, color:"#f97316", fontWeight:"bold", marginBottom:10 }}>⚠️ Borrador de otra orden</div>
+            <div style={{ fontSize:11, color:"#aaa", lineHeight:1.6, marginBottom:12 }}>
+              Estás abriendo la <strong style={{ color:"#C8A96E" }}>{differentOrdenPrompt.currentOrden}</strong> pero
+              ya tenés un borrador de la misma placa para otra orden:
+            </div>
+            {differentOrdenPrompt.drafts.map((d, idx) => (
+              <div key={d.id || idx} style={{ border:`1px solid ${line}`, borderRadius:6, padding:"10px 12px", marginBottom:8, background:"#161622" }}>
+                <div style={{ fontSize:13, fontWeight:"bold", color:"#e0d8cc", marginBottom:3 }}>
+                  {d.orden_numero ? `Orden ${d.orden_numero}` : 'Sin orden vinculada'}
                 </div>
+                <div style={{ fontSize:10, color:"#666", marginBottom:8 }}>Serv. {d.servicio_codigo} · {d.mecanico}</div>
+                <button onClick={() => { setDifferentOrdenPrompt(null); continuarDraft(d); }}
+                  style={{ padding:"7px 12px", borderRadius:6, background:"#C8A96E18", color:"#C8A96E", border:"1px solid #C8A96E60", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+                  ▶ Continuar este borrador
+                </button>
               </div>
             ))}
-            <button onClick={() => {
-              if (!window.confirm(`Tenés ${pendingDrafts.length} borrador${pendingDrafts.length > 1 ? 'es' : ''} sin finalizar. ¿Seguro que querés empezar un servicio nuevo?`)) return;
-              setDraftPrompt(false);
-            }}
-              style={{ width:"100%", padding:"10px", marginTop:6, borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
-              + Empezar nuevo servicio
-            </button>
+            <div style={{ marginTop:14 }}>
+              <button onClick={() => setDifferentOrdenPrompt(null)}
+                style={{ width:"100%", padding:"10px", borderRadius:6, background:"#4ade8022", color:"#4ade80", border:"1px solid #4ade8060", fontFamily:"monospace", fontSize:12, fontWeight:"bold", cursor:"pointer" }}>
+                + Empezar {differentOrdenPrompt.currentOrden}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2598,6 +2670,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
+        {pendingDrafts.length > 0 && (
+          <button onClick={() => setDraftPrompt(true)} title="Ver mis mantenimientos no finalizados"
+            style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid #C8A96E60`, background:"#C8A96E18", color:"#C8A96E", fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:"monospace", flexShrink:0 }}>
+            📝 {pendingDrafts.length}
+          </button>
+        )}
         {showAdminButtons && (<>
           <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
             style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
@@ -2748,6 +2826,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
         <button onClick={()=>setStep(1)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontFamily:"monospace" }}>← Vehículo</button>
+        {pendingDrafts.length > 0 && (
+          <button onClick={() => setDraftPrompt(true)} title="Ver mis mantenimientos no finalizados"
+            style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid #C8A96E60`, background:"#C8A96E18", color:"#C8A96E", fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:"monospace", flexShrink:0 }}>
+            📝 {pendingDrafts.length}
+          </button>
+        )}
         {showAdminButtons && (<>
           <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
             style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
@@ -2857,6 +2941,88 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   return (
     <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:"monospace", color:"var(--text)" }}>
+      {/* Borradores panel (step 3) */}
+      {draftPrompt && (
+        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:420, width:"100%", fontFamily:"monospace", maxHeight:"85vh", overflowY:"auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+              <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold" }}>📝 Tus mantenimientos en progreso ({pendingDrafts.length})</div>
+              <button onClick={() => setDraftPrompt(false)} style={{ background:"transparent", border:"none", fontSize:20, cursor:"pointer", color:"#666", lineHeight:1 }}>×</button>
+            </div>
+            {pendingDrafts.length === 0 ? (
+              <div style={{ textAlign:"center", padding:24, color:"#666", fontSize:12 }}>No tenés borradores pendientes.</div>
+            ) : pendingDrafts.map((draft, idx) => {
+              const draftDate = draft.created_at ? new Date(draft.created_at) : null;
+              const ageDays = draftDate ? Math.floor((Date.now() - draftDate.getTime()) / 86400000) : 0;
+              const isOld = ageDays >= 15;
+              const ageText = ageDays === 0 ? 'hoy' : ageDays === 1 ? 'ayer' : `hace ${ageDays} días`;
+              const progreso = draft.progreso?.completadas != null && draft.progreso?.total != null
+                ? `${draft.progreso.completadas}/${draft.progreso.total} items` : null;
+              return (
+                <div key={draft.id || idx} style={{ border:`1px solid ${isOld ? '#f97316' : line}`, borderRadius:8, padding:"10px 12px", marginBottom:10, background:"#161622" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:5 }}>
+                    <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:1, color:"#e0d8cc" }}>{draft.placa || '—'}</div>
+                    {isOld && (
+                      <span style={{ fontSize:9, fontWeight:"bold", color:"#f97316", background:"rgba(249,115,22,0.15)", padding:"2px 7px", borderRadius:4, letterSpacing:1 }}>
+                        ⚠️ {ageDays} DÍAS
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize:11, color:"#C8A96E", marginBottom:3 }}>
+                    {draft.orden_numero ? `📋 Orden ${draft.orden_numero}` : '⚠️ Sin orden vinculada'}
+                    {' · '}Serv. {draft.servicio_codigo || '—'}
+                  </div>
+                  <div style={{ fontSize:10, color:"#666", marginBottom:9 }}>
+                    👤 {draft.mecanico || '—'} · {ageText}{progreso ? ` · ✓ ${progreso}` : ''}
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={() => continuarDraft(draft)}
+                      style={{ flex:1, padding:"8px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+                      ▶ Continuar
+                    </button>
+                    <button onClick={() => descartarDraft(draft)}
+                      style={{ padding:"8px 12px", borderRadius:6, border:"1px solid #ff444460", background:"#ff444418", color:"#ff6666", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Borrador de otra orden — mismo placa (step 3) */}
+      {differentOrdenPrompt && (
+        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:"monospace" }}>
+            <div style={{ fontSize:13, color:"#f97316", fontWeight:"bold", marginBottom:10 }}>⚠️ Borrador de otra orden</div>
+            <div style={{ fontSize:11, color:"#aaa", lineHeight:1.6, marginBottom:12 }}>
+              Estás abriendo la <strong style={{ color:"#C8A96E" }}>{differentOrdenPrompt.currentOrden}</strong> pero
+              ya tenés un borrador de la misma placa para otra orden:
+            </div>
+            {differentOrdenPrompt.drafts.map((d, idx) => (
+              <div key={d.id || idx} style={{ border:`1px solid ${line}`, borderRadius:6, padding:"10px 12px", marginBottom:8, background:"#161622" }}>
+                <div style={{ fontSize:13, fontWeight:"bold", color:"#e0d8cc", marginBottom:3 }}>
+                  {d.orden_numero ? `Orden ${d.orden_numero}` : 'Sin orden vinculada'}
+                </div>
+                <div style={{ fontSize:10, color:"#666", marginBottom:8 }}>Serv. {d.servicio_codigo} · {d.mecanico}</div>
+                <button onClick={() => { setDifferentOrdenPrompt(null); continuarDraft(d); }}
+                  style={{ padding:"7px 12px", borderRadius:6, background:"#C8A96E18", color:"#C8A96E", border:"1px solid #C8A96E60", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+                  ▶ Continuar este borrador
+                </button>
+              </div>
+            ))}
+            <div style={{ marginTop:14 }}>
+              <button onClick={() => setDifferentOrdenPrompt(null)}
+                style={{ width:"100%", padding:"10px", borderRadius:6, background:"#4ade8022", color:"#4ade80", border:"1px solid #4ade8060", fontFamily:"monospace", fontSize:12, fontWeight:"bold", cursor:"pointer" }}>
+                + Empezar {differentOrdenPrompt.currentOrden}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Overlay para cerrar el buscador */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40 }} />}
 
@@ -2876,6 +3042,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
             {isComplete ? "✓ COMPLETO" : pct+"%"}
           </div>
+        )}
+        {pendingDrafts.length > 0 && (
+          <button onClick={() => setDraftPrompt(true)} title="Ver mis mantenimientos no finalizados"
+            style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid #C8A96E60`, background:"#C8A96E18", color:"#C8A96E", fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:"monospace", flexShrink:0 }}>
+            📝 {pendingDrafts.length}
+          </button>
         )}
         {showAdminButtons && (<>
           <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
