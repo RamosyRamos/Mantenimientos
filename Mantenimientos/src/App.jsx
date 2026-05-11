@@ -1509,6 +1509,17 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+function useIsMobile(breakpoint = 600) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = e => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 export default function App() {
   // Note: auto-session logic runs synchronously in the initializer so the login guard
   // never fires for Taller-launched sessions — a useEffect would render LoginScreen first.
@@ -1548,6 +1559,7 @@ export default function App() {
 }
 
 function MainApp({ session, onLogout }) {
+  const isMobile = useIsMobile();
   const [step, setStep]     = useState(1);
   const [cameFromTaller] = useState(() => {
     const p = new URLSearchParams(window.location.search);
@@ -1645,7 +1657,7 @@ function MainApp({ session, onLogout }) {
   const showAdminButtons = !cameFromTaller && (session?.rol === 'admin' || session?.rol === 'jefe');
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -1811,6 +1823,7 @@ function MainApp({ session, onLogout }) {
           progreso: { completadas: d.doneN, total: d.total },
           aprobado: false, fotos: d.taskPhotos,
           orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
+          anio: d.vehAnio || null, version: d.vehVersion || null,
         };
         const res = await fetch(
           id ? `${SURL}/rest/v1/servicios?id=eq.${id}` : `${SURL}/rest/v1/servicios`,
@@ -2140,10 +2153,12 @@ function MainApp({ session, onLogout }) {
         />
       </div>
 
-      {/* Table header */}
-      <div style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"8px 20px", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:2, flexShrink:0 }}>
-        <span>FECHA</span><span>PLACA</span><span>MODELO</span><span>MECÁNICO</span><span>SERV.</span><span>ESTADO</span><span></span>
-      </div>
+      {/* Table header — desktop only */}
+      {!isMobile && (
+        <div style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"8px 20px", borderBottom:`1px solid ${line}`, fontSize:9, color:"#555", letterSpacing:2, flexShrink:0 }}>
+          <span>FECHA</span><span>PLACA</span><span>MODELO</span><span>MECÁNICO</span><span>SERV.</span><span>ESTADO</span><span></span>
+        </div>
+      )}
 
       {/* Rows */}
       <div style={{ flex:1, overflowY:"auto" }}>
@@ -2167,6 +2182,29 @@ function MainApp({ session, onLogout }) {
           const estadoLabel = s.aprobado ? "Aprobado" : s.estado === "pendiente" ? "Pendiente" : (s.estado || "Borrador");
           const slug = s.slug || s.id;
           const url  = `${window.location.origin}/servicio/${slug}`;
+          if (isMobile) {
+            return (
+              <div key={s.id}
+                style={{ padding:"12px 16px", borderBottom:`1px solid ${line}20`, cursor:"pointer", background: i % 2 === 0 ? "transparent" : "#ffffff04", display:"flex", flexDirection:"column", gap:6 }}
+                onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); }}
+              >
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                  <span style={{ fontSize:13, fontWeight:"bold", color:"#C8A96E", letterSpacing:1 }}>{placa}</span>
+                  <span style={{ fontSize:9, color:estadoColor, background:estadoColor+"18", border:`1px solid ${estadoColor}40`, borderRadius:4, padding:"2px 8px", letterSpacing:1, fontFamily:"monospace" }}>{estadoLabel.toUpperCase()}</span>
+                </div>
+                <div style={{ fontSize:12, color:"#bbb" }}>{modelo}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                  <span style={{ fontSize:10, color:"#555" }}>{fecha}</span>
+                  <span style={{ fontSize:10, color:"#666" }}>· {mecanico}</span>
+                  <span style={{ fontSize:9, background:"#C8A96E20", border:"1px solid #C8A96E40", color:"#C8A96E", borderRadius:4, padding:"1px 6px", letterSpacing:1 }}>{servCod}</span>
+                  <a href={url} target="_blank" rel="noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    style={{ fontSize:10, color:"#555", textDecoration:"none", marginLeft:"auto" }}
+                    title="Ver resumen">🔗</a>
+                </div>
+              </div>
+            );
+          }
           return (
             <div key={s.id}
               style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"11px 20px", borderBottom:`1px solid ${line}20`, cursor:"pointer", background: i % 2 === 0 ? "transparent" : "#ffffff04", alignItems:"center" }}
@@ -2523,6 +2561,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         fotos:           taskPhotos,
         orden_id:        ordenId     || null,
         orden_numero:    ordenNumero || null,
+        anio:            vehAnio     || null,
+        version:         vehVersion  || null,
       };
 
       console.log("[confirmSig] payload:", JSON.stringify(payload).slice(0, 300));
@@ -2715,7 +2755,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:"#444", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>3</div>
         </div>
 
-        <div style={{ fontSize:9, color:G, letterSpacing:3, marginBottom:16 }}>PASO 1 · DATOS DEL VEHÍCULO</div>
+        <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 1 · DATOS DEL VEHÍCULO</div>
 
         {/* Buscador de modelo */}
         <div style={{ marginBottom:12 }}>
@@ -2788,6 +2828,32 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
         )}
 
+        {/* Año */}
+        <div style={{ marginBottom:14 }}>
+          <label style={{ display:"block", fontSize:11, color:"#888", letterSpacing:1.5, textTransform:"uppercase", marginBottom:6 }}>AÑO</label>
+          <input
+            value={vehAnio}
+            onChange={e => setVehAnio(e.target.value.replace(/\D/g, ""))}
+            placeholder="Ej: 2018"
+            type="text"
+            inputMode="numeric"
+            maxLength={4}
+            style={{ ...inp, width:"100%", boxSizing:"border-box" }}
+          />
+        </div>
+
+        {/* Versión */}
+        <div style={{ marginBottom:14 }}>
+          <label style={{ display:"block", fontSize:11, color:"#888", letterSpacing:1.5, textTransform:"uppercase", marginBottom:6 }}>VERSIÓN</label>
+          <input
+            value={vehVersion}
+            onChange={e => setVehVersion(e.target.value)}
+            placeholder="Ej: B 180 CDI BlueEfficiency"
+            type="text"
+            style={{ ...inp, width:"100%", boxSizing:"border-box" }}
+          />
+        </div>
+
         {/* Placa */}
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>PLACA</div>
@@ -2798,7 +2864,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         {/* Kilometraje */}
         <div style={{ marginBottom:28 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>KILOMETRAJE</div>
-          <input value={km} onChange={e=>setKm(e.target.value.replace(/\D/g,""))} placeholder="Ej: 85000" type="text"
+          <input value={km} onChange={e=>setKm(e.target.value.replace(/\D/g,""))} placeholder="Ej: 85000" type="text" inputMode="numeric"
             style={{ ...inp, width:"100%", boxSizing:"border-box" }} />
         </div>
 
@@ -2882,7 +2948,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:"#444", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>3</div>
         </div>
 
-        <div style={{ fontSize:9, color:G, letterSpacing:3, marginBottom:16 }}>PASO 2 · TIPO DE SERVICIO</div>
+        <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 2 · TIPO DE SERVICIO</div>
 
         {/* Selector de código de servicio */}
         <div style={{ marginBottom:20 }}>
@@ -3197,15 +3263,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                               <button className="chk-btn"
                                 onClick={()=> status==="ok" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"ok","",text)}
                                 style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="ok"?"#4ade8060":"#2a3a2a"}`, background:status==="ok"?"#4ade8020":"transparent", color:status==="ok"?"#4ade80":"#3a5a3a", fontWeight:status==="ok"?"bold":"normal" }}
-                              >✓ OK</button>
+                              >{isMobile ? "✓" : "✓ OK"}</button>
                               <button className="chk-btn"
                                 onClick={()=> status==="issue" && !isOpen ? setActiveIssue(id) : setStatus(id,"issue","",text)}
                                 style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="issue"?"#f8717160":"#3a2a2a"}`, background:status==="issue"?"#f8717120":"transparent", color:status==="issue"?"#f87171":"#5a3a3a", fontWeight:status==="issue"?"bold":"normal" }}
-                              >⚠ Det.</button>
+                              >{isMobile ? "⚠" : "⚠ Det."}</button>
                               <button className="chk-btn"
                                 onClick={()=> status==="na" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"na","",text)}
                                 style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="na"?"#55555560":"#2a2a2a"}`, background:status==="na"?"#33333320":"transparent", color:status==="na"?"#666":"#3a3a3a", fontWeight:status==="na"?"bold":"normal" }}
-                              >— N/A</button>
+                              >{isMobile ? "—" : "— N/A"}</button>
                             </div>
                           )}
                         </div>
@@ -3287,7 +3353,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         ) : (
           /* NOTAS */
           <div style={{ paddingBottom:24 }}>
-            <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8 }}>OBSERVACIONES</div>
+            <div style={{ fontSize:11, color:"#555", letterSpacing:3, marginBottom:8 }}>OBSERVACIONES</div>
             <textarea value={notes} onChange={e=>setNotes(e.target.value)}
               placeholder={"Ej: Pastillas traseras al 20%\nEj: Sin fugas detectadas\nEj: EGR con depósitos — programar limpieza"}
               style={{ width:"100%", minHeight:180, background:card, border:`1px solid ${line}`, borderRadius:8, color:"#ccc", fontSize:13, fontFamily:"monospace", padding:12, resize:"vertical", lineHeight:1.6, boxSizing:"border-box", outline:"none" }} />
