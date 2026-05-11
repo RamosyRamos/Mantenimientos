@@ -1829,6 +1829,11 @@ function MainApp({ session, onLogout }) {
           id ? `${SURL}/rest/v1/servicios?id=eq.${id}` : `${SURL}/rest/v1/servicios`,
           { method: id ? "PATCH" : "POST", headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json", "Prefer": "return=representation" }, body: JSON.stringify(payload) }
         );
+        if (!res.ok) {
+          const errText = await res.text();
+          console.error("[autoSave] Supabase error", res.status, errText.slice(0, 200));
+          throw new Error(`autoSave ${res.status}`);
+        }
         const saved = await res.json();
         if (!id) { const newId = saved?.[0]?.id; if (newId) setEditingId(newId); }
         setAutoSaveStatus("saved");
@@ -2503,7 +2508,6 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     autoSaveTimer.current = null;
     const now = new Date();
     const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
-    setSigDate(fecha);
 
     // Guardar en Supabase — usar variables locales, no estado (aún no actualizado)
     try {
@@ -2597,7 +2601,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         "Servicio pendiente de aprobación",
         `${mechName} — ${plate} (${model})`
       );
-    } catch(e) { console.error("[confirmSig] save failed:", e.message); }
+      setSigDate(fecha);
+    } catch(e) {
+      console.error("[confirmSig] save failed:", e.message);
+      alert(`⚠️ ERROR al guardar el mantenimiento:\n\n${e.message}\n\nPor favor reintentá. Si persiste, contactá soporte. NO cierres la app.`);
+    }
   };
 
   const byGrp = tasks.reduce((a,t) => {
