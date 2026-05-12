@@ -1690,14 +1690,20 @@ function MainApp({ session, onLogout }) {
   const descartarDraft = async (draft) => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
     const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    setPendingDrafts(prev => prev.filter(d => d.id !== draft.id));
     try {
-      await fetch(`${SURL}/rest/v1/servicios?id=eq.${draft.id}`, {
+      const res = await fetch(`${SURL}/rest/v1/servicios?id=eq.${draft.id}`, {
         method: 'PATCH',
         headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ estado: 'descartado' }),
       });
-    } catch(e) { console.error('[descartarDraft]', e); }
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error('[descartarDraft] failed:', res.status, errText);
+        alert('⚠️ Error al descartar borrador. Reintentá.');
+        return;
+      }
+      setPendingDrafts(prev => prev.filter(d => d.id !== draft.id));
+    } catch(e) { console.error('[descartarDraft]', e); alert('⚠️ Error al descartar borrador. Reintentá.'); }
   };
 
   const handleReset = async () => {
@@ -1708,11 +1714,12 @@ function MainApp({ session, onLogout }) {
         const SURL = import.meta.env.VITE_SUPABASE_URL;
         const SKEY = import.meta.env.VITE_SUPABASE_KEY;
         try {
-          await fetch(`${SURL}/rest/v1/servicios?id=eq.${editingId}`, {
+          const res = await fetch(`${SURL}/rest/v1/servicios?id=eq.${editingId}`, {
             method: 'PATCH',
             headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({ estado: 'descartado' }),
           });
+          if (!res.ok) console.error('[handleReset discard] failed:', res.status, await res.text());
         } catch(e) { console.error('[handleReset discard]', e); }
       }
     }
@@ -1996,6 +2003,11 @@ function MainApp({ session, onLogout }) {
       const res = await fetch(`${SURL}/rest/v1/servicios?estado=eq.pendiente&aprobado=eq.false&order=created_at.desc`, {
         headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
       });
+      if (!res.ok) {
+        console.error("[fetchNotifications] failed:", res.status, await res.text());
+        setNotifLoading(false);
+        return;
+      }
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
       setNotifList(list);
@@ -2012,6 +2024,11 @@ function MainApp({ session, onLogout }) {
       const res = await fetch(`${SURL}/rest/v1/servicios?estado=eq.aprobado&order=created_at.desc&limit=100`, {
         headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
       });
+      if (!res.ok) {
+        console.error("[fetchCompleted] failed:", res.status, await res.text());
+        setCompletedLoading(false);
+        return;
+      }
       const data = await res.json();
       setCompletedList(Array.isArray(data) ? data : []);
     } catch(e) { console.error("[fetchCompleted]", e); }
@@ -2251,10 +2268,7 @@ function MainApp({ session, onLogout }) {
     </div>
   ) : null;
 
-  const TRELLO_KEY   = import.meta.env.VITE_TRELLO_KEY;
-  const TRELLO_TOKEN = import.meta.env.VITE_TRELLO_TOKEN;
-  const TRELLO_BOARD = import.meta.env.VITE_TRELLO_BOARD;
-  const APP_URL      = import.meta.env.VITE_APP_URL || window.location.origin;
+  const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
   const buildServiceData = () => {
     const byGrpMap = {};
@@ -2410,98 +2424,6 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       setOrdenEnvioStatus("idle");
     }
   };
-
-  // TODO: Trello integration deprecated — replaced by enviarAOrden(). Kept commented for reference, can be removed after Phase B.
-  /* const sendToTrello = async () => {
-    setTrelloStatus("sending");
-    try {
-      const svcData = buildServiceData();
-      let generatedClientUrl = clientUrl || "";
-      let slug = "";
-      if (editingId && clientUrl) slug = clientUrl.split("/servicio/")[1] || "";
-      if (!slug) {
-        const now = new Date();
-        const dd = String(now.getDate()).padStart(2,"0");
-        const mm = String(now.getMonth()+1).padStart(2,"0");
-        const yyyy = now.getFullYear();
-        const plateClean = (plate||"XX").replace(/[^A-Z0-9]/gi,"").toUpperCase();
-        slug = `${plateClean}-${sel}-${dd}${mm}${yyyy}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
-      }
-      try {
-        const sbRes = await fetch(
-          editingId ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}` : `${SUPABASE_URL}/rest/v1/servicios`,
-          { method: editingId ? "PATCH" : "POST",
-            headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" },
-            body: JSON.stringify({
-              slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
-              mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
-              servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m?"4MATIC":"RWD",
-              aceite_litros: svcData.aceite?.litros||null, aceite_spec: svcData.aceite?.especificacion||null,
-              revisiones: svcData.revisiones, observaciones: svcData.observaciones,
-              pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true,
-              fotos: taskPhotos,
-            }),
-          }
-        );
-        if (!sbRes.ok) {
-          const errText = await sbRes.text();
-          console.error("[sendToTrello] Supabase error", sbRes.status, errText);
-        } else {
-          const sbData = await sbRes.json();
-          const savedId = sbData?.[0]?.id;
-          generatedClientUrl = `${APP_URL}/servicio/${slug}`;
-          setClientUrl(generatedClientUrl);
-          if (!editingId && savedId) setEditingId(savedId);
-        }
-      } catch(e) { console.error("[sendToTrello] Supabase save failed:", e.message); }
-
-      const listsRes = await fetch(`https://api.trello.com/1/boards/${TRELLO_BOARD}/lists?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`);
-      const lists = await listsRes.json();
-      const activeLists = lists.filter(l => !l.name.toLowerCase().includes("finalizado") && !l.name.toLowerCase().includes("archivado") && !l.closed);
-      let targetListId = activeLists[0]?.id;
-      const preferred = activeLists.find(l => l.name.toLowerCase().includes("prontos") || l.name.toLowerCase().includes("listo"));
-      if (preferred) targetListId = preferred.id;
-
-      let existingCardId = editingTrelloCardId || null;
-      if (!existingCardId && plate) {
-        const plateClean = plate.trim().toUpperCase();
-        for (const list of activeLists) {
-          const cardsRes = await fetch(`https://api.trello.com/1/lists/${list.id}/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=id,name`);
-          const cards = await cardsRes.json();
-          const match = Array.isArray(cards) && cards.find(c => c.name.toUpperCase().includes(plateClean));
-          if (match) { existingCardId = match.id; break; }
-        }
-      }
-
-      const clientLinkSection = generatedClientUrl
-        ? `\n\n---\n\n## 💬 Mensaje para el cliente\n\nHola! Te compartimos el resumen de tu mantenimiento realizado en Taller Ramos y Ramos:\n${generatedClientUrl}`
-        : "";
-      const title = `🔧 ${model||"Vehículo"} | Placa: ${plate||"—"} | Servicio ${sel} | ${mechName}`;
-      const desc = buildTrelloDesc() + clientLinkSection;
-
-      let cardRes;
-      if (existingCardId) {
-        let existingDesc = "";
-        try {
-          const getCard = await fetch(`https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}&fields=desc`);
-          const cardData = await getCard.json();
-          existingDesc = cardData.desc || "";
-        } catch(e) {}
-        const separator = existingDesc ? "\n\n---\n\n" : "";
-        cardRes = await fetch(`https://api.trello.com/1/cards/${existingCardId}?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
-          { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ desc: existingDesc + separator + desc }) });
-      } else {
-        cardRes = await fetch(`https://api.trello.com/1/cards?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`,
-          { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ idList: targetListId, name: title, desc, due: null }) });
-      }
-      const card = await cardRes.json();
-      if (card.url || card.id) {
-        if (card.id) setEditingTrelloCardId(card.id);
-        setTrelloUrl(card.url || trelloUrl);
-        setTrelloStatus("done");
-      } else { setTrelloStatus("error"); }
-    } catch(e) { console.error(e); setTrelloStatus("error"); }
-  }; */
 
   const confirmSig = async () => {
     clearTimeout(autoSaveTimer.current);
