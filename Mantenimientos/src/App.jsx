@@ -286,6 +286,67 @@ const EXTRAS = [
   },
 ];
 
+// ─── DB loaders (Sub-fase 2B) ────────────────────────────────────────────
+let _modelsCache = null
+let _modelsCachePromise = null
+
+function buildModelsFromRows(rows) {
+  const modelData = {}
+  const modelGroups = {}
+  for (const r of rows) {
+    if (!modelData[r.categoria]) modelData[r.categoria] = []
+    modelData[r.categoria].push({
+      name: r.nombre,
+      fuel: r.combustible,
+      oil: r.aceite_lt != null ? Number(r.aceite_lt) : null,
+      spec: r.especif_mb,
+    })
+    if (!modelGroups[r.clase]) modelGroups[r.clase] = []
+    if (!modelGroups[r.clase].includes(r.categoria)) {
+      modelGroups[r.clase].push(r.categoria)
+    }
+  }
+  return { modelData, modelGroups }
+}
+
+function loadModelsFromDB() {
+  if (_modelsCache) return Promise.resolve(_modelsCache)
+  if (_modelsCachePromise) return _modelsCachePromise
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos_modelos?activo=eq.true&select=clase,categoria,nombre,combustible,aceite_lt,especif_mb,orden&order=clase.asc,categoria.asc,orden.asc`
+  _modelsCachePromise = fetch(url, {
+    headers: {
+      apikey: import.meta.env.VITE_SUPABASE_KEY,
+      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+    },
+  })
+    .then(r => r.ok ? r.json() : null)
+    .then(rows => {
+      if (!rows?.length) return null
+      _modelsCache = buildModelsFromRows(rows)
+      return _modelsCache
+    })
+    .catch(() => null)
+  return _modelsCachePromise
+}
+
+async function loadVehiculoByPlaca(placa) {
+  if (!placa) return null
+  try {
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos?patente=eq.${encodeURIComponent(placa.toUpperCase())}&select=motor,combustible,aceite_lt,especif_mb,version,modelo&limit=1`
+    const res = await fetch(url, {
+      headers: {
+        apikey: import.meta.env.VITE_SUPABASE_KEY,
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+      },
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data[0] || null
+  } catch {
+    return null
+  }
+}
+
 // ─── MODELOS + MOTORES + ACEITE ──────────────────────────────────────────
 // fuel: "gasolina" | "diesel" | "electrico"
 // oil: litros con filtro
@@ -1350,7 +1411,7 @@ const MODEL_ALIASES = {
 const normalize = s => s?.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '') ?? ''
 
 // Función de búsqueda inteligente
-function smartSearch(query) {
+function smartSearch(query, modelGroups = MODEL_GROUPS) {
   const q = normalize(query);
   if (!q) return null; // null = mostrar todos
 
@@ -1366,7 +1427,7 @@ function smartSearch(query) {
 
   // 2. Construir lista de modelos que coinciden
   const results = [];
-  Object.entries(MODEL_GROUPS).forEach(([grp, models]) => {
+  Object.entries(modelGroups).forEach(([grp, models]) => {
     models.forEach(m => {
       const mNorm = normalize(m);
       // Coincidencia directa en el nombre
@@ -1620,13 +1681,20 @@ function MainApp({ session, onLogout }) {
   const editingIdRef  = useRef(null);
   const autoSaveRef   = useRef({});
 
+  const [dbModels, setDbModels] = useState(null);
+  useEffect(() => {
+    loadModelsFromDB().then(data => { if (data) setDbModels(data) })
+  }, []);
+  const modelData   = dbModels?.modelData   ?? MODEL_DATA;
+  const modelGroups = dbModels?.modelGroups ?? MODEL_GROUPS;
+
   const svc          = CODES[sel];
   const G            = svc.color;
   const fuelLock     = svc.fuelLock || null;
   const fuelMismatch = fuelLock && fuelLock !== fuel;
 
   // Motor seleccionado y capacidad de aceite
-  const availableEngines = model && MODEL_DATA[model] ? MODEL_DATA[model] : [];
+  const availableEngines = model && modelData[model] ? modelData[model] : [];
   const engineInfo = availableEngines.find(e => e.name === engine) || null;
   const oilLiters = engineInfo ? engineInfo.oil : null;
   const oilSpec   = engineInfo ? engineInfo.spec : null;
@@ -1773,6 +1841,16 @@ function MainApp({ session, onLogout }) {
     if (pFalla)    setOrdenFalla(pFalla);
     if (pAnio)     setVehAnio(pAnio);
     if (pVersion)  setVehVersion(pVersion);
+    // Registered vehicle data wins over URL params
+    if (pPlaca) {
+      loadVehiculoByPlaca(pPlaca).then(veh => {
+        if (!veh) return
+        if (veh.modelo)      { setModel(veh.modelo); setModelSearch(veh.modelo) }
+        if (veh.version)       setVehVersion(veh.version)
+        if (veh.motor)         setEngine(veh.motor)
+        if (veh.combustible)   setFuel(veh.combustible)
+      }).catch(() => {})
+    }
     // step intentionally NOT changed — mechanic must verify and fill kilometraje first
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2705,7 +2783,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:260, overflowY:"auto", marginTop:2, boxShadow:"0 8px 24px #00000080" }}>
                 {(() => {
                   const q = normalize(modelSearch);
-                  const results = q ? smartSearch(q) : Object.entries(MODEL_GROUPS).flatMap(([grp, ms]) => ms.map(m => ({ m, grp })));
+                  const results = q ? smartSearch(q, modelGroups) : Object.entries(modelGroups).flatMap(([grp, ms]) => ms.map(m => ({ m, grp })));
                   if (!results.length) return <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>;
                   let lastGrp = null;
                   return results.map(({ m, grp }, i) => {
