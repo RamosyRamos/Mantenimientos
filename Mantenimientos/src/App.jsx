@@ -290,13 +290,20 @@ const EXTRAS = [
 let _modelsCache = null
 let _modelsCachePromise = null
 
+function extractEngineCode(nombre) {
+  return nombre.match(/\(([^()]+)\)\s*$/)?.[1] ?? nombre
+}
+
 function buildModelsFromRows(rows) {
   const modelData = {}
   const modelGroups = {}
   for (const r of rows) {
     if (!modelData[r.categoria]) modelData[r.categoria] = []
+    const code = extractEngineCode(r.nombre)
+    // Deduplicate within a categoria — multiple trims sharing one engine code
+    if (modelData[r.categoria].some(e => e.name === code)) continue
     modelData[r.categoria].push({
-      name: r.nombre,
+      name: code,
       fuel: r.combustible,
       oil: r.aceite_lt != null ? Number(r.aceite_lt) : null,
       spec: r.especif_mb,
@@ -950,7 +957,21 @@ const MODEL_DATA = {
   ],
 };
 
-
+// Sub-fase 2B.1: normalize hardcoded fallback to match DB-derived shape
+const MODEL_DATA_NORMALIZED = (() => {
+  const out = {}
+  for (const [cat, engines] of Object.entries(MODEL_DATA)) {
+    const seen = new Set()
+    out[cat] = []
+    for (const e of engines) {
+      const code = extractEngineCode(e.name)
+      if (seen.has(code)) continue
+      seen.add(code)
+      out[cat].push({ ...e, name: code })
+    }
+  }
+  return out
+})()
 
 
 const MODEL_GROUPS = {
@@ -1685,7 +1706,7 @@ function MainApp({ session, onLogout }) {
   useEffect(() => {
     loadModelsFromDB().then(data => { if (data) setDbModels(data) })
   }, []);
-  const modelData   = dbModels?.modelData   ?? MODEL_DATA;
+  const modelData   = dbModels?.modelData   ?? MODEL_DATA_NORMALIZED;
   const modelGroups = dbModels?.modelGroups ?? MODEL_GROUPS;
 
   const svc          = CODES[sel];
