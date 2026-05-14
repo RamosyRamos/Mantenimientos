@@ -291,7 +291,11 @@ let _modelsCache = null
 let _modelsCachePromise = null
 
 function extractEngineCode(nombre) {
-  return nombre.match(/\(([^()]+)\)\s*$/)?.[1] ?? nombre
+  return nombre.match(/\(([^()]+)\)(?:\s+\d{4}[-–]\d{4})?\s*$/)?.[1] ?? nombre
+}
+
+function extractYearRange(nombre) {
+  return nombre.match(/\(([^()]+)\)\s+(\d{4}[-–]\d{4})\s*$/)?.[2] ?? null
 }
 
 function buildEntriesFromSource(rawGrouped) {
@@ -304,8 +308,10 @@ function buildEntriesFromSource(rawGrouped) {
       const oil        = item.aceite_lt ?? item.oil ?? null
       const spec       = item.especif_mb ?? item.spec ?? ''
       const clase      = item.clase ?? null
-      const engineCode = nombre.match(/\(([^()]+)\)\s*$/)?.[1] ?? nombre
-      const trimPart   = nombre.replace(/\s*\([^()]+\)\s*$/, '').trim() || nombre
+      const engineMatch = nombre.match(/\(([^()]+)\)(?:\s+(\d{4}[-–]\d{4}))?\s*$/)
+      const engineCode  = engineMatch?.[1] ?? nombre
+      const yearRange   = engineMatch?.[2] ?? null
+      const trimPart    = nombre.replace(/\s*\([^()]+\)(?:\s+\d{4}[-–]\d{4})?\s*$/, '').trim() || nombre
       const rawTrims   = trimPart.split(' / ').map(t => t.trim()).filter(Boolean)
       const trims = []
       let lastPrefix = ''
@@ -322,10 +328,11 @@ function buildEntriesFromSource(rawGrouped) {
         }
       }
       for (const trim of trims) {
+        const trimLabel = yearRange ? `${trim} (${yearRange})` : trim
         const groupKey = clase ?? cat
         if (!out[groupKey]) out[groupKey] = []
         out[groupKey].push({
-          display:     chassis ? `${trim} · ${chassis}` : trim,
+          display:     chassis ? `${trimLabel} · ${chassis}` : trimLabel,
           version:     trim,
           motor:       engineCode,
           combustible: fuel,
