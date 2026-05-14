@@ -294,26 +294,75 @@ function extractEngineCode(nombre) {
   return nombre.match(/\(([^()]+)\)\s*$/)?.[1] ?? nombre
 }
 
+function buildEntriesFromSource(rawGrouped) {
+  const out = {}
+  for (const [cat, items] of Object.entries(rawGrouped)) {
+    const chassis = cat.match(/\(([^()]+)\)(?:\s+\d{4}[-–]\d{4})?\s*$/)?.[1] ?? ''
+    for (const item of items) {
+      const nombre     = item.nombre ?? item.name ?? ''
+      const fuel       = item.combustible ?? item.fuel ?? 'gasolina'
+      const oil        = item.aceite_lt ?? item.oil ?? null
+      const spec       = item.especif_mb ?? item.spec ?? ''
+      const clase      = item.clase ?? null
+      const engineCode = nombre.match(/\(([^()]+)\)\s*$/)?.[1] ?? nombre
+      const trimPart   = nombre.replace(/\s*\([^()]+\)\s*$/, '').trim() || nombre
+      const rawTrims   = trimPart.split(' / ').map(t => t.trim()).filter(Boolean)
+      const trims = []
+      let lastPrefix = ''
+      for (const t of rawTrims) {
+        const prefixMatch = t.match(/^([A-Za-z][A-Za-z\/]*)/)
+        const hasDigitAfter = prefixMatch && /\d/.test(t.slice(prefixMatch[0].length))
+        if (prefixMatch && hasDigitAfter) {
+          lastPrefix = prefixMatch[1]
+          trims.push(t)
+        } else if (/^\d/.test(t) && lastPrefix) {
+          trims.push(`${lastPrefix} ${t}`)
+        } else {
+          trims.push(t)
+        }
+      }
+      for (const trim of trims) {
+        const groupKey = clase ?? cat
+        if (!out[groupKey]) out[groupKey] = []
+        out[groupKey].push({
+          display:     chassis ? `${trim} · ${chassis}` : trim,
+          version:     trim,
+          motor:       engineCode,
+          combustible: fuel,
+          aceite_lt:   oil != null ? Number(oil) : null,
+          especif_mb:  spec,
+          categoria:   cat,
+        })
+      }
+    }
+  }
+  return out
+}
+
 function buildModelsFromRows(rows) {
   const modelData = {}
   const modelGroups = {}
+  const groupedForEntries = {}
   for (const r of rows) {
     if (!modelData[r.categoria]) modelData[r.categoria] = []
     const code = extractEngineCode(r.nombre)
-    // Deduplicate within a categoria — multiple trims sharing one engine code
-    if (modelData[r.categoria].some(e => e.name === code)) continue
-    modelData[r.categoria].push({
-      name: code,
-      fuel: r.combustible,
-      oil: r.aceite_lt != null ? Number(r.aceite_lt) : null,
-      spec: r.especif_mb,
-    })
+    if (!modelData[r.categoria].some(e => e.name === code)) {
+      modelData[r.categoria].push({
+        name: code,
+        fuel: r.combustible,
+        oil: r.aceite_lt != null ? Number(r.aceite_lt) : null,
+        spec: r.especif_mb,
+      })
+    }
     if (!modelGroups[r.clase]) modelGroups[r.clase] = []
     if (!modelGroups[r.clase].includes(r.categoria)) {
       modelGroups[r.clase].push(r.categoria)
     }
+    if (!groupedForEntries[r.categoria]) groupedForEntries[r.categoria] = []
+    groupedForEntries[r.categoria].push({ ...r })
   }
-  return { modelData, modelGroups }
+  const modelEntries = buildEntriesFromSource(groupedForEntries)
+  return { modelData, modelGroups, modelEntries }
 }
 
 function loadModelsFromDB() {
@@ -1429,6 +1478,18 @@ const MODEL_ALIASES = {
   "s680": ["W223"],
 };
 
+const MODEL_ENTRIES_FALLBACK = (() => {
+  const claseByCat = {}
+  for (const [clase, cats] of Object.entries(MODEL_GROUPS)) {
+    for (const cat of cats) claseByCat[cat] = clase
+  }
+  const enriched = {}
+  for (const [cat, engines] of Object.entries(MODEL_DATA)) {
+    enriched[cat] = engines.map(e => ({ ...e, clase: claseByCat[cat] }))
+  }
+  return buildEntriesFromSource(enriched)
+})()
+
 const normalize = s => s?.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, '') ?? ''
 
 // Función de búsqueda inteligente
@@ -1706,8 +1767,9 @@ function MainApp({ session, onLogout }) {
   useEffect(() => {
     loadModelsFromDB().then(data => { if (data) setDbModels(data) })
   }, []);
-  const modelData   = dbModels?.modelData   ?? MODEL_DATA_NORMALIZED;
-  const modelGroups = dbModels?.modelGroups ?? MODEL_GROUPS;
+  const modelData    = dbModels?.modelData    ?? MODEL_DATA_NORMALIZED;
+  const modelGroups  = dbModels?.modelGroups  ?? MODEL_GROUPS;
+  const modelEntries = dbModels?.modelEntries ?? MODEL_ENTRIES_FALLBACK;
 
   const svc          = CODES[sel];
   const G            = svc.color;
@@ -2804,18 +2866,42 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:260, overflowY:"auto", marginTop:2, boxShadow:"0 8px 24px #00000080" }}>
                 {(() => {
                   const q = normalize(modelSearch);
-                  const results = q ? smartSearch(q, modelGroups) : Object.entries(modelGroups).flatMap(([grp, ms]) => ms.map(m => ({ m, grp })));
-                  if (!results.length) return <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>;
-                  let lastGrp = null;
-                  return results.map(({ m, grp }, i) => {
-                    const showGrp = !q && grp && grp !== lastGrp;
-                    lastGrp = grp;
+                  const flat = []
+                  for (const [clase, entries] of Object.entries(modelEntries)) {
+                    for (const entry of entries) flat.push({ ...entry, clase })
+                  }
+                  const filtered = q
+                    ? flat.filter(e =>
+                        normalize(e.display).includes(q) ||
+                        normalize(e.categoria).includes(q) ||
+                        normalize(e.clase).includes(q)
+                      )
+                    : flat
+                  if (!filtered.length) return <div style={{ padding:"12px", fontSize:11, color:"#444", textAlign:"center" }}>Sin resultados</div>;
+                  let lastClase = null;
+                  return filtered.map((entry, i) => {
+                    const showHeader = entry.clase !== lastClase;
+                    lastClase = entry.clase;
                     return (
-                      <div key={m+i}>
-                        {showGrp && <div style={{ padding:"4px 10px 2px", fontSize:8, color:"#444", letterSpacing:2, background:"#0c0c12" }}>{grp.toUpperCase()}</div>}
-                        <div onClick={() => { setModel(m); setEngine(""); setModelSearch(m); setModelOpen(false); }}
-                          style={{ padding:"9px 12px", cursor:"pointer", borderBottom:`1px solid ${line}20`, fontSize:11, color:model===m?"#C8A96E":"#ccc", background:model===m?"#C8A96E08":"transparent" }}>
-                          {m}
+                      <div key={`${entry.categoria}-${entry.version}-${i}`}>
+                        {showHeader && (
+                          <div style={{ padding:"4px 10px 2px", fontSize:8, color:"#444", letterSpacing:2, background:"#0c0c12" }}>
+                            {entry.clase.toUpperCase()}
+                          </div>
+                        )}
+                        <div
+                          onClick={() => {
+                            setModel(entry.categoria);
+                            setModelSearch(entry.display);
+                            setVehVersion(entry.version);
+                            setEngine(entry.motor);
+                            setFuel(entry.combustible);
+                            setModelOpen(false);
+                          }}
+                          style={{ padding:"7px 12px", cursor:"pointer", borderBottom:`1px solid ${line}20`, fontSize:11, display:"flex", alignItems:"center", gap:8, color:engine===entry.motor&&model===entry.categoria?"#C8A96E":"#ccc", background:engine===entry.motor&&model===entry.categoria?"#C8A96E08":"transparent" }}
+                        >
+                          <span style={{ flex:1 }}>{entry.display}</span>
+                          {entry.aceite_lt != null && <span style={{ color:"#666", fontSize:10 }}>{entry.aceite_lt}L</span>}
                         </div>
                       </div>
                     );
