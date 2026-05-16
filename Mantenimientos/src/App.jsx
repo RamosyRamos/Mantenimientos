@@ -2080,18 +2080,10 @@ function MainApp({ session, onLogout }) {
 
   const notifyPush = async (userNombres, title, body) => {
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/lookup_usuarios_for_push`, {
-        method: 'POST',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ p_nombres: userNombres }),
-      });
-      const rows = await res.json();
-      const ids = (Array.isArray(rows) ? rows : []).map(r => String(r.id));
-      if (!ids.length) return;
       await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ user_ids: ids, title, body }),
+        body: JSON.stringify({ to_user_nombres: userNombres, title, body }),
       });
     } catch(e) { console.warn('notifyPush failed:', e); }
   };
