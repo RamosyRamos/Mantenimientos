@@ -2080,12 +2080,13 @@ function MainApp({ session, onLogout }) {
 
   const notifyPush = async (userNombres, title, body) => {
     try {
-      const results = await Promise.all(userNombres.map(nombre =>
-        fetch(`${SUPABASE_URL}/rest/v1/usuarios?nombre=eq.${encodeURIComponent(nombre)}&select=id&limit=1`, {
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-        }).then(r => r.json())
-      ));
-      const ids = results.flatMap(rows => rows?.[0]?.id ? [String(rows[0].id)] : []);
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/lookup_usuarios_for_push`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_nombres: userNombres }),
+      });
+      const rows = await res.json();
+      const ids = (Array.isArray(rows) ? rows : []).map(r => String(r.id));
       if (!ids.length) return;
       await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
         method: 'POST',
