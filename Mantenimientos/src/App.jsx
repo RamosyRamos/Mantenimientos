@@ -1714,6 +1714,10 @@ function MainApp({ session, onLogout }) {
   const [notifList, setNotifList]                 = useState([]);
   const [notifLoading, setNotifLoading]           = useState(false);
   const [notifCount, setNotifCount]               = useState(0);
+  const [showBorradores, setShowBorradores]       = useState(false);
+  const [adminDrafts, setAdminDrafts]             = useState([]);
+  const [adminDraftsLoading, setAdminDraftsLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete]         = useState(null);
   const [showCompleted, setShowCompleted]         = useState(false);
   const [completedList, setCompletedList]         = useState([]);
   const [completedLoading, setCompletedLoading]   = useState(false);
@@ -1808,6 +1812,7 @@ function MainApp({ session, onLogout }) {
   const exTotal = extras.reduce((n,e) => n + e.tasks.length, 0);
 
   const showAdminButtons = !cameFromTaller && (session?.rol === 'admin' || session?.rol === 'jefe');
+  const esTavo = session?.nombre === 'Gustavo Ramos';
 
   // Keep ref current so debounced timer always reads latest values
   autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion };
@@ -2147,6 +2152,7 @@ function MainApp({ session, onLogout }) {
     setOrdenNumero(urlOrdenNumero || s.orden_numero || "");
     setShowNotifications(false);
     setShowCompleted(false);
+    setShowBorradores(false);
     setStep(3);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -2170,6 +2176,21 @@ function MainApp({ session, onLogout }) {
       setNotifCount(list.length);
     } catch(e) { console.error("[fetchNotifications]", e); }
     setNotifLoading(false);
+  };
+
+  const fetchBorradores = async () => {
+    setAdminDraftsLoading(true);
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(
+        `${SURL}/rest/v1/servicios?estado=eq.borrador&select=id,placa,modelo,mecanico,slug,orden_id,orden_numero,revisiones,created_at,updated_at&order=created_at.desc`,
+        { headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` } }
+      );
+      const data = await res.json();
+      setAdminDrafts(Array.isArray(data) ? data : []);
+    } catch(e) { console.error('[fetchBorradores]', e); }
+    setAdminDraftsLoading(false);
   };
 
   const fetchCompleted = async () => {
@@ -2295,6 +2316,91 @@ function MainApp({ session, onLogout }) {
           </button>
         </div>
       </div>
+    </div>
+  ) : null;
+
+  const borradoresPanel = showBorradores ? (
+    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowBorradores(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+          <div>
+            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>📝 Borradores sin finalizar</div>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>{adminDrafts.length} BORRADOR{adminDrafts.length !== 1 ? "ES" : ""}</div>
+          </div>
+          <button onClick={() => setShowBorradores(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+          {adminDraftsLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
+          {!adminDraftsLoading && adminDrafts.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>✅ No hay borradores pendientes.</div>}
+          {!adminDraftsLoading && adminDrafts.map(b => {
+            const fechaRef = new Date(b.updated_at || b.created_at).getTime();
+            const diasAtras = Math.floor((Date.now() - fechaRef) / (24 * 60 * 60 * 1000));
+            const esViejo = diasAtras >= 7;
+            const allItems = Object.values(b.revisiones || {}).flat();
+            const completados = allItems.filter(i => i.status === 'ok' || i.status === 'issue').length;
+            const total = allItems.length;
+            return (
+              <div key={b.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:"#0c0c14", border:`1px solid ${esViejo ? '#555' : line}`, opacity: esViejo ? 0.65 : 1 }}>
+                <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:"bold", color:"#C8A96E" }}>
+                      {b.placa || '(sin placa)'} · {b.modelo ? b.modelo.split(' ').slice(0,3).join(' ') : '(sin modelo)'}
+                    </div>
+                    <div style={{ fontSize:10, color:"#aaa", marginTop:2 }}>
+                      {b.mecanico || '(sin mecánico)'} · {diasAtras === 0 ? 'hoy' : `hace ${diasAtras} día${diasAtras !== 1 ? 's' : ''}`}
+                    </div>
+                    <div style={{ fontSize:10, color:"#666", marginTop:1 }}>
+                      {b.orden_numero ? `📋 ${b.orden_numero}` : '⚠️ Sin orden'}{total > 0 ? ` · ${completados}/${total} ítems` : ''}
+                      {esViejo ? <span style={{ marginLeft:6 }}>⚪ +7 días</span> : ''}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:5, marginLeft:8, flexShrink:0, alignItems:"center" }}>
+                    <button onClick={() => { loadService(b); setShowBorradores(false); }}
+                      style={{ padding:"5px 9px", background:"#C8A96E", color:"#000", border:"none", borderRadius:4, cursor:"pointer", fontSize:11, fontWeight:"bold" }}>
+                      ▶
+                    </button>
+                    <button onClick={() => setConfirmDelete(b)}
+                      style={{ padding:"5px 9px", background:"transparent", color:"#d33", border:"1px solid #d3333360", borderRadius:4, cursor:"pointer", fontSize:11 }}>
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {confirmDelete && (
+        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+          onClick={e => e.stopPropagation()}>
+          <div style={{ background:"#0f0f17", border:"1px solid #d3333380", borderRadius:10, padding:"20px 18px", maxWidth:360, width:"100%", fontFamily:"monospace" }}>
+            <div style={{ fontSize:13, color:"#d33", fontWeight:"bold", marginBottom:10 }}>⚠️ Eliminar borrador</div>
+            <div style={{ fontSize:11, color:"#aaa", lineHeight:1.6, marginBottom:4 }}>
+              ¿Eliminar el borrador de <strong style={{ color:"#C8A96E" }}>{confirmDelete.placa || '(sin placa)'}</strong> de <strong>{confirmDelete.mecanico || '(sin mecánico)'}</strong>?
+            </div>
+            <div style={{ fontSize:10, color:"#666", marginBottom:14 }}>Esta acción no se puede deshacer.</div>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={() => setConfirmDelete(null)}
+                style={{ padding:"7px 12px", background:"transparent", color:"#aaa", border:`1px solid ${line}`, borderRadius:4, cursor:"pointer", fontSize:11, fontFamily:"monospace" }}>
+                Cancelar
+              </button>
+              <button onClick={async () => {
+                const SURL = import.meta.env.VITE_SUPABASE_URL;
+                const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+                await fetch(`${SURL}/rest/v1/servicios?id=eq.${confirmDelete.id}`, {
+                  method: 'DELETE',
+                  headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
+                });
+                setAdminDrafts(prev => prev.filter(d => d.id !== confirmDelete.id));
+                setConfirmDelete(null);
+              }}
+                style={{ padding:"7px 12px", background:"#d33", color:"#fff", border:"none", borderRadius:4, cursor:"pointer", fontSize:11, fontWeight:"bold", fontFamily:"monospace" }}>
+                🗑 Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   ) : null;
 
@@ -2816,6 +2922,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
+          {esTavo && (
+            <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
+              style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+              🗂
+              {adminDrafts.length > 0 && (
+                <span style={{ position:"absolute", top:-5, right:-5, background:"#888", color:"#fff", borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"monospace", fontWeight:"bold", padding:"0 2px" }}>
+                  {adminDrafts.length > 9 ? "9+" : adminDrafts.length}
+                </span>
+              )}
+            </button>
+          )}
         </>)}
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
@@ -2829,6 +2946,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       {notificationsPanel}
       {completedPanel}
+      {borradoresPanel}
       {verTodosPanel}
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
@@ -3022,6 +3140,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
+          {esTavo && (
+            <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
+              style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+              🗂
+              {adminDrafts.length > 0 && (
+                <span style={{ position:"absolute", top:-5, right:-5, background:"#888", color:"#fff", borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"monospace", fontWeight:"bold", padding:"0 2px" }}>
+                  {adminDrafts.length > 9 ? "9+" : adminDrafts.length}
+                </span>
+              )}
+            </button>
+          )}
         </>)}
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
@@ -3035,6 +3164,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       {notificationsPanel}
       {completedPanel}
+      {borradoresPanel}
       {verTodosPanel}
 
       {/* Resumen vehículo seleccionado */}
@@ -3239,6 +3369,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
+          {esTavo && (
+            <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
+              style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+              🗂
+              {adminDrafts.length > 0 && (
+                <span style={{ position:"absolute", top:-5, right:-5, background:"#888", color:"#fff", borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"monospace", fontWeight:"bold", padding:"0 2px" }}>
+                  {adminDrafts.length > 9 ? "9+" : adminDrafts.length}
+                </span>
+              )}
+            </button>
+          )}
         </>)}
         <button className="theme-toggle" onClick={() => {
           const root = document.getElementById('root');
@@ -3261,6 +3402,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       {notificationsPanel}
       {completedPanel}
+      {borradoresPanel}
       {verTodosPanel}
 
       {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
