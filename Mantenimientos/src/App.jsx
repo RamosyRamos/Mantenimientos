@@ -1812,7 +1812,8 @@ function MainApp({ session, onLogout }) {
   const exTotal = extras.reduce((n,e) => n + e.tasks.length, 0);
 
   const showAdminButtons = !cameFromTaller && (session?.rol === 'admin' || session?.rol === 'jefe');
-  const esTavo = session?.nombre === 'Gustavo Ramos';
+  const normalizar = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  const esTavo = normalizar(session?.nombre) === normalizar('Gustavo Ramos');
 
   // Keep ref current so debounced timer always reads latest values
   autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion };
