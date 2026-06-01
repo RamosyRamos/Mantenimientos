@@ -7,6 +7,7 @@
 // what's already in the bundle, and do NOT enable public sign-up.
 
 import { useState, useEffect, useRef } from "react";
+import imageCompression from 'browser-image-compression';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const ITEMS = {
@@ -2058,17 +2059,22 @@ function MainApp({ session, onLogout }) {
       const file = e.target.files?.[0];
       if (!file) return;
       if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return; }
-      if (file.size > 10 * 1024 * 1024) { alert('La imagen supera los 10 MB'); return; }
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-      const path = `servicios/${id}/${crypto.randomUUID()}.${ext}`;
+      if (file.size > 25 * 1024 * 1024) { alert('La imagen supera los 25 MB'); return; }
+      const comprimida = await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 2000,
+        useWebWorker: true,
+        fileType: 'image/jpeg',
+      });
+      const path = `servicios/${id}/${crypto.randomUUID()}.jpg`;
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
       const res = await fetch(
         `${SURL}/storage/v1/object/fotos-servicios/${path}`,
         { method: 'POST',
           headers: { apikey: SKEY, Authorization: 'Bearer ' + SKEY,
-                     'Content-Type': file.type, 'x-upsert': 'false' },
-          body: file }
+                     'Content-Type': 'image/jpeg', 'x-upsert': 'false' },
+          body: comprimida }
       );
       if (!res.ok) { alert('Error al subir la imagen. Intentá de nuevo.'); return; }
       const url = `${SURL}/storage/v1/object/public/fotos-servicios/${path}`;
