@@ -2049,32 +2049,30 @@ function MainApp({ session, onLogout }) {
     setActiveIssue(null);
   };
 
-  const IMGBB_KEY = import.meta.env.VITE_IMGBB_KEY;
   const uploadPhoto = (id) => {
-    console.log("[ImgBB] VITE_IMGBB_KEY:", IMGBB_KEY);
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
     input.capture = "environment";
     input.onchange = async (e) => {
       const file = e.target.files?.[0];
-      if (!file) { console.warn("[ImgBB] No file selected"); return; }
-      console.log("[ImgBB] Uploading file:", file.name, file.type, file.size, "bytes");
-      const form = new FormData();
-      form.append("image", file);
-      try {
-        const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_KEY}`, { method: "POST", body: form });
-        console.log("[ImgBB] HTTP status:", res.status);
-        const json = await res.json();
-        console.log("[ImgBB] Response:", JSON.stringify(json));
-        const url = json?.data?.url;
-        if (url) {
-          console.log("[ImgBB] Upload success, URL:", url);
-          setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
-        } else {
-          console.error("[ImgBB] No URL in response:", json);
-        }
-      } catch(err) { console.error("[ImgBB] Fetch error:", err); }
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return; }
+      if (file.size > 10 * 1024 * 1024) { alert('La imagen supera los 10 MB'); return; }
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `servicios/${id}/${crypto.randomUUID()}.${ext}`;
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(
+        `${SURL}/storage/v1/object/fotos-servicios/${path}`,
+        { method: 'POST',
+          headers: { apikey: SKEY, Authorization: 'Bearer ' + SKEY,
+                     'Content-Type': file.type, 'x-upsert': 'false' },
+          body: file }
+      );
+      if (!res.ok) { alert('Error al subir la imagen. Intentá de nuevo.'); return; }
+      const url = `${SURL}/storage/v1/object/public/fotos-servicios/${path}`;
+      setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
     };
     input.click();
   };
