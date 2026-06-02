@@ -131,6 +131,7 @@ const CODES = {
   "A":  { color:"#C8A96E", desc:"Inspección menor + aceite",                              items:["1","3"] },
   "A0": { color:"#C8A96E", desc:"A + techo corredizo",                                    items:["1","3","10"] },
   "A1": { color:"#D4A030", desc:"A + líquido de frenos",                                  items:["1","3","4"] },
+  "A2": { color:"#C8A020", desc:"A + frenos + techo corredizo",                           items:["1","3","4","10"] },
   "A3": { color:"#B88A00", desc:"A + filtro aire + combustible/bujías",                   items:["1","3","8","FUEL"] },
   "A4": { color:"#A07800", desc:"A + filtro aire + techo + combustible/bujías",           items:["1","3","8","10","FUEL"] },
   "A5": { color:"#C8A96E", desc:"A + frenos + filtro aire + combustible/bujías",          items:["1","3","4","8","FUEL"] },
@@ -157,13 +158,14 @@ const CODES = {
   "BC": { color:"#FF6B6B", desc:"B + frenos + aire + techo + bujías + ATF (AMG gasolina)",  items:["2","3","4","8","10","12","20"], fuelLock:"gasolina" },
   "BD": { color:"#4878B8", desc:"B + filtro aire + combustible + ATF",                   items:["2","3","8","11","20"], fuelLock:"diesel" },
   "BE": { color:"#3060A0", desc:"B + filtro aire + techo + combustible + ATF",           items:["2","3","8","10","11","20"], fuelLock:"diesel" },
+  "BF": { color:"#B88A00", desc:"B + frenos + filtro aire + bujías + ATF",               items:["2","3","4","8","12","20"], fuelLock:"gasolina" },
   "BH": { color:"#34D399", desc:"B + refrigerante",                                      items:["2","3","13"] },
   "BK": { color:"#10B981", desc:"B + frenos + refrigerante",                             items:["2","3","4","13"] },
   "BS": { color:"#059669", desc:"B + techo + refrigerante + ATF",                        items:["2","3","10","13","20"] },
 };
 
-const A_KEYS = ["A","A0","A1","A3","A4","A5","A6","A7","A8","A9","AC","AF","AG","AH","AK"];
-const B_KEYS = ["B","B0","B1","B2","B3","B4","B5","B6","B7","B8","B9","BC","BD","BE","BH","BK","BS"];
+const A_KEYS = ["A","A0","A1","A2","A3","A4","A5","A6","A7","A8","A9","AC","AF","AG","AH","AK"];
+const B_KEYS = ["B","B0","B1","B2","B3","B4","B5","B6","B7","B8","B9","BC","BD","BE","BF","BH","BK","BS"];
 
 // ─── REVISIONES ADICIONALES FUERA DEL ASSYST ─────────────────────────────
 // fuel: "all" | "gasolina" | "diesel"
