@@ -10,7 +10,7 @@ import { useState, useEffect, useRef } from "react";
 import imageCompression from 'browser-image-compression';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
-const ITEMS = {
+const DEFAULT_ITEMS = {
   "1": { label:"Inspección A (menor)", icon:"🔍", tasks:[
     "Inspección visual del motor — fugas, correas, mangueras",
     "Revisión y corrección de todos los niveles de fluidos",
@@ -127,7 +127,7 @@ const ITEMS = {
 };
 
 // ─── CÓDIGOS ASSYST PLUS ──────────────────────────────────────────────────
-const CODES = {
+const DEFAULT_CODES = {
   "A":  { color:"#C8A96E", desc:"Inspección menor + aceite",                              items:["1","3"] },
   "A0": { color:"#C8A96E", desc:"A + techo corredizo",                                    items:["1","3","10"] },
   "A1": { color:"#D4A030", desc:"A + líquido de frenos",                                  items:["1","3","4"] },
@@ -164,8 +164,8 @@ const CODES = {
   "BS": { color:"#059669", desc:"B + techo + refrigerante + ATF",                        items:["2","3","10","13","20"] },
 };
 
-const A_KEYS = ["A","A0","A1","A2","A3","A4","A5","A6","A7","A8","A9","AC","AF","AG","AH","AK"];
-const B_KEYS = ["B","B0","B1","B2","B3","B4","B5","B6","B7","B8","B9","BC","BD","BE","BF","BH","BK","BS"];
+const DEFAULT_A_KEYS = ["A","A0","A1","A2","A3","A4","A5","A6","A7","A8","A9","AC","AF","AG","AH","AK"];
+const DEFAULT_B_KEYS = ["B","B0","B1","B2","B3","B4","B5","B6","B7","B8","B9","BC","BD","BE","BF","BH","BK","BS"];
 
 // ─── REVISIONES ADICIONALES FUERA DEL ASSYST ─────────────────────────────
 // fuel: "all" | "gasolina" | "diesel"
@@ -1544,29 +1544,30 @@ function smartSearch(query, modelGroups = MODEL_GROUPS) {
   return results;
 }
 // ─── BUILD FUNCTIONS ──────────────────────────────────────────────────────
-function buildTasks(code, fuel, is4m) {
-  const def = CODES[code];
+function buildTasks(code, fuel, is4m, codes, items) {
+  const def = codes[code];
+  if (!def) return [];
   const fuelItem = fuel === "diesel" ? "11" : "12";
   const result = [];
   def.items.forEach(id => {
     const resolved = id === "FUEL" ? fuelItem : id;
-    const block = ITEMS[resolved];
+    const block = items[resolved];
     if (block) block.tasks.forEach((text, i) =>
       result.push({ id:`${resolved}_${i}`, grp:block.label, icon:block.icon, text, outOfAssyst:!!block.outOfAssyst })
     );
   });
   // Bujías de precalentamiento — SOLO diesel
   if (fuel === "diesel") {
-    const glow = ITEMS["GLOW"];
-    glow.tasks.forEach((text, i) =>
+    const glow = items["GLOW"];
+    if (glow) glow.tasks.forEach((text, i) =>
       result.push({ id:`GLOW_${i}`, grp:glow.label, icon:glow.icon, text, outOfAssyst:true })
     );
   }
   // 4MATIC — diferencial
   if (is4m) {
     ["4M_DIFF","4M_FDIFF"].forEach(key => {
-      const block = ITEMS[key];
-      block.tasks.forEach((text, i) =>
+      const block = items[key];
+      if (block) block.tasks.forEach((text, i) =>
         result.push({ id:`${key}_${i}`, grp:block.label, icon:block.icon, text, outOfAssyst:true })
       );
     });
@@ -1775,6 +1776,41 @@ function MainApp({ session, onLogout }) {
   const editingIdRef  = useRef(null);
   const autoSaveRef   = useRef({});
 
+  const [activeItems, setActiveItems] = useState(DEFAULT_ITEMS);
+  const [activeCodes, setActiveCodes] = useState(DEFAULT_CODES);
+  const [activeAKeys, setActiveAKeys] = useState(DEFAULT_A_KEYS);
+  const [activeBKeys, setActiveBKeys] = useState(DEFAULT_B_KEYS);
+
+  useEffect(() => {
+    const SURL = import.meta.env.VITE_SUPABASE_URL;
+    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+    if (!SURL || !SKEY) return;
+    const headers = { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` };
+    Promise.all([
+      fetch(`${SURL}/rest/v1/mant_recetas?select=*&order=serie,orden`, { headers }).then(r => r.json()),
+      fetch(`${SURL}/rest/v1/mant_items?select=*&order=orden`,         { headers }).then(r => r.json()),
+    ]).then(([recetas, itemsArr]) => {
+      if (!Array.isArray(recetas) || !Array.isArray(itemsArr)) {
+        console.warn("[mant] fetch returned non-array", { recetas, itemsArr }); return;
+      }
+      if (recetas.length === 0 || itemsArr.length === 0) {
+        console.warn("[mant] fetch returned empty arrays — keeping defaults"); return;
+      }
+      const newItems = Object.fromEntries(
+        itemsArr.map(i => [i.clave, { label: i.label, icon: i.icon, tasks: i.tasks, outOfAssyst: !!i.out_of_assyst }])
+      );
+      const newCodes = Object.fromEntries(
+        recetas.map(r => [r.codigo, { color: r.color, desc: r.descripcion, items: r.items, fuelLock: r.fuel_lock || null }])
+      );
+      const newAKeys = recetas.filter(r => r.serie === 'A').map(r => r.codigo);
+      const newBKeys = recetas.filter(r => r.serie === 'B').map(r => r.codigo);
+      setActiveItems(newItems);
+      setActiveCodes(newCodes);
+      setActiveAKeys(newAKeys);
+      setActiveBKeys(newBKeys);
+    }).catch(e => console.warn("[mant] error cargando recetas/items de Supabase:", e));
+  }, []);
+
   const [dbModels, setDbModels] = useState(null);
   useEffect(() => {
     loadModelsFromDB().then(data => { if (data) setDbModels(data) })
@@ -1783,8 +1819,8 @@ function MainApp({ session, onLogout }) {
   const modelGroups  = dbModels?.modelGroups  ?? MODEL_GROUPS;
   const modelEntries = dbModels?.modelEntries ?? MODEL_ENTRIES_FALLBACK;
 
-  const svc          = CODES[sel];
-  const G            = svc.color;
+  const svc          = activeCodes[sel] || {};
+  const G            = svc.color || '#C8A96E';
   const fuelLock     = svc.fuelLock || null;
   const fuelMismatch = fuelLock && fuelLock !== fuel;
 
@@ -1806,7 +1842,7 @@ function MainApp({ session, onLogout }) {
     setModelSearch(e.target.value);
     setEngine("");
   };
-  const tasks        = buildTasks(sel, fuel, is4m);
+  const tasks        = buildTasks(sel, fuel, is4m, activeCodes, activeItems);
   const extras       = getExtras(fuel);
   const trackable   = tasks.filter(t => !t.text?.startsWith("⚠"));
   const doneN  = trackable.filter(t => checked[t.id] || taskStatus[t.id]).length;
@@ -2127,8 +2163,8 @@ function MainApp({ session, onLogout }) {
       const newIssue   = {};
       const newChecked = {};
       const textToId   = {};
-      Object.keys(ITEMS).forEach(k => {
-        ITEMS[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
+      Object.keys(activeItems).forEach(k => {
+        activeItems[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
       });
       const newPhotos = {};
       Object.values(revisiones).flat().forEach(item => {
@@ -2435,11 +2471,12 @@ function MainApp({ session, onLogout }) {
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           {cmTab === "recetas" && (
             <>
-              {[["Serie A", A_KEYS],["Serie B", B_KEYS]].map(([titulo, keys]) => (
+              {[["Serie A", activeAKeys],["Serie B", activeBKeys]].map(([titulo, keys]) => (
                 <div key={titulo} style={{ marginBottom:16 }}>
                   <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>{titulo.toUpperCase()}</div>
                   {keys.map(k => {
-                    const def = CODES[k];
+                    const def = activeCodes[k];
+                    if (!def) return null;
                     const isOpen = openCode === k;
                     return (
                       <div key={k} style={{ marginBottom: isOpen ? 8 : 3 }}>
@@ -2454,7 +2491,7 @@ function MainApp({ session, onLogout }) {
                             {def.items.map((id, idx) => (
                               <div key={idx} style={{ display:"flex", gap:8, padding:"4px 0", borderBottom:`1px solid ${line}`, alignItems:"flex-start" }}>
                                 <span style={{ fontSize:9, color:def.color, background:`${def.color}12`, borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:"monospace" }}>{id}</span>
-                                <span style={{ fontSize:11, color:"#888" }}>{id === "FUEL" ? "Combustible/Bujías (según motor)" : ITEMS[id]?.label ?? id}</span>
+                                <span style={{ fontSize:11, color:"#888" }}>{id === "FUEL" ? "Combustible/Bujías (según motor)" : activeItems[id]?.label ?? id}</span>
                               </div>
                             ))}
                             {def.fuelLock && (
@@ -2477,7 +2514,7 @@ function MainApp({ session, onLogout }) {
           {cmTab === "items" && (
             <div>
               <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>CATÁLOGO COMPLETO</div>
-              {Object.entries(ITEMS).map(([key, block]) => (
+              {Object.entries(activeItems).map(([key, block]) => (
                 <div key={key} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", marginBottom:3, borderRadius:6, background:"#0c0c14", border:`1px solid ${line}` }}>
                   <span style={{ fontSize:14, flexShrink:0 }}>{block.icon}</span>
                   <span style={{ fontSize:9, color:"#C8A96E", background:"#C8A96E12", border:"1px solid #C8A96E30", borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:"monospace" }}>{key}</span>
@@ -3295,7 +3332,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>CÓDIGO DE SERVICIO ASSYST <span style={{ color:"#f87171" }}>*</span></div>
           <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
-            {A_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
+            {activeAKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
               <button key={k} onClick={()=>setSel(k)} className="svc-btn"
                 style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
                 {k}
@@ -3304,7 +3341,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <div style={{ fontSize:9, color:"#7EB8F780", letterSpacing:2, marginBottom:6 }}>SERIE B — INSPECCIÓN MAYOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {B_KEYS.map(k => { const s=CODES[k],on=sel===k; return (
+            {activeBKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
               <button key={k} onClick={()=>setSel(k)} className="svc-btn"
                 style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
                 {k}
