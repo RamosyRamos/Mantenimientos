@@ -1727,6 +1727,9 @@ function MainApp({ session, onLogout }) {
   // TODO: orphaned — was triggered by removed "VER TODOS" button. Remove in cleanup commit.
   const [showVerTodos, setShowVerTodos] = useState(false);
   const [verTodosList, setVerTodosList] = useState([]);
+  const [showCentroMando, setShowCentroMando] = useState(false);
+  const [openCode, setOpenCode] = useState(null);
+  const [cmTab, setCmTab] = useState("recetas");
   const [verTodosLoading, setVerTodosLoading] = useState(false);
   const [verTodosSearch, setVerTodosSearch] = useState("");
   const [verTodosPage, setVerTodosPage] = useState(0);
@@ -2411,6 +2414,86 @@ function MainApp({ session, onLogout }) {
     </div>
   ) : null;
 
+  const centroMandoPanel = showCentroMando ? (
+    <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowCentroMando(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#0f0f17", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
+        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
+          <div>
+            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🛠 Centro de Mando</div>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>CATÁLOGO DE MANTENIMIENTOS</div>
+          </div>
+          <button onClick={() => setShowCentroMando(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
+        </div>
+        <div style={{ display:"flex", gap:6, padding:"10px 12px", borderBottom:`1px solid ${line}`, flexShrink:0 }}>
+          {[["recetas","RECETAS"],["items","ÍTEMS"]].map(([v,lbl]) => (
+            <button key={v} onClick={() => setCmTab(v)}
+              style={{ flex:1, padding:"7px", borderRadius:6, border:`1px solid ${cmTab===v?"#C8A96E60":line}`, background:cmTab===v?"#C8A96E15":card, color:cmTab===v?"#C8A96E":"#555", fontSize:11, fontFamily:"monospace", cursor:"pointer", fontWeight:cmTab===v?"bold":"normal", letterSpacing:1 }}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
+          {cmTab === "recetas" && (
+            <>
+              {[["Serie A", A_KEYS],["Serie B", B_KEYS]].map(([titulo, keys]) => (
+                <div key={titulo} style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>{titulo.toUpperCase()}</div>
+                  {keys.map(k => {
+                    const def = CODES[k];
+                    const isOpen = openCode === k;
+                    return (
+                      <div key={k} style={{ marginBottom: isOpen ? 8 : 3 }}>
+                        <div onClick={() => setOpenCode(isOpen ? null : k)}
+                          style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 10px", borderRadius: isOpen ? "6px 6px 0 0" : 6, background:"#0c0c14", border:`1px solid ${isOpen ? def.color+"60" : line}`, cursor:"pointer", userSelect:"none" }}>
+                          <span style={{ fontSize:10, fontWeight:"bold", color:def.color, background:`${def.color}18`, border:`1px solid ${def.color}40`, borderRadius:4, padding:"1px 6px", flexShrink:0 }}>{k}</span>
+                          <span style={{ flex:1, fontSize:11, color:"#aaa" }}>{def.desc}</span>
+                          <span style={{ fontSize:9, color:"#555" }}>{isOpen ? "▲" : "▼"}</span>
+                        </div>
+                        {isOpen && (
+                          <div style={{ padding:"8px 10px", borderRadius:"0 0 6px 6px", background:"#0a0a12", border:`1px solid ${def.color}60`, borderTop:"none" }}>
+                            {def.items.map((id, idx) => (
+                              <div key={idx} style={{ display:"flex", gap:8, padding:"4px 0", borderBottom:`1px solid ${line}`, alignItems:"flex-start" }}>
+                                <span style={{ fontSize:9, color:def.color, background:`${def.color}12`, borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:"monospace" }}>{id}</span>
+                                <span style={{ fontSize:11, color:"#888" }}>{id === "FUEL" ? "Combustible/Bujías (según motor)" : ITEMS[id]?.label ?? id}</span>
+                              </div>
+                            ))}
+                            {def.fuelLock && (
+                              <div style={{ marginTop:8, fontSize:9, color:"#C8A96E", background:"#C8A96E12", border:"1px solid #C8A96E30", borderRadius:4, padding:"3px 8px", display:"inline-flex", alignItems:"center", gap:4 }}>
+                                🔒 {def.fuelLock}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              <div style={{ marginTop:4, padding:"10px 12px", borderRadius:6, background:"#0c0c14", border:`1px solid ${line}`, fontSize:10, color:"#555", lineHeight:1.6 }}>
+                ℹ️ Los vehículos diesel suman <span style={{ color:"#7dd3fc" }}>GLOW</span> (bujías de precalentamiento) y los 4MATIC suman los diferenciales automáticamente; no aparecen en la receta.
+              </div>
+            </>
+          )}
+          {cmTab === "items" && (
+            <div>
+              <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>CATÁLOGO COMPLETO</div>
+              {Object.entries(ITEMS).map(([key, block]) => (
+                <div key={key} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", marginBottom:3, borderRadius:6, background:"#0c0c14", border:`1px solid ${line}` }}>
+                  <span style={{ fontSize:14, flexShrink:0 }}>{block.icon}</span>
+                  <span style={{ fontSize:9, color:"#C8A96E", background:"#C8A96E12", border:"1px solid #C8A96E30", borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:"monospace" }}>{key}</span>
+                  <span style={{ flex:1, fontSize:11, color:"#aaa" }}>{block.label}</span>
+                  {block.outOfAssyst && (
+                    <span style={{ fontSize:8, color:"#888", background:"#88888818", border:"1px solid #88888840", borderRadius:3, padding:"1px 5px", flexShrink:0, letterSpacing:0.5 }}>FUERA DEL ASSYST</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // ── Ver Todos Panel ──
   const VT_PAGE_SIZE = 30;
   const verTodosFiltered = verTodosList.filter(s => {
@@ -2929,6 +3012,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
+          <button onClick={() => setShowCentroMando(true)} title="Centro de Mando de Mantenimientos"
+            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            🛠
+          </button>
           {esTavo && (
             <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
               style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
@@ -2954,6 +3041,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {centroMandoPanel}
       {verTodosPanel}
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
@@ -3147,6 +3235,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
+          <button onClick={() => setShowCentroMando(true)} title="Centro de Mando de Mantenimientos"
+            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            🛠
+          </button>
           {esTavo && (
             <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
               style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
@@ -3172,6 +3264,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {centroMandoPanel}
       {verTodosPanel}
 
       {/* Resumen vehículo seleccionado */}
@@ -3376,6 +3469,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
+          <button onClick={() => setShowCentroMando(true)} title="Centro de Mando de Mantenimientos"
+            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
+            🛠
+          </button>
           {esTavo && (
             <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
               style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
@@ -3410,6 +3507,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {centroMandoPanel}
       {verTodosPanel}
 
       {/* RESUMEN COMPACTO — vehículo + servicio seleccionados */}
