@@ -2487,7 +2487,7 @@ function MainApp({ session, onLogout }) {
                           <span style={{ fontSize:9, color:"#555" }}>{isOpen ? "▲" : "▼"}</span>
                         </div>
                         {isOpen && (
-                          <div style={{ padding:"8px 10px", borderRadius:"0 0 6px 6px", background:"#0a0a12", border:`1px solid ${def.color}60`, borderTop:"none" }}>
+                          <div style={{ padding:"8px 10px", borderRadius:"0 0 6px 6px", background:"#0B0B0D", border:`1px solid ${def.color}60`, borderTop:"none" }}>
                             {def.items.map((id, idx) => (
                               <div key={idx} style={{ display:"flex", gap:8, padding:"4px 0", borderBottom:`1px solid ${line}`, alignItems:"flex-start" }}>
                                 <span style={{ fontSize:9, color:def.color, background:`${def.color}12`, borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:"monospace" }}>{id}</span>
@@ -3130,7 +3130,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     return (
                       <div key={`${entry.categoria}-${entry.version}-${i}`}>
                         {showHeader && (
-                          <div style={{ padding:"4px 10px 2px", fontSize:8, color:"#444", letterSpacing:2, background:"#0c0c12" }}>
+                          <div style={{ padding:"4px 10px 2px", fontSize:8, color:"#444", letterSpacing:2, background:"#101113" }}>
                             {entry.clase.toUpperCase()}
                           </div>
                         )}
@@ -3310,7 +3310,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
           <span style={{ color:"#C8A96E", fontWeight:"bold", fontSize:12 }}>{model.split("(")[0].trim()}</span>
           {engine && <span style={{ fontSize:10, color:"#888" }}>· {engine}</span>}
-          {plate && <span style={{ fontSize:10, background:"#1a1a2a", border:`1px solid ${line}`, borderRadius:4, padding:"1px 7px", letterSpacing:2, color:"#aaa" }}>{plate}</span>}
+          {plate && <span style={{ fontSize:10, background:"#16181c", border:`1px solid ${line}`, borderRadius:4, padding:"1px 7px", letterSpacing:2, color:"#aaa" }}>{plate}</span>}
           {km && <span style={{ fontSize:10, color:"#555" }}>{parseInt(km).toLocaleString()} km</span>}
         </div>
       </div>
@@ -3482,7 +3482,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
         )}
         {!editingId && doneN > 0 && (
-          <div style={{ fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#1a1a2a" }}>
+          <div style={{ fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?"#4ade80":G}`, color:isComplete?"#4ade80":G, background:isComplete?"#14532d":"#16181c" }}>
             {isComplete ? "✓ COMPLETO" : pct+"%"}
           </div>
         )}
@@ -3633,8 +3633,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     const isOpen  = activeIssue === id;
                     const rowBg   = status==="ok"    ? "#0a1a0a"
                                   : status==="issue" ? "#1a0a0a"
-                                  : status==="na"    ? "#0c0c0c"
-                                  : isInfo ? "#0c0c12" : card;
+                                  : status==="na"    ? "#0B0B0D"
+                                  : isInfo ? "#101113" : card;
                     const rowBdr  = status==="ok"    ? "#4ade8040"
                                   : status==="issue" ? "#f8717140"
                                   : status==="na"    ? "#33333360"
@@ -3664,7 +3664,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                               >{isMobile ? "⚠" : "⚠ Det."}</button>
                               <button className="chk-btn"
                                 onClick={()=> status==="na" ? (setTaskStatus(p=>({...p,[id]:undefined})), setChk(p=>({...p,[id]:false}))) : setStatus(id,"na","",text)}
-                                style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="na"?"#55555560":"#2a2a2a"}`, background:status==="na"?"#33333320":"transparent", color:status==="na"?"#666":"#3a3a3a", fontWeight:status==="na"?"bold":"normal" }}
+                                style={{ padding:"3px 7px", borderRadius:4, fontSize:10, fontFamily:"monospace", cursor:"pointer", border:`1px solid ${status==="na"?"#55555560":"#2f363b"}`, background:status==="na"?"#33333320":"transparent", color:status==="na"?"#666":"#3a3a3a", fontWeight:status==="na"?"bold":"normal" }}
                               >{isMobile ? "—" : "— N/A"}</button>
                             </div>
                           )}
@@ -3895,7 +3895,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                           </div>
                         ) : (
                           <button onClick={enviarAOrden} disabled={ordenEnvioStatus === "sending"}
-                            style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${ordenEnvioStatus==="sending"?"#2f363b":"#C8A96E80"}`, background:ordenEnvioStatus==="sending"?"#0a0a14":"#C8A96E18", color:ordenEnvioStatus==="sending"?"#444":"#C8A96E", fontFamily:"monospace", fontSize:12, cursor:ordenEnvioStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
+                            style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${ordenEnvioStatus==="sending"?"#2f363b":"#C8A96E80"}`, background:ordenEnvioStatus==="sending"?"#0B0B0D":"#C8A96E18", color:ordenEnvioStatus==="sending"?"#444":"#C8A96E", fontFamily:"monospace", fontSize:12, cursor:ordenEnvioStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
                             {ordenEnvioStatus === "sending" ? "⏳ Enviando..." : "📋 Enviar a la orden de trabajo"}
                           </button>
                         )
