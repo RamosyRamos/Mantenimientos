@@ -1628,10 +1628,10 @@ function LoginScreen({ onLogin }) {
   };
 
   const active = !loading && nombre.trim() && password;
-  const fieldStyle = { background:"#111118", border:"1px solid #2a2a3a", color:"#e0d8cc", borderRadius:8, padding:"12px 14px", fontSize:13, fontFamily:"monospace", outline:"none", width:"100%", boxSizing:"border-box" };
+  const fieldStyle = { background:"#121316", border:"1px solid #2f363b", color:"#e0d8cc", borderRadius:8, padding:"12px 14px", fontSize:13, fontFamily:"monospace", outline:"none", width:"100%", boxSizing:"border-box" };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#09090e", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"monospace", padding:24 }}>
+    <div style={{ minHeight:"100vh", background:"#0B0B0D", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"monospace", padding:24 }}>
       <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:100, height:100, borderRadius:"50%", marginBottom:16, objectFit:"cover" }} />
       <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:3, color:"#e0d8cc", marginBottom:4 }}>RAMOS Y RAMOS</div>
       <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:36 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
