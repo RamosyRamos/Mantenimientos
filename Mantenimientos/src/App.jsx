@@ -3370,7 +3370,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIÓN DE COMPRA</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
                 {activeCKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
-                  <button key={k} onClick={()=>{ setSel(k); setStep(3); }} className="svc-btn"
+                  <button key={k} onClick={()=>setSel(k)} className="svc-btn"
                     style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
                     {k}
                   </button>
