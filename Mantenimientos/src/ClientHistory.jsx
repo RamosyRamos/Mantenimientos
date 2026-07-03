@@ -11,6 +11,16 @@ const card = "#0f0f17";
 const line = "#1c1c2a";
 const gold = "#C8A96E";
 
+// ─── Revisión de Compra ───────────────────────────────────────────────────
+// Una RC se guarda con servicio_codigo === "RC" (serie 'C'). Detección única
+// para etiquetar cada fila del historial mixto según su tipo.
+// ⚠️ OJO: si algún día existe una receta A/B cuyo código empiece con "C",
+// habría que refinar esta detección (hoy ningún código A/B empieza con "C").
+const esRC = (svc) => {
+  const c = (svc?.codigo || svc?.servicio_codigo || "").toUpperCase();
+  return c === "RC" || c.startsWith("C");
+};
+
 // v2.1
 export default function ClientHistory() {
   const [placa, setPlaca]       = useState("");
@@ -54,7 +64,7 @@ export default function ClientHistory() {
           <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:38, height:38, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
           <div style={{ flex:1 }}>
             <div style={{ fontWeight:"bold", fontSize:13, letterSpacing:2 }}>RAMOS Y RAMOS</div>
-            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>HISTORIAL DE MANTENIMIENTOS</div>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>HISTORIAL DEL VEHÍCULO</div>
           </div>
           <button onClick={() => {
             const root = document.getElementById('history-root');
@@ -93,7 +103,7 @@ export default function ClientHistory() {
             </button>
           </div>
           <div style={{ fontSize:10, color:"#333", marginTop:6, textAlign:"center" }}>
-            Ingresá la placa de tu vehículo para ver el historial completo de servicios
+            Ingresá la placa para ver el historial completo de tu vehículo
           </div>
         </div>
 
@@ -109,7 +119,7 @@ export default function ClientHistory() {
         {!loading && results !== null && results.length === 0 && (
           <div style={{ textAlign:"center", padding:"32px 16px", background:card, borderRadius:10, border:`1px solid ${line}` }}>
             <div style={{ fontSize:32, marginBottom:12 }}>🔍</div>
-            <div style={{ fontSize:14, color:"#888", marginBottom:8 }}>No se encontraron servicios</div>
+            <div style={{ fontSize:14, color:"#888", marginBottom:8 }}>No se encontraron registros</div>
             <div style={{ fontSize:11, color:"#555" }}>
               No hay registros para la placa <strong style={{ color:gold }}>{searched}</strong>
             </div>
@@ -130,7 +140,7 @@ export default function ClientHistory() {
                 {results[0].motor && <span>{results[0].motor}</span>}
               </div>
               <div style={{ fontSize:11, color:"#555", marginTop:6 }}>
-                {results.length} servicio{results.length > 1 ? "s" : ""} registrado{results.length > 1 ? "s" : ""}
+                {results.length} registro{results.length > 1 ? "s" : ""}
               </div>
             </div>
 
@@ -163,7 +173,7 @@ function ServiceCard({ service: s, index, total }) {
       >
         <div style={{ flex:1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-            <span style={{ fontSize:13, fontWeight:"bold", color:gold }}>Servicio {s.servicio_codigo}</span>
+            <span style={{ fontSize:13, fontWeight:"bold", color:gold }}>{esRC(s) ? "Revisión de Compra" : `Servicio ${s.servicio_codigo}`}</span>
             {s.rechazado === true ? (
               <span style={{ fontSize:9, background:"#f8717125", border:"1px solid #f8717155", color:"#f87171", borderRadius:4, padding:"1px 6px", fontWeight:700 }}>❌ Rechazado</span>
             ) : (
@@ -180,7 +190,7 @@ function ServiceCard({ service: s, index, total }) {
           <div style={{ fontSize:11, color:"#888" }}>{s.servicio_desc}</div>
           {s.rechazado === true && (
             <div style={{ background:"#f8717110", border:"1px solid #f8717140", borderRadius:6, padding:"8px 10px", margin:"8px 0", fontSize:11 }}>
-              <div style={{ color:"#f87171", fontWeight:700, marginBottom:4 }}>❌ Servicio rechazado</div>
+              <div style={{ color:"#f87171", fontWeight:700, marginBottom:4 }}>❌ {esRC(s) ? "Revisión de Compra rechazada" : "Servicio rechazado"}</div>
               {s.rechazado_por && (
                 <div style={{ color:"#cbd5e1", fontSize:10 }}>Por: <strong>{s.rechazado_por}</strong></div>
               )}

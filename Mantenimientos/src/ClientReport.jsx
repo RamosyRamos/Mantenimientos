@@ -5,6 +5,16 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
+// ─── Revisión de Compra ───────────────────────────────────────────────────
+// Una RC se guarda con servicio_codigo === "RC" (serie 'C'). Detección única
+// para todos los textos de cara al cliente: no repetir esta lógica inline.
+// ⚠️ OJO: si algún día existe una receta A/B cuyo código empiece con "C",
+// habría que refinar esta detección (hoy ningún código A/B empieza con "C").
+const esRC = (svc) => {
+  const c = (svc?.codigo || svc?.servicio_codigo || "").toUpperCase();
+  return c === "RC" || c.startsWith("C");
+};
+
 export default function ClientReport({ binId }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
@@ -94,6 +104,13 @@ function ReportView({ data }) {
   const totalIssue  = Object.values(revisiones || {}).flat().filter(t => t.status === "issue").length;
   const totalItems  = Object.values(revisiones || {}).flat().filter(t => !t.text?.startsWith("⚠")).length;
 
+  // Serie 'C' (Revisión de Compra): el comprador no debe ver "servicio"/"mantenimiento".
+  const rc = esRC(servicio);
+
+  useEffect(() => {
+    document.title = rc ? "Ramos y Ramos | Revisión de Compra" : "Ramos y Ramos | Mantenimiento";
+  }, [rc]);
+
   return (
     <div id="client-root" style={{ minHeight:"100vh", background:"#09090e", fontFamily:"'Segoe UI', Arial, sans-serif", color:"#e0d8cc", paddingBottom:48 }}>
 
@@ -122,7 +139,7 @@ function ReportView({ data }) {
 
           {/* Título del reporte */}
           <div style={{ background:"#C8A96E10", border:"1px solid #C8A96E30", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>RESUMEN DE SERVICIO</div>
+            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>{rc ? "RESUMEN DE REVISIÓN DE COMPRA" : "RESUMEN DE SERVICIO"}</div>
             <div style={{ fontSize:18, fontWeight:"bold", color:"#e0d8cc", marginBottom:4 }}>
               {vehiculo?.modelo || "Vehículo Mercedes-Benz"}
             </div>
@@ -139,7 +156,7 @@ function ReportView({ data }) {
         {/* RECHAZADO */}
         {rechazado === true && (
           <div style={{ margin:"16px 0", background:"#f8717110", border:"1px solid #f8717140", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ color:"#f87171", fontWeight:700, fontSize:13, marginBottom:6 }}>❌ Servicio rechazado</div>
+            <div style={{ color:"#f87171", fontWeight:700, fontSize:13, marginBottom:6 }}>❌ {rc ? "Revisión de Compra rechazada" : "Servicio rechazado"}</div>
             {rechazado_por && (
               <div style={{ color:"#cbd5e1", fontSize:11 }}>Por: <strong>{rechazado_por}</strong></div>
             )}
@@ -150,8 +167,8 @@ function ReportView({ data }) {
         )}
 
         {/* DATOS DEL SERVICIO */}
-        <Section title="🔧 Datos del Servicio">
-          <Row label="Código de servicio" value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
+        <Section title={rc ? "🔧 Datos de la Revisión de Compra" : "🔧 Datos del Servicio"}>
+          <Row label={rc ? "Código de revisión" : "Código de servicio"} value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
           <Row label="Realizado por" value={mecanico} />
           {aprobado_por && <Row label="Aprobado por" value={<span style={{ color:"#4ade80" }}>✅ {aprobado_por}</span>} />}
           <Row label="Fecha y hora" value={fecha} />
@@ -239,25 +256,25 @@ function ReportView({ data }) {
         <div style={{ marginTop:24, padding:"16px", background:"#0f0f17", border:"1px solid #1c1c2a", borderRadius:10, textAlign:"center" }}>
           <div style={{ fontSize:11, color:"#555", lineHeight:1.8 }}>
             <div style={{ color:"#C8A96E", fontWeight:"bold", marginBottom:4 }}>Ramos y Ramos Taller Especializado</div>
-            <div>Este resumen fue generado automáticamente al finalizar el servicio.</div>
-            <div style={{ marginTop:4, fontSize:10 }}>Servicio realizado por <strong style={{ color:"#e0d8cc" }}>{mecanico}</strong> · {fecha}</div>
+            <div>Este resumen fue generado automáticamente al finalizar {rc ? "la revisión de compra" : "el servicio"}.</div>
+            <div style={{ marginTop:4, fontSize:10 }}>{rc ? "Revisión realizada por" : "Servicio realizado por"} <strong style={{ color:"#e0d8cc" }}>{mecanico}</strong> · {fecha}</div>
           </div>
 
           {/* Nota del sistema + link historial */}
           <div style={{ marginTop:14, paddingTop:12, borderTop:"1px solid #1c1c2a" }}>
             <div style={{ fontSize:10, color:"#444", lineHeight:1.7, marginBottom:10 }}>
-              ℹ️ Ramos y Ramos implementó este sistema digital de registro de mantenimientos en <strong style={{ color:"#555" }}>abril del 2026</strong>. Los servicios realizados antes de esa fecha no aparecen en el historial digital.
+              ℹ️ Ramos y Ramos implementó este registro digital de servicios y revisiones en <strong style={{ color:"#555" }}>abril del 2026</strong>. Los registros anteriores a esa fecha no aparecen en el historial digital.
             </div>
             <a
               href={`${window.location.origin}/historial`}
               style={{ display:"inline-block", padding:"8px 18px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E0c", color:"#C8A96E", fontSize:11, textDecoration:"none", fontFamily:"monospace", letterSpacing:1 }}>
-              📋 Ver historial completo de mantenimientos
+              📋 Ver historial completo del vehículo
             </a>
             <div style={{ fontSize:10, color:"#555", marginTop:6, fontFamily:"monospace", letterSpacing:0.5 }}>
               mantenimientos.ramosyramoscr.com/historial
             </div>
             <div style={{ fontSize:10, color:"#333", marginTop:4 }}>
-              Ingresá la placa de tu vehículo para ver todos tus servicios registrados.
+              Ingresá la placa de tu vehículo para ver todos sus registros.
             </div>
 
             {/* BOTÓN IMPRIMIR / GUARDAR PDF */}
