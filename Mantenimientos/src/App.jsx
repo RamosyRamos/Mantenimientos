@@ -1780,6 +1780,9 @@ function MainApp({ session, onLogout }) {
   const [activeCodes, setActiveCodes] = useState(DEFAULT_CODES);
   const [activeAKeys, setActiveAKeys] = useState(DEFAULT_A_KEYS);
   const [activeBKeys, setActiveBKeys] = useState(DEFAULT_B_KEYS);
+  const [activeCKeys, setActiveCKeys] = useState([]);          // serie 'C' — Revisión de Compra
+  const [dictamenRec,  setDictamenRec]  = useState("");        // "" | "apto" | "apto_reparaciones" | "no_recomendable"
+  const [reparaciones, setReparaciones] = useState([]);        // [{ descripcion, costo_estimado }]
 
   useEffect(() => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
@@ -1804,10 +1807,12 @@ function MainApp({ session, onLogout }) {
       );
       const newAKeys = recetas.filter(r => r.serie === 'A').map(r => r.codigo);
       const newBKeys = recetas.filter(r => r.serie === 'B').map(r => r.codigo);
+      const newCKeys = recetas.filter(r => r.serie === 'C').map(r => r.codigo);
       setActiveItems(newItems);
       setActiveCodes(newCodes);
       setActiveAKeys(newAKeys);
       setActiveBKeys(newBKeys);
+      setActiveCKeys(newCKeys);
     }).catch(e => console.warn("[mant] error cargando recetas/items de Supabase:", e));
   }, []);
 
@@ -1820,6 +1825,10 @@ function MainApp({ session, onLogout }) {
   const modelEntries = dbModels?.modelEntries ?? MODEL_ENTRIES_FALLBACK;
 
   const svc          = activeCodes[sel] || {};
+  const esRC           = activeCKeys.includes(sel);                                   // Revisión de Compra (serie 'C')
+  const llevaAceite    = Array.isArray(svc.items) && svc.items.includes("3");         // la receta incluye cambio de aceite (ítem "3")
+  const servicioTitulo = esRC ? "Revisión de Compra" : `Servicio ${sel}`;
+  const dictamenTotal  = reparaciones.reduce((s, r) => s + (Number(r.costo_estimado) || 0), 0);
   const G            = svc.color || '#C8A96E';
   const fuelLock     = svc.fuelLock || null;
   const fuelMismatch = fuelLock && fuelLock !== fuel;
@@ -1858,7 +1867,7 @@ function MainApp({ session, onLogout }) {
   const esTavo = normalizar(session?.nombre) === normalizar('Gustavo Ramos');
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2034,12 +2043,13 @@ function MainApp({ session, onLogout }) {
           placa: d.plate, modelo: d.model, motor: d.engine,
           mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
           km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
-          aceite_litros: d.oilLiters > 0 ? d.oilLiters : null,
-          aceite_spec:   d.oilLiters > 0 ? d.oilSpec  : null,
+          aceite_litros: (d.oilLiters > 0 && d.llevaAceite) ? d.oilLiters : null,
+          aceite_spec:   (d.oilLiters > 0 && d.llevaAceite) ? d.oilSpec  : null,
           revisiones: byGrpMap, observaciones: d.notes,
           pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
           progreso: { completadas: d.doneN, total: d.total },
           aprobado: false, fotos: d.taskPhotos,
+          dictamen: d.esRC ? { recomendacion: d.dictamenRec, reparaciones: d.reparaciones, total_estimado: d.dictamenTotal } : null,
           orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
           anio: d.vehAnio || null, version: d.vehVersion || null,
         };
@@ -2063,7 +2073,7 @@ function MainApp({ session, onLogout }) {
       }
     }, 2000);
     return () => clearTimeout(autoSaveTimer.current);
-  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setStatus = (id, status, text, taskText) => {
     setTaskStatus(p => ({ ...p, [id]: status }));
@@ -2157,6 +2167,8 @@ function MainApp({ session, onLogout }) {
     setEngine(motor); setPlate(placa); setKm(km);
     setFuel(combustible); setIs4m(traccion === "4MATIC");
     setSel(servCodigo); setMechName(mecanico); setNotes(observaciones);
+    setDictamenRec(s.dictamen?.recomendacion || "");
+    setReparaciones(Array.isArray(s.dictamen?.reparaciones) ? s.dictamen.reparaciones : []);
 
     if (revisiones) {
       const newStatus  = {};
@@ -2677,7 +2689,7 @@ function MainApp({ session, onLogout }) {
       taller: "Ramos y Ramos", fecha: sigDate, mecanico: mechName,
       servicio: { codigo: sel, descripcion: svc.desc },
       vehiculo: { modelo: model, motor: engine, placa: plate, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD" },
-      aceite: oilLiters > 0 ? { litros: oilLiters, especificacion: oilSpec } : null,
+      aceite: (oilLiters > 0 && llevaAceite) ? { litros: oilLiters, especificacion: oilSpec } : null,
       revisiones: byGrpMap,
       observaciones: notes,
       pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
@@ -2698,7 +2710,7 @@ function MainApp({ session, onLogout }) {
     const combinedSection = atenderSection
       ? `### 📋 Detalles a atender y observaciones del mecánico:\n${atenderSection}\n`
       : "✅ _Todas las revisiones completadas sin observaciones._\n";
-    return `## 🚗 ${model || "Vehículo"} · Servicio ${sel}
+    return `## 🚗 ${model || "Vehículo"} · ${servicioTitulo}
 
 | Campo | Detalle |
 |-------|---------|
@@ -2706,7 +2718,7 @@ function MainApp({ session, onLogout }) {
 | **Motor** | ${engine || "—"} |
 | **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
 | **Combustible** | ${fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"}${is4m?" · ⚙️ 4MATIC":""} |
-${oilLiters > 0 ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
+${(oilLiters > 0 && llevaAceite) ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
 | **Mecánico** | ${mechName} |
 | **Fecha** | ${sigDate} |
 
@@ -2719,7 +2731,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   // ── Markdown builder for ordenes.informe_mantenimiento ──
   const buildInformeMarkdown = (overrideClientUrl) => {
     const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
-    let txt = `🔧 Servicio ${sel} — ${sigDate}\n\n`;
+    let txt = `🔧 ${servicioTitulo} — ${sigDate}\n\n`;
     txt += `Mecánico: ${mechName}\n`;
     txt += `Aprobado por: ${aprobadoPor}\n`;
     txt += `Kilometraje: ${km ? parseInt(km).toLocaleString() : "—"} km`;
@@ -2815,6 +2827,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
   const confirmSig = async () => {
+    if (esRC && !dictamenRec) {
+      alert("⚠️ Seleccioná una recomendación de compra (Apto / Apto con reparaciones / No recomendable) antes de firmar la revisión.");
+      return;
+    }
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = null;
     const now = new Date();
@@ -2865,8 +2881,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         km,
         combustible:     fuel,
         traccion:        is4m ? "4MATIC" : "RWD",
-        aceite_litros:   oilLiters > 0 ? oilLiters : null,
-        aceite_spec:     oilLiters > 0 ? oilSpec : null,
+        aceite_litros:   (oilLiters > 0 && llevaAceite) ? oilLiters : null,
+        aceite_spec:     (oilLiters > 0 && llevaAceite) ? oilSpec : null,
         revisiones:      byGrpMap,
         observaciones:   notes,
         pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
@@ -2878,6 +2894,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         orden_numero:    ordenNumero || null,
         anio:            vehAnio     || null,
         version:         vehVersion  || null,
+        dictamen:        esRC ? { recomendacion: dictamenRec, reparaciones, total_estimado: dictamenTotal } : null,
       };
 
       console.log("[confirmSig] payload:", JSON.stringify(payload).slice(0, 300));
@@ -2909,7 +2926,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       if (!editingId && savedId) setEditingId(savedId);
       notifyPush(
         ["Otto Ramos","Gustavo Ramos","Arturo Ramos"],
-        "Servicio pendiente de aprobación",
+        esRC ? "Revisión de compra pendiente de aprobación" : "Servicio pendiente de aprobación",
         `${mechName} — ${plate} (${model})`
       );
       setSigDate(fecha);
@@ -3348,6 +3365,19 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </button>
             );})}
           </div>
+          {activeCKeys.length > 0 && (
+            <>
+              <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIÓN DE COMPRA</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {activeCKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
+                  <button key={k} onClick={()=>{ setSel(k); setStep(3); }} className="svc-btn"
+                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
+                    {k}
+                  </button>
+                );})}
+              </div>
+            </>
+          )}
           {svc && <div style={{ marginTop:8, fontSize:10, color:"#888" }}>{svc.desc}</div>}
         </div>
 
@@ -3558,7 +3588,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
         </div>
-        {oilLiters > 0 && (
+        {oilLiters > 0 && llevaAceite && (
           <div style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>
             <span style={{ fontSize:14 }}>🛢️</span>
             <span style={{ fontSize:12, fontWeight:"bold", color:"#C8A96E" }}>{oilLiters} L</span>
@@ -3757,10 +3787,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             <div style={{ margin:"14px 0 8px", padding:"10px 12px", borderRadius:8, border:`1px solid ${G}30`, background:`${G}08` }}>
               <div style={{ fontSize:9, color:G, letterSpacing:3, marginBottom:6 }}>RESUMEN DEL SERVICIO</div>
               <div style={{ fontSize:11, color:"#888", lineHeight:2 }}>
-                <div>🔧 <span style={{ color:G, fontWeight:"bold" }}>Servicio {sel}</span></div>
+                <div>🔧 <span style={{ color:G, fontWeight:"bold" }}>{servicioTitulo}</span></div>
                 {model && <div>🚗 {model}</div>}
                 {engine && <div>⚙️ {engine}</div>}
-                {oilLiters > 0 && <div>🛢️ Aceite: <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{oilLiters} L</span> · {oilSpec}</div>}
+                {oilLiters > 0 && llevaAceite && <div>🛢️ Aceite: <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{oilLiters} L</span> · {oilSpec}</div>}
                 {plate && <div>📋 <span style={{ letterSpacing:2 }}>{plate}</span></div>}
                 {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
                 <div>{fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"} {is4m?"· ⚙️ 4MATIC":""}</div>
@@ -3768,6 +3798,63 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 {exDoneN > 0 && <div>🔎 Revisiones adicionales: <span style={{ color:"#a855f7" }}>{exDoneN}/{exTotal}</span></div>}
               </div>
             </div>
+
+            {/* ── DICTAMEN (solo Revisión de Compra) ── */}
+            {esRC && (
+              <div style={{ marginTop:20, paddingTop:16, borderTop:"1px dashed #2f363b" }}>
+                <div style={{ fontSize:11, color:"#a78bfa", letterSpacing:3, marginBottom:12 }}>📋 DICTAMEN DE REVISIÓN DE COMPRA</div>
+
+                {/* Recomendación general */}
+                <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:8 }}>RECOMENDACIÓN GENERAL <span style={{ color:"#f87171" }}>*</span></div>
+                <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+                  {[
+                    { key:"apto",              label:"✅ Apto para compra",       color:"#4ade80" },
+                    { key:"apto_reparaciones", label:"⚠️ Apto con reparaciones",  color:"#fbbf24" },
+                    { key:"no_recomendable",   label:"❌ No recomendable",        color:"#f87171" },
+                  ].map(o => { const on = dictamenRec === o.key; return (
+                    <button key={o.key} onClick={()=>setDictamenRec(o.key)}
+                      style={{ padding:"12px 14px", borderRadius:8, textAlign:"left", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:on?"bold":"normal", border:`1.5px solid ${on?o.color:line}`, background:on?o.color+"18":card, color:on?o.color:"#888" }}>
+                      {on ? "●" : "○"}  {o.label}
+                    </button>
+                  );})}
+                </div>
+
+                {/* Reparaciones sugeridas */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                  <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>REPARACIONES SUGERIDAS</div>
+                  <button onClick={()=>setReparaciones(p=>[...p, { descripcion:"", costo_estimado:"" }])}
+                    style={{ fontSize:11, color:"#a78bfa", background:"transparent", border:"1px solid #a78bfa60", borderRadius:6, padding:"4px 10px", cursor:"pointer", fontFamily:"monospace" }}>
+                    + Agregar
+                  </button>
+                </div>
+                {reparaciones.length === 0 && (
+                  <div style={{ fontSize:11, color:"#444", fontStyle:"italic", marginBottom:12 }}>Sin reparaciones sugeridas.</div>
+                )}
+                {reparaciones.map((r, i) => (
+                  <div key={i} style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
+                    <input value={r.descripcion} placeholder="Descripción de la reparación"
+                      onChange={e=>setReparaciones(p=>p.map((x,j)=>j===i?{...x, descripcion:e.target.value}:x))}
+                      style={{ flex:1, minWidth:0, background:card, border:`1px solid ${line}`, borderRadius:6, color:"#ccc", fontSize:12, fontFamily:"monospace", padding:"8px 10px", boxSizing:"border-box", outline:"none" }} />
+                    <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
+                      <span style={{ fontSize:12, color:"#555" }}>₡</span>
+                      <input value={r.costo_estimado} placeholder="0" inputMode="numeric"
+                        onChange={e=>setReparaciones(p=>p.map((x,j)=>j===i?{...x, costo_estimado:e.target.value.replace(/[^\d]/g,"")}:x))}
+                        style={{ width:90, background:card, border:`1px solid ${line}`, borderRadius:6, color:"#C8A96E", fontSize:12, fontFamily:"monospace", padding:"8px 10px", boxSizing:"border-box", outline:"none", textAlign:"right" }} />
+                    </div>
+                    <button onClick={()=>setReparaciones(p=>p.filter((_,j)=>j!==i))}
+                      style={{ flexShrink:0, background:"transparent", border:`1px solid ${line}`, borderRadius:6, color:"#f87171", fontSize:14, cursor:"pointer", padding:"6px 9px", lineHeight:1 }}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {reparaciones.length > 0 && (
+                  <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, padding:"8px 12px", borderRadius:8, background:"#a78bfa10", border:"1px solid #a78bfa30" }}>
+                    <span style={{ fontSize:11, color:"#888", letterSpacing:1 }}>TOTAL ESTIMADO</span>
+                    <span style={{ fontSize:13, fontWeight:"bold", color:"#a78bfa" }}>₡{dictamenTotal.toLocaleString("es-CR")}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── FIRMA DEL MECÁNICO ── */}
             <div style={{ marginTop:20, paddingTop:16, borderTop:"1px dashed #2f363b", paddingBottom:32 }}>
@@ -3790,7 +3877,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               <div style={{ marginBottom:14, padding:"10px 12px", borderRadius:8, border:`1px solid ${line}`, background:"#101113" }}>
                 <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:6 }}>SERVICIO A CERTIFICAR</div>
                 <div style={{ fontSize:11, color:"#888", lineHeight:1.9 }}>
-                  <div>🔧 <span style={{ color:"#C8A96E", fontWeight:"bold" }}>Servicio {sel}</span> — {svc.desc}</div>
+                  <div>🔧 <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicioTitulo}</span> — {svc.desc}</div>
                   {model && <div>🚗 {model}</div>}
                   {plate && <div>📋 <span style={{ letterSpacing:2, color:"#ccc" }}>{plate}</span></div>}
                   {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}

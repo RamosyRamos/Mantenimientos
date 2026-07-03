@@ -54,6 +54,7 @@ export default function ClientReport({ binId }) {
             rechazado:      r.rechazado,
             rechazado_por:  r.rechazado_por,
             motivo_rechazo: r.motivo_rechazo,
+            dictamen:       r.dictamen || null,
           });
         } else {
           setError(true);
@@ -97,8 +98,15 @@ function ReportView({ data }) {
   const {
     taller, fecha, mecanico, aprobado_por, servicio, vehiculo,
     aceite, revisiones, observaciones, pendientes, progreso,
-    rechazado, rechazado_por, motivo_rechazo,
+    rechazado, rechazado_por, motivo_rechazo, dictamen,
   } = data;
+
+  const RECO_MAP = {
+    apto:              { label:"Apto para compra",      icon:"✅", color:"#4ade80" },
+    apto_reparaciones: { label:"Apto con reparaciones", icon:"⚠️", color:"#fbbf24" },
+    no_recomendable:   { label:"No recomendable",       icon:"❌", color:"#f87171" },
+  };
+  const reco = dictamen ? (RECO_MAP[dictamen.recomendacion] || null) : null;
 
   const totalOk     = Object.values(revisiones || {}).flat().filter(t => t.status === "ok").length;
   const totalIssue  = Object.values(revisiones || {}).flat().filter(t => t.status === "issue").length;
@@ -139,7 +147,7 @@ function ReportView({ data }) {
 
           {/* Título del reporte */}
           <div style={{ background:"#C8A96E10", border:"1px solid #C8A96E30", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>{rc ? "RESUMEN DE REVISIÓN DE COMPRA" : "RESUMEN DE SERVICIO"}</div>
+            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>{rc ? "INFORME DE REVISIÓN DE COMPRA" : "RESUMEN DE SERVICIO"}</div>
             <div style={{ fontSize:18, fontWeight:"bold", color:"#e0d8cc", marginBottom:4 }}>
               {vehiculo?.modelo || "Vehículo Mercedes-Benz"}
             </div>
@@ -152,6 +160,36 @@ function ReportView({ data }) {
       </div>
 
       <div style={{ maxWidth:600, margin:"0 auto", padding:"0 16px" }}>
+
+        {/* DICTAMEN — Revisión de Compra (prominente, antes del detalle por sistema) */}
+        {dictamen && (
+          <div style={{ margin:"16px 0" }}>
+            {reco && (
+              <div style={{ background:reco.color+"12", border:`1px solid ${reco.color}55`, borderRadius:12, padding:"18px" }}>
+                <div style={{ fontSize:10, color:reco.color, letterSpacing:2, marginBottom:8 }}>DICTAMEN DEL VEHÍCULO</div>
+                <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                  <span style={{ fontSize:32, flexShrink:0 }}>{reco.icon}</span>
+                  <span style={{ fontSize:20, fontWeight:"bold", color:reco.color, lineHeight:1.2 }}>{reco.label}</span>
+                </div>
+              </div>
+            )}
+            {dictamen.reparaciones?.length > 0 && (
+              <div style={{ marginTop:12, background:"#0f0f17", border:"1px solid #1c1c2a", borderRadius:10, padding:"14px 16px" }}>
+                <div style={{ fontSize:10, color:"#888", letterSpacing:2, marginBottom:10 }}>REPARACIONES SUGERIDAS</div>
+                {dictamen.reparaciones.map((r, i) => (
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"8px 0", borderBottom: i < dictamen.reparaciones.length - 1 ? "1px solid #1c1c2a" : "none" }}>
+                    <span style={{ fontSize:13, color:"#cbd5e1", flex:1 }}>{r.descripcion || "—"}</span>
+                    <span style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold", flexShrink:0 }}>₡{Number(r.costo_estimado || 0).toLocaleString("es-CR")}</span>
+                  </div>
+                ))}
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:10, paddingTop:10, borderTop:"2px solid #2a2a3a" }}>
+                  <span style={{ fontSize:12, color:"#888", letterSpacing:1, fontWeight:"bold" }}>TOTAL ESTIMADO</span>
+                  <span style={{ fontSize:16, color:"#e0d8cc", fontWeight:"bold" }}>₡{Number(dictamen.total_estimado || 0).toLocaleString("es-CR")}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* RECHAZADO */}
         {rechazado === true && (
