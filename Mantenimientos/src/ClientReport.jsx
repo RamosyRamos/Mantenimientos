@@ -68,9 +68,17 @@ export default function ClientReport({ binId }) {
         if (json?.[0]) {
           // Mapear columnas de Supabase al formato que espera ReportView
           const r = json[0];
+          // La fecha se deriva de created_at (timestamp confiable); la columna
+          // `fecha` ya no se escribe. Fallback a r.fecha por compatibilidad; si
+          // ambos faltan queda undefined y el Row muestra "—".
+          const fechaFmt = r.created_at
+            ? new Date(r.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" })
+              + " · " + new Date(r.created_at).toLocaleTimeString("es-CR", { hour:"2-digit", minute:"2-digit" })
+            : (r.fecha || undefined);
           setData({
             taller:       "Ramos y Ramos",
-            fecha:        r.fecha,
+            created_at:   r.created_at,
+            fecha:        fechaFmt,
             mecanico:     r.mecanico,
             aprobado_por: r.aprobado_por || null,
             servicio:     { codigo: r.servicio_codigo, descripcion: r.servicio_desc },
