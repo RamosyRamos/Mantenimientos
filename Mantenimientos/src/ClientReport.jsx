@@ -5,6 +5,31 @@ const LOGO_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 
+// ── Identidad visual (tema CLARO, alineado con las cotizaciones del cliente) ──
+const T = {
+  fondo:'#E6E4DB', card:'#FCFBF8', card2:'#F2F0E9', borde:'#D6D3C8', line2:'#E4E1D8',
+  texto:'#1A1A1D', muted:'#8A8C86', dim:'#5C5C62',
+  rojo:'#B83A2E', navy:'#15225F', success:'#1F7A4D',
+};
+// Estados suaves (checklist + dictamen)
+const OK   = { bg:'#E0F0E6', border:'#9BCBAE', text:'#1F7A4D' };
+const CRIT = { bg:'#F7E0DC', border:'#D99B92', text:'#B83A2E' };
+const WARN = { bg:'#FBF3E0', border:'#D9B870', text:'#8A5A0A' };
+const FONT  = "'Titillium Web', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const SERIF = "'Cormorant', Georgia, 'Times New Roman', serif";
+const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&family=Titillium+Web:wght@300;400;600;700;900&display=swap";
+const PRINT_CSS = `
+@page { margin: 1cm; }
+@media print {
+  .ryr-noprint { display: none !important; }
+  html, body, #root { background: #fff !important; }
+  .ryr-root { background: #fff !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .ryr-card, .ryr-section, .ryr-dictamen { break-inside: avoid; page-break-inside: avoid; }
+  .ryr-header { position: static !important; }
+}
+`;
+
 // ─── Revisión de Compra ───────────────────────────────────────────────────
 // Una RC se guarda con servicio_codigo === "RC" (serie 'C'). Detección única
 // para todos los textos de cara al cliente: no repetir esta lógica inline.
@@ -80,9 +105,9 @@ export default function ClientReport({ binId }) {
 
 function LoadingScreen() {
   return (
-    <div style={{ minHeight:"100vh", background:"#09090e", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"monospace" }}>
-      <div style={{ width:48, height:48, border:"3px solid #C8A96E30", borderTop:"3px solid #C8A96E", borderRadius:"50%", animation:"spin 1s linear infinite", marginBottom:20 }} />
-      <div style={{ color:"#555", fontSize:12, letterSpacing:2 }}>CARGANDO RESUMEN...</div>
+    <div style={{ minHeight:"100vh", background:T.fondo, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:FONT }}>
+      <div style={{ width:48, height:48, border:`3px solid ${T.borde}`, borderTop:`3px solid ${T.rojo}`, borderRadius:"50%", animation:"spin 1s linear infinite", marginBottom:20 }} />
+      <div style={{ color:T.muted, fontSize:12, letterSpacing:2, fontWeight:600 }}>CARGANDO RESUMEN...</div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -90,11 +115,11 @@ function LoadingScreen() {
 
 function ErrorScreen() {
   return (
-    <div style={{ minHeight:"100vh", background:"#09090e", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"monospace", padding:24, textAlign:"center" }}>
+    <div style={{ minHeight:"100vh", background:T.fondo, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:FONT, padding:24, textAlign:"center" }}>
       <div style={{ fontSize:40, marginBottom:16 }}>⚠️</div>
-      <div style={{ color:"#e0d8cc", fontSize:14, marginBottom:8 }}>No se encontró el resumen</div>
-      <div style={{ color:"#555", fontSize:11 }}>El link puede haber expirado o ser incorrecto.</div>
-      <div style={{ marginTop:16, fontSize:11, color:"#555" }}>Contactá a Ramos y Ramos para más información.</div>
+      <div style={{ color:T.texto, fontSize:16, fontWeight:700, marginBottom:8 }}>No se encontró el resumen</div>
+      <div style={{ color:T.muted, fontSize:12 }}>El link puede haber expirado o ser incorrecto.</div>
+      <div style={{ marginTop:16, fontSize:12, color:T.muted }}>Contactá a Ramos y Ramos para más información.</div>
     </div>
   );
 }
@@ -108,14 +133,14 @@ function ReportView({ data }) {
 
   const RECO_MAP = {
     // Revisión de Compra (RC)
-    apto:              { label:"Apto para compra",      icon:"✅", color:"#4ade80" },
-    apto_reparaciones: { label:"Apto con reparaciones", icon:"⚠️", color:"#fbbf24" },
-    no_recomendable:   { label:"No recomendable",       icon:"❌", color:"#f87171" },
+    apto:              { label:"Apto para compra",      icon:"✅", color:OK.text },
+    apto_reparaciones: { label:"Apto con reparaciones", icon:"⚠️", color:WARN.text },
+    no_recomendable:   { label:"No recomendable",       icon:"❌", color:CRIT.text },
     // Revisión General (RG) — estado del vehículo
-    excelente:             { label:"Excelente",              icon:"✅", color:"#4ade80" },
-    bueno:                 { label:"Bueno, atención menor",  icon:"🟡", color:"#a3e635" },
-    requiere_reparaciones: { label:"Requiere reparaciones",  icon:"🟠", color:"#fb923c" },
-    critico:               { label:"Estado crítico",         icon:"🔴", color:"#f87171" },
+    excelente:             { label:"Excelente",              icon:"✅", color:OK.text },
+    bueno:                 { label:"Bueno, atención menor",  icon:"🟡", color:WARN.text },
+    requiere_reparaciones: { label:"Requiere reparaciones",  icon:"🟠", color:WARN.text },
+    critico:               { label:"Estado crítico",         icon:"🔴", color:CRIT.text },
   };
   const reco = dictamen ? (RECO_MAP[dictamen.recomendacion] || null) : null;
 
@@ -132,72 +157,68 @@ function ReportView({ data }) {
     document.title = rc ? `Ramos y Ramos | ${revLabel}` : "Ramos y Ramos | Mantenimiento";
   }, [rc, revLabel]);
 
+  // Cargar Titillium Web + Cormorant (identidad de las cotizaciones)
+  useEffect(() => {
+    if (document.getElementById("ryr-fonts")) return;
+    const l = document.createElement("link");
+    l.id = "ryr-fonts"; l.rel = "stylesheet"; l.href = FONTS_HREF;
+    document.head.appendChild(l);
+  }, []);
+
   return (
-    <div id="client-root" style={{ minHeight:"100vh", background:"#09090e", fontFamily:"'Segoe UI', Arial, sans-serif", color:"#e0d8cc", paddingBottom:48 }}>
+    <div id="client-root" className="ryr-root" style={{ minHeight:"100vh", background:T.fondo, fontFamily:FONT, color:T.texto, paddingBottom:0 }}>
+      <style>{PRINT_CSS}</style>
 
       {/* HEADER */}
-      <div style={{ background:"linear-gradient(180deg,#0d0d16 0%,#09090e 100%)", borderBottom:"1px solid #1c1c2a", padding:"20px 20px 16px" }}>
-        <div style={{ maxWidth:600, margin:"0 auto" }}>
-          {/* Logo + Nombre + Toggle */}
-          <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
-            <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:52, height:52, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:"bold", fontSize:16, letterSpacing:2, color:"#e0d8cc" }}>RAMOS Y RAMOS</div>
-              <div style={{ fontSize:10, color:"#555", letterSpacing:2 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
-            </div>
-            <button onClick={() => {
-              const root = document.getElementById('client-root');
-              const isLight = root.style.filter.includes('invert');
-              root.style.filter = isLight ? '' : 'invert(1) hue-rotate(180deg)';
-              root.style.transition = 'filter 0.2s';
-              root.querySelectorAll('img, canvas').forEach(el => {
-                el.style.filter = isLight ? '' : 'invert(1) hue-rotate(180deg)';
-              });
-            }} style={{ padding:"6px 10px", borderRadius:8, border:"1px solid #2a2a3a", background:"#0f0f17", color:"#555", fontSize:16, cursor:"pointer", flexShrink:0 }}>
-              ☀️
-            </button>
-          </div>
-
-          {/* Título del reporte */}
-          <div style={{ background:"#C8A96E10", border:"1px solid #C8A96E30", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>{rc ? `INFORME DE ${revLabel.toUpperCase()}` : "RESUMEN DE SERVICIO"}</div>
-            <div style={{ fontSize:18, fontWeight:"bold", color:"#e0d8cc", marginBottom:4 }}>
-              {vehiculo?.modelo || "Vehículo Mercedes-Benz"}
-            </div>
-            <div style={{ fontSize:12, color:"#888" }}>
-              {vehiculo?.placa && <span style={{ background:"#1a1a2a", border:"1px solid #2a2a3a", borderRadius:4, padding:"2px 8px", marginRight:8, letterSpacing:2 }}>{vehiculo.placa}</span>}
-              {vehiculo?.km && <span>{parseInt(vehiculo.km).toLocaleString()} km</span>}
-            </div>
+      <div className="ryr-header" style={{ position:"sticky", top:0, zIndex:100, background:T.card, padding:"16px 20px" }}>
+        <div style={{ maxWidth:600, margin:"0 auto", display:"flex", alignItems:"center", gap:14 }}>
+          <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:44, height:44, borderRadius:10, objectFit:"contain", flexShrink:0 }} />
+          <div style={{ flex:1 }}>
+            <div style={{ fontFamily:FONT, fontWeight:700, fontSize:18, letterSpacing:1, color:T.texto, lineHeight:1.1 }}>Taller Ramos y Ramos</div>
+            <div style={{ fontSize:10, color:T.muted, letterSpacing:1.5, textTransform:"uppercase", marginTop:2 }}>Taller Especializado · Mercedes-Benz</div>
           </div>
         </div>
+        {/* línea inferior degradada de marca */}
+        <div style={{ position:"absolute", left:0, right:0, bottom:0, height:3, background:`linear-gradient(90deg, ${T.navy}, ${T.rojo} 55%, transparent)` }} />
       </div>
 
-      <div style={{ maxWidth:600, margin:"0 auto", padding:"0 16px" }}>
+      <div style={{ maxWidth:600, margin:"0 auto", padding:"20px 16px 48px" }}>
+
+        {/* Título del reporte */}
+        <div style={{ background:`${T.rojo}0F`, border:`1px solid ${T.rojo}33`, borderRadius:14, padding:"16px 18px", marginBottom:18 }}>
+          <div style={{ fontSize:10, color:T.rojo, letterSpacing:3, marginBottom:8, fontWeight:700 }}>{rc ? `INFORME DE ${revLabel.toUpperCase()}` : "RESUMEN DE SERVICIO"}</div>
+          <div style={{ fontFamily:SERIF, fontSize:20, fontWeight:600, color:T.dim, lineHeight:1.1 }}>Mercedes-Benz</div>
+          <div style={{ fontFamily:SERIF, fontSize:28, fontWeight:500, color:T.texto, lineHeight:1.15 }}>{vehiculo?.modelo || "Vehículo Mercedes-Benz"}</div>
+          <div style={{ fontSize:12, color:T.dim, marginTop:8 }}>
+            {vehiculo?.placa && <span style={{ background:T.card2, border:`1px solid ${T.borde}`, borderRadius:4, padding:"2px 8px", marginRight:8, letterSpacing:2, fontWeight:700, color:T.texto }}>{vehiculo.placa}</span>}
+            {vehiculo?.km && <span>{parseInt(vehiculo.km).toLocaleString()} km</span>}
+          </div>
+        </div>
 
         {/* DICTAMEN — Revisión de Compra (prominente, antes del detalle por sistema) */}
         {dictamen && (
-          <div style={{ margin:"16px 0" }}>
+          <div className="ryr-dictamen" style={{ margin:"16px 0" }}>
             {reco && (
-              <div style={{ background:reco.color+"12", border:`1px solid ${reco.color}55`, borderRadius:12, padding:"18px" }}>
-                <div style={{ fontSize:10, color:reco.color, letterSpacing:2, marginBottom:8 }}>DICTAMEN DEL VEHÍCULO</div>
+              <div style={{ background:reco.color+"18", border:`1px solid ${reco.color}55`, borderRadius:14, padding:"18px" }}>
+                <div style={{ fontSize:10, color:reco.color, letterSpacing:2, marginBottom:8, fontWeight:700 }}>DICTAMEN DEL VEHÍCULO</div>
                 <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                   <span style={{ fontSize:32, flexShrink:0 }}>{reco.icon}</span>
-                  <span style={{ fontSize:20, fontWeight:"bold", color:reco.color, lineHeight:1.2 }}>{reco.label}</span>
+                  <span style={{ fontSize:20, fontWeight:700, color:reco.color, lineHeight:1.2 }}>{reco.label}</span>
                 </div>
               </div>
             )}
             {dictamen.reparaciones?.length > 0 && (
-              <div style={{ marginTop:12, background:"#0f0f17", border:"1px solid #1c1c2a", borderRadius:10, padding:"14px 16px" }}>
-                <div style={{ fontSize:10, color:"#888", letterSpacing:2, marginBottom:10 }}>REPARACIONES SUGERIDAS</div>
+              <div style={{ marginTop:12, background:T.card2, border:`1px solid ${T.borde}`, borderRadius:10, padding:"14px 16px" }}>
+                <div style={{ fontSize:10, color:T.muted, letterSpacing:2, marginBottom:10, fontWeight:700 }}>REPARACIONES SUGERIDAS</div>
                 {dictamen.reparaciones.map((r, i) => (
-                  <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"8px 0", borderBottom: i < dictamen.reparaciones.length - 1 ? "1px solid #1c1c2a" : "none" }}>
-                    <span style={{ fontSize:13, color:"#cbd5e1", flex:1 }}>{r.descripcion || "—"}</span>
-                    <span style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold", flexShrink:0 }}>₡{Number(r.costo_estimado || 0).toLocaleString("es-CR")}</span>
+                  <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"8px 0", borderBottom: i < dictamen.reparaciones.length - 1 ? `1px solid ${T.borde}` : "none" }}>
+                    <span style={{ fontSize:13, color:T.texto, flex:1 }}>{r.descripcion || "—"}</span>
+                    <span style={{ fontSize:13, color:T.success, fontWeight:700, flexShrink:0 }}>₡{Number(r.costo_estimado || 0).toLocaleString("es-CR")}</span>
                   </div>
                 ))}
-                <div style={{ display:"flex", justifyContent:"space-between", marginTop:10, paddingTop:10, borderTop:"2px solid #2a2a3a" }}>
-                  <span style={{ fontSize:12, color:"#888", letterSpacing:1, fontWeight:"bold" }}>TOTAL ESTIMADO</span>
-                  <span style={{ fontSize:16, color:"#e0d8cc", fontWeight:"bold" }}>₡{Number(dictamen.total_estimado || 0).toLocaleString("es-CR")}</span>
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:10, paddingTop:10, borderTop:`2px solid ${T.borde}` }}>
+                  <span style={{ fontSize:12, color:T.dim, letterSpacing:1, fontWeight:700 }}>TOTAL ESTIMADO</span>
+                  <span style={{ fontSize:16, color:T.texto, fontWeight:700 }}>₡{Number(dictamen.total_estimado || 0).toLocaleString("es-CR")}</span>
                 </div>
               </div>
             )}
@@ -206,39 +227,39 @@ function ReportView({ data }) {
 
         {/* RECHAZADO */}
         {rechazado === true && (
-          <div style={{ margin:"16px 0", background:"#f8717110", border:"1px solid #f8717140", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ color:"#f87171", fontWeight:700, fontSize:13, marginBottom:6 }}>❌ {rc ? `${revLabel} rechazada` : "Servicio rechazado"}</div>
+          <div style={{ margin:"16px 0", background:CRIT.bg, border:`1px solid ${CRIT.border}`, borderRadius:10, padding:"14px 16px" }}>
+            <div style={{ color:CRIT.text, fontWeight:700, fontSize:13, marginBottom:6 }}>❌ {rc ? `${revLabel} rechazada` : "Servicio rechazado"}</div>
             {rechazado_por && (
-              <div style={{ color:"#cbd5e1", fontSize:11 }}>Por: <strong>{rechazado_por}</strong></div>
+              <div style={{ color:T.dim, fontSize:12 }}>Por: <strong style={{ color:T.texto }}>{rechazado_por}</strong></div>
             )}
             {motivo_rechazo && (
-              <div style={{ color:"#cbd5e1", fontSize:11, marginTop:4 }}>Motivo: <em>{motivo_rechazo}</em></div>
+              <div style={{ color:T.dim, fontSize:12, marginTop:4 }}>Motivo: <em>{motivo_rechazo}</em></div>
             )}
           </div>
         )}
 
         {/* DATOS DEL SERVICIO */}
         <Section title={rc ? `🔧 Datos de la ${revLabel}` : "🔧 Datos del Servicio"}>
-          <Row label={rc ? "Código de revisión" : "Código de servicio"} value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
+          <Row label={rc ? "Código de revisión" : "Código de servicio"} value={<span style={{ color:T.rojo, fontWeight:700 }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
           <Row label="Realizado por" value={mecanico} />
-          {aprobado_por && <Row label="Aprobado por" value={<span style={{ color:"#4ade80" }}>✅ {aprobado_por}</span>} />}
+          {aprobado_por && <Row label="Aprobado por" value={<span style={{ color:T.success, fontWeight:600 }}>✅ {aprobado_por}</span>} />}
           <Row label="Fecha y hora" value={fecha} />
           <Row label="Motor" value={vehiculo?.motor} />
           <Row label="Combustible" value={vehiculo?.combustible === "diesel" ? "🛢️ Diesel" : "⛽ Gasolina"} />
           <Row label="Tracción" value={vehiculo?.traccion} />
-          {aceite && <Row label="Aceite cargado" value={<span style={{ color:"#C8A96E" }}>🛢️ {aceite.litros} L — {aceite.especificacion}</span>} />}
+          {aceite && <Row label="Aceite cargado" value={<span style={{ color:T.rojo }}>🛢️ {aceite.litros} L — {aceite.especificacion}</span>} />}
         </Section>
 
         {/* PROGRESO */}
-        <div style={{ margin:"16px 0", padding:"14px 16px", background:"#0f0f17", border:"1px solid #1c1c2a", borderRadius:10 }}>
-          <div style={{ fontSize:10, color:"#555", letterSpacing:2, marginBottom:10 }}>RESUMEN DE REVISIONES</div>
+        <div className="ryr-card" style={{ margin:"16px 0", padding:"14px 16px", background:T.card, border:`1px solid ${T.borde}`, borderRadius:14 }}>
+          <div style={{ fontSize:10, color:T.muted, letterSpacing:2, marginBottom:10, fontWeight:700 }}>RESUMEN DE REVISIONES</div>
           <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-            <Badge color="#4ade80" label={`✅ ${totalOk} OK`} />
-            {totalIssue > 0 && <Badge color="#f87171" label={`⚠️ ${totalIssue} con detalle`} />}
-            <Badge color="#C8A96E" label={`📋 ${totalItems} ítems revisados`} />
+            <Badge color={T.success} label={`✅ ${totalOk} OK`} />
+            {totalIssue > 0 && <Badge color={T.rojo} label={`⚠️ ${totalIssue} con detalle`} />}
+            <Badge color={T.dim} label={`📋 ${totalItems} ítems revisados`} />
           </div>
-          <div style={{ marginTop:10, height:4, background:"#1c1c2a", borderRadius:2 }}>
-            <div style={{ height:"100%", width:`${totalItems > 0 ? Math.round((totalOk+totalIssue)/totalItems*100) : 0}%`, background:"linear-gradient(90deg,#C8A96E,#4ade80)", borderRadius:2, transition:"width .5s" }} />
+          <div style={{ marginTop:10, height:6, background:T.card2, borderRadius:3, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${totalItems > 0 ? Math.round((totalOk+totalIssue)/totalItems*100) : 0}%`, background:`linear-gradient(90deg,${T.navy},${T.success})`, borderRadius:3, transition:"width .5s" }} />
           </div>
         </div>
 
@@ -250,18 +271,21 @@ function ReportView({ data }) {
               const isOk    = item.status === "ok";
               const isIssue = item.status === "issue";
               const isNA    = item.status === "na";
+              const bg     = isOk ? OK.bg     : isIssue ? CRIT.bg     : isNA ? T.card2 : T.card;
+              const bd     = isOk ? OK.border : isIssue ? CRIT.border : T.borde;
+              const txtCol = isOk ? OK.text   : isIssue ? CRIT.text   : isNA ? T.muted : T.dim;
               return (
-                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", marginBottom:4, borderRadius:8, background: isOk ? "#0a1a0a" : isIssue ? "#1a0a0a" : isNA ? "#0c0c0c" : "#0c0c14", border:`1px solid ${isOk?"#4ade8030":isIssue?"#f8717130":isNA?"#33333340":"#1c1c2a"}` }}>
+                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"10px 12px", marginBottom:6, borderRadius:8, background:bg, border:`1px solid ${bd}` }}>
                   <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>
                     {isOk ? "✅" : isIssue ? "⚠️" : isNA ? "—" : "○"}
                   </span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:13, color: isOk ? "#86efac" : isIssue ? "#fca5a5" : isNA ? "#444" : "#666", textDecoration: isNA ? "line-through" : "none", lineHeight:1.5 }}>
+                    <div style={{ fontSize:13, color:txtCol, textDecoration: isNA ? "line-through" : "none", lineHeight:1.5, fontWeight:500 }}>
                       {item.text}
-                      {isNA && <span style={{ fontSize:10, color:"#444", marginLeft:8 }}>No aplica</span>}
+                      {isNA && <span style={{ fontSize:10, color:T.muted, marginLeft:8 }}>No aplica</span>}
                     </div>
                     {item.detail && (
-                      <div style={{ fontSize:11, color:"#f87171", marginTop:4, padding:"4px 8px", background:"#2a0a0a", borderRadius:4, borderLeft:"2px solid #f87171" }}>
+                      <div style={{ fontSize:12, color:CRIT.text, marginTop:6, padding:"6px 10px", background:CRIT.bg, borderRadius:4, borderLeft:`2px solid ${T.rojo}` }}>
                         {item.detail}
                       </div>
                     )}
@@ -269,7 +293,7 @@ function ReportView({ data }) {
                       <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
                         {item.fotos.map((url, idx) => (
                           <a key={idx} href={url} target="_blank" rel="noreferrer">
-                            <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:6, border:"1px solid #f8717140" }} />
+                            <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:8, border:`1px solid ${T.borde}` }} />
                           </a>
                         ))}
                       </div>
@@ -283,14 +307,14 @@ function ReportView({ data }) {
 
         {/* PENDIENTES */}
         {pendientes?.length > 0 && (
-          <div style={{ margin:"16px 0", padding:"14px 16px", background:"#1a0a0a", border:"1px solid #f8717130", borderRadius:10 }}>
-            <div style={{ fontSize:10, color:"#f87171", letterSpacing:2, marginBottom:10 }}>⚠️ PUNTOS A ATENDER</div>
+          <div className="ryr-card" style={{ margin:"16px 0", padding:"14px 16px", background:CRIT.bg, border:`1px solid ${CRIT.border}`, borderRadius:14 }}>
+            <div style={{ fontSize:10, color:CRIT.text, letterSpacing:2, marginBottom:10, fontWeight:700 }}>⚠️ PUNTOS A ATENDER</div>
             {pendientes.map((p, i) => (
-              <div key={i} style={{ fontSize:13, color:"#fca5a5", marginBottom:6, lineHeight:1.5, paddingLeft:8, borderLeft:"2px solid #f87171" }}>
+              <div key={i} style={{ fontSize:13, color:T.texto, marginBottom:6, lineHeight:1.5, paddingLeft:10, borderLeft:`2px solid ${T.rojo}` }}>
                 {p}
               </div>
             ))}
-            <div style={{ fontSize:11, color:"#555", marginTop:10 }}>
+            <div style={{ fontSize:11, color:T.dim, marginTop:10 }}>
               Recomendamos agendar una cita para atender estos puntos.
             </div>
           </div>
@@ -299,41 +323,60 @@ function ReportView({ data }) {
         {/* OBSERVACIONES */}
         {observaciones && (
           <Section title="📝 Observaciones del Mecánico">
-            <div style={{ fontSize:13, color:"#aaa", lineHeight:1.8, whiteSpace:"pre-line" }}>{observaciones}</div>
+            <div style={{ fontSize:13, color:T.dim, lineHeight:1.8, whiteSpace:"pre-line", padding:"12px 14px" }}>{observaciones}</div>
           </Section>
         )}
 
         {/* FOOTER */}
-        <div style={{ marginTop:24, padding:"16px", background:"#0f0f17", border:"1px solid #1c1c2a", borderRadius:10, textAlign:"center" }}>
-          <div style={{ fontSize:11, color:"#555", lineHeight:1.8 }}>
-            <div style={{ color:"#C8A96E", fontWeight:"bold", marginBottom:4 }}>Ramos y Ramos Taller Especializado</div>
+        <div className="ryr-card" style={{ marginTop:24, padding:"20px 18px", background:T.card, border:`1px solid ${T.borde}`, borderRadius:14, textAlign:"center" }}>
+          {/* CTA de contacto */}
+          <div className="ryr-noprint">
+            <div style={{ fontSize:15, fontWeight:700, color:T.texto }}>¿Tenés dudas sobre {rc ? "tu revisión" : "tu servicio"}?</div>
+            <div style={{ fontSize:12.5, color:T.muted, marginTop:4 }}>Escribinos y con gusto te ayudamos.</div>
+            <div style={{ marginTop:14 }}>
+              <a href="https://wa.me/50683439257" target="_blank" rel="noopener noreferrer"
+                style={{ display:"inline-flex", alignItems:"center", gap:8, background:T.navy, color:"#fff", padding:"11px 20px", minHeight:44, boxSizing:"border-box", borderRadius:10, fontWeight:700, fontSize:13, textDecoration:"none" }}>
+                <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.123.555 4.116 1.524 5.847L0 24l6.302-1.502A11.94 11.94 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.007-1.373l-.36-.213-3.733.89.923-3.636-.234-.374A9.818 9.818 0 1112 21.818z"/></svg>
+                Escribir al taller
+              </a>
+            </div>
+          </div>
+
+          {/* Firma / generado */}
+          <div style={{ fontSize:11, color:T.muted, lineHeight:1.8, marginTop:18, paddingTop:14, borderTop:`1px solid ${T.borde}` }}>
+            <div style={{ color:T.rojo, fontWeight:700, marginBottom:4 }}>Ramos y Ramos Taller Especializado</div>
             <div>Este resumen fue generado automáticamente al finalizar {rc ? "la revisión de compra" : "el servicio"}.</div>
-            <div style={{ marginTop:4, fontSize:10 }}>{rc ? "Revisión realizada por" : "Servicio realizado por"} <strong style={{ color:"#e0d8cc" }}>{mecanico}</strong> · {fecha}</div>
+            <div style={{ marginTop:4, fontSize:10 }}>{rc ? "Revisión realizada por" : "Servicio realizado por"} <strong style={{ color:T.texto }}>{mecanico}</strong> · {fecha}</div>
           </div>
 
           {/* Nota del sistema + link historial */}
-          <div style={{ marginTop:14, paddingTop:12, borderTop:"1px solid #1c1c2a" }}>
-            <div style={{ fontSize:10, color:"#444", lineHeight:1.7, marginBottom:10 }}>
-              ℹ️ Ramos y Ramos implementó este registro digital de servicios y revisiones en <strong style={{ color:"#555" }}>abril del 2026</strong>. Los registros anteriores a esa fecha no aparecen en el historial digital.
+          <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${T.borde}` }}>
+            <div style={{ fontSize:10, color:T.muted, lineHeight:1.7, marginBottom:10 }}>
+              ℹ️ Ramos y Ramos implementó este registro digital de servicios y revisiones en <strong style={{ color:T.dim }}>abril del 2026</strong>. Los registros anteriores a esa fecha no aparecen en el historial digital.
             </div>
             <a
               href={`${window.location.origin}/historial`}
-              style={{ display:"inline-block", padding:"8px 18px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E0c", color:"#C8A96E", fontSize:11, textDecoration:"none", fontFamily:"monospace", letterSpacing:1 }}>
+              style={{ display:"inline-block", padding:"8px 18px", borderRadius:8, border:`1px solid ${T.rojo}55`, background:`${T.rojo}0F`, color:T.rojo, fontSize:11, textDecoration:"none", fontWeight:700, letterSpacing:0.5 }}>
               📋 Ver historial completo del vehículo
             </a>
-            <div style={{ fontSize:10, color:"#555", marginTop:6, fontFamily:"monospace", letterSpacing:0.5 }}>
+            <div style={{ fontSize:10, color:T.muted, marginTop:6, letterSpacing:0.5 }}>
               mantenimientos.ramosyramoscr.com/historial
             </div>
-            <div style={{ fontSize:10, color:"#333", marginTop:4 }}>
+            <div style={{ fontSize:10, color:T.muted, marginTop:4 }}>
               Ingresá la placa de tu vehículo para ver todos sus registros.
             </div>
 
             {/* BOTÓN IMPRIMIR / GUARDAR PDF */}
             <button
+              className="ryr-noprint"
               onClick={() => window.print()}
-              style={{ marginTop:16, width:"100%", padding:"11px", borderRadius:8, border:"1px solid #3a3a4a", background:"#1a1a2a", color:"#aaa", fontSize:12, fontFamily:"monospace", letterSpacing:1, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              style={{ marginTop:16, width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${T.borde}`, background:T.card2, color:T.dim, fontSize:12, letterSpacing:1, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
               🖨️ Imprimir / Guardar como PDF
             </button>
+          </div>
+
+          <div style={{ fontSize:10, textTransform:"uppercase", letterSpacing:1.5, color:T.muted, marginTop:16 }}>
+            Taller Ramos y Ramos · San José, Costa Rica
           </div>
         </div>
 
@@ -344,11 +387,12 @@ function ReportView({ data }) {
 
 function Section({ title, children, small }) {
   return (
-    <div style={{ margin:"16px 0" }}>
-      <div style={{ fontSize: small ? 10 : 11, color:"#C8A96E", letterSpacing:2, marginBottom:8, fontWeight:"bold" }}>
+    <div className="ryr-section" style={{ margin:"16px 0", breakInside:"avoid" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, fontSize: small ? 11 : 12, color:T.rojo, letterSpacing:1.5, marginBottom:8, fontWeight:700 }}>
+        <span style={{ width:3, height:14, background:T.rojo, borderRadius:2, flexShrink:0, display:"inline-block" }} />
         {title.toUpperCase()}
       </div>
-      <div style={{ background:"#0f0f17", border:"1px solid #1c1c2a", borderRadius:10, overflow:"hidden" }}>
+      <div style={{ background:T.card, border:`1px solid ${T.borde}`, borderRadius:14, overflow:"hidden" }}>
         {children}
       </div>
     </div>
@@ -357,16 +401,16 @@ function Section({ title, children, small }) {
 
 function Row({ label, value }) {
   return (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom:"1px solid #1c1c2a", flexWrap:"wrap", gap:4 }}>
-      <span style={{ fontSize:11, color:"#555" }}>{label}</span>
-      <span style={{ fontSize:12, color:"#ccc", textAlign:"right" }}>{value || "—"}</span>
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 14px", borderBottom:`1px solid ${T.line2}`, flexWrap:"wrap", gap:4 }}>
+      <span style={{ fontSize:11, color:T.muted, fontWeight:600 }}>{label}</span>
+      <span style={{ fontSize:12.5, color:T.texto, textAlign:"right" }}>{value || "—"}</span>
     </div>
   );
 }
 
 function Badge({ color, label }) {
   return (
-    <div style={{ padding:"4px 10px", borderRadius:20, border:`1px solid ${color}40`, background:`${color}15`, fontSize:11, color, fontWeight:"bold" }}>
+    <div style={{ padding:"4px 10px", borderRadius:20, border:`1px solid ${color}55`, background:`${color}18`, fontSize:11, color, fontWeight:700 }}>
       {label}
     </div>
   );
