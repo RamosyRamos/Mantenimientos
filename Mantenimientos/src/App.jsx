@@ -1707,6 +1707,28 @@ export default function App() {
   }} />;
 }
 
+// ── Revisión serie 'C': distinción fina RC (compra) / RG (general) ──
+// esRC = pertenece a la serie 'C' (comparten todo: sin aceite, dictamen,
+// informe al comprador/dueño). tipoRevision distingue, por código exacto,
+// el set de opciones del dictamen y los textos de branding.
+const tipoRevision = (codigo) => {
+  const c = (codigo || "").toUpperCase();
+  return c === "RG" ? "general" : c === "RC" ? "compra" : null;
+};
+const DICTAMEN_OPCIONES = {
+  compra: [
+    { key:"apto",              label:"✅ Apto para compra",       color:"#4ade80" },
+    { key:"apto_reparaciones", label:"⚠️ Apto con reparaciones",  color:"#fbbf24" },
+    { key:"no_recomendable",   label:"❌ No recomendable",        color:"#f87171" },
+  ],
+  general: [
+    { key:"excelente",             label:"✅ Excelente",                color:"#4ade80" },
+    { key:"bueno",                 label:"🟡 Bueno, atención menor",    color:"#a3e635" },
+    { key:"requiere_reparaciones", label:"🟠 Requiere reparaciones",    color:"#fb923c" },
+    { key:"critico",               label:"🔴 Estado crítico",           color:"#f87171" },
+  ],
+};
+
 function MainApp({ session, onLogout }) {
   const isMobile = useIsMobile();
   const [step, setStep]     = useState(1);
@@ -1781,7 +1803,7 @@ function MainApp({ session, onLogout }) {
   const [activeAKeys, setActiveAKeys] = useState(DEFAULT_A_KEYS);
   const [activeBKeys, setActiveBKeys] = useState(DEFAULT_B_KEYS);
   const [activeCKeys, setActiveCKeys] = useState([]);          // serie 'C' — Revisión de Compra
-  const [dictamenRec,  setDictamenRec]  = useState("");        // "" | "apto" | "apto_reparaciones" | "no_recomendable"
+  const [dictamenRec,  setDictamenRec]  = useState("");        // clave del dictamen — RC: apto/apto_reparaciones/no_recomendable · RG: excelente/bueno/requiere_reparaciones/critico
   const [reparaciones, setReparaciones] = useState([]);        // [{ descripcion, costo_estimado }]
 
   useEffect(() => {
@@ -1825,9 +1847,12 @@ function MainApp({ session, onLogout }) {
   const modelEntries = dbModels?.modelEntries ?? MODEL_ENTRIES_FALLBACK;
 
   const svc          = activeCodes[sel] || {};
-  const esRC           = activeCKeys.includes(sel);                                   // Revisión de Compra (serie 'C')
+  const esRC           = activeCKeys.includes(sel);                                   // serie 'C' (Revisión de Compra o General)
+  const tipoRev        = tipoRevision(sel);                                           // 'compra' | 'general' | null
+  const revisionLabel  = tipoRev === "general" ? "Revisión General" : "Revisión de Compra";
+  const dictamenOpciones = DICTAMEN_OPCIONES[tipoRev] || DICTAMEN_OPCIONES.compra;
   const llevaAceite    = Array.isArray(svc.items) && svc.items.includes("3");         // la receta incluye cambio de aceite (ítem "3")
-  const servicioTitulo = esRC ? "Revisión de Compra" : `Servicio ${sel}`;
+  const servicioTitulo = esRC ? revisionLabel : `Servicio ${sel}`;
   const dictamenTotal  = reparaciones.reduce((s, r) => s + (Number(r.costo_estimado) || 0), 0);
   const G            = svc.color || '#C8A96E';
   const fuelLock     = svc.fuelLock || null;
@@ -2483,7 +2508,7 @@ function MainApp({ session, onLogout }) {
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           {cmTab === "recetas" && (
             <>
-              {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeCKeys.length > 0 ? [["Serie C — Revisión de Compra", activeCKeys]] : [])].map(([titulo, keys]) => (
+              {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeCKeys.length > 0 ? [["Serie C — Revisiones", activeCKeys]] : [])].map(([titulo, keys]) => (
                 <div key={titulo} style={{ marginBottom:16 }}>
                   <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>{titulo.toUpperCase()}</div>
                   {keys.map(k => {
@@ -2828,7 +2853,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   const confirmSig = async () => {
     if (esRC && !dictamenRec) {
-      alert("⚠️ Seleccioná una recomendación de compra (Apto / Apto con reparaciones / No recomendable) antes de firmar la revisión.");
+      alert(tipoRev === "general"
+        ? "⚠️ Seleccioná el estado del vehículo (Excelente / Bueno / Requiere reparaciones / Crítico) antes de firmar la revisión."
+        : "⚠️ Seleccioná una recomendación de compra (Apto / Apto con reparaciones / No recomendable) antes de firmar la revisión.");
       return;
     }
     clearTimeout(autoSaveTimer.current);
@@ -2926,7 +2953,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       if (!editingId && savedId) setEditingId(savedId);
       notifyPush(
         ["Otto Ramos","Gustavo Ramos","Arturo Ramos"],
-        esRC ? "Revisión de compra pendiente de aprobación" : "Servicio pendiente de aprobación",
+        esRC ? `${revisionLabel} pendiente de aprobación` : "Servicio pendiente de aprobación",
         `${mechName} — ${plate} (${model})`
       );
       setSigDate(fecha);
@@ -3367,7 +3394,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           {activeCKeys.length > 0 && (
             <>
-              <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIÓN DE COMPRA</div>
+              <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
                 {activeCKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
                   <button key={k} onClick={()=>setSel(k)} className="svc-btn"
@@ -3799,19 +3826,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </div>
             </div>
 
-            {/* ── DICTAMEN (solo Revisión de Compra) ── */}
+            {/* ── DICTAMEN (solo Revisión de Compra / General — serie 'C') ── */}
             {esRC && (
               <div style={{ marginTop:20, paddingTop:16, borderTop:"1px dashed #2f363b" }}>
-                <div style={{ fontSize:11, color:"#a78bfa", letterSpacing:3, marginBottom:12 }}>📋 DICTAMEN DE REVISIÓN DE COMPRA</div>
+                <div style={{ fontSize:11, color:"#a78bfa", letterSpacing:3, marginBottom:12 }}>📋 DICTAMEN DE {revisionLabel.toUpperCase()}</div>
 
-                {/* Recomendación general */}
-                <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:8 }}>RECOMENDACIÓN GENERAL <span style={{ color:"#f87171" }}>*</span></div>
+                {/* Recomendación / estado */}
+                <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:8 }}>{tipoRev === "general" ? "ESTADO DEL VEHÍCULO" : "RECOMENDACIÓN GENERAL"} <span style={{ color:"#f87171" }}>*</span></div>
                 <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
-                  {[
-                    { key:"apto",              label:"✅ Apto para compra",       color:"#4ade80" },
-                    { key:"apto_reparaciones", label:"⚠️ Apto con reparaciones",  color:"#fbbf24" },
-                    { key:"no_recomendable",   label:"❌ No recomendable",        color:"#f87171" },
-                  ].map(o => { const on = dictamenRec === o.key; return (
+                  {dictamenOpciones.map(o => { const on = dictamenRec === o.key; return (
                     <button key={o.key} onClick={()=>setDictamenRec(o.key)}
                       style={{ padding:"12px 14px", borderRadius:8, textAlign:"left", cursor:"pointer", fontFamily:"monospace", fontSize:13, fontWeight:on?"bold":"normal", border:`1.5px solid ${on?o.color:line}`, background:on?o.color+"18":card, color:on?o.color:"#888" }}>
                       {on ? "●" : "○"}  {o.label}

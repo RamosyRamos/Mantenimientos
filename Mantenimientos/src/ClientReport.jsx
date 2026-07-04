@@ -10,10 +10,15 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 // para todos los textos de cara al cliente: no repetir esta lógica inline.
 // ⚠️ OJO: si algún día existe una receta A/B cuyo código empiece con "C",
 // habría que refinar esta detección (hoy ningún código A/B empieza con "C").
-const esRC = (svc) => {
+// tipoRevision distingue, por código exacto, la serie 'C': 'RG' → general,
+// 'RC' (o cualquier código de serie C) → compra. esRC = pertenece a serie 'C'.
+const tipoRevision = (svc) => {
   const c = (svc?.codigo || svc?.servicio_codigo || "").toUpperCase();
-  return c === "RC" || c.startsWith("C");
+  if (c === "RG") return "general";
+  if (c === "RC" || c.startsWith("C")) return "compra";
+  return null;
 };
+const esRC = (svc) => tipoRevision(svc) !== null;
 
 export default function ClientReport({ binId }) {
   const [data, setData]       = useState(null);
@@ -102,9 +107,15 @@ function ReportView({ data }) {
   } = data;
 
   const RECO_MAP = {
+    // Revisión de Compra (RC)
     apto:              { label:"Apto para compra",      icon:"✅", color:"#4ade80" },
     apto_reparaciones: { label:"Apto con reparaciones", icon:"⚠️", color:"#fbbf24" },
     no_recomendable:   { label:"No recomendable",       icon:"❌", color:"#f87171" },
+    // Revisión General (RG) — estado del vehículo
+    excelente:             { label:"Excelente",              icon:"✅", color:"#4ade80" },
+    bueno:                 { label:"Bueno, atención menor",  icon:"🟡", color:"#a3e635" },
+    requiere_reparaciones: { label:"Requiere reparaciones",  icon:"🟠", color:"#fb923c" },
+    critico:               { label:"Estado crítico",         icon:"🔴", color:"#f87171" },
   };
   const reco = dictamen ? (RECO_MAP[dictamen.recomendacion] || null) : null;
 
@@ -113,11 +124,13 @@ function ReportView({ data }) {
   const totalItems  = Object.values(revisiones || {}).flat().filter(t => !t.text?.startsWith("⚠")).length;
 
   // Serie 'C' (Revisión de Compra): el comprador no debe ver "servicio"/"mantenimiento".
-  const rc = esRC(servicio);
+  const tipoRev  = tipoRevision(servicio);                                    // 'compra' | 'general' | null
+  const rc       = tipoRev !== null;
+  const revLabel = tipoRev === "general" ? "Revisión General" : "Revisión de Compra";
 
   useEffect(() => {
-    document.title = rc ? "Ramos y Ramos | Revisión de Compra" : "Ramos y Ramos | Mantenimiento";
-  }, [rc]);
+    document.title = rc ? `Ramos y Ramos | ${revLabel}` : "Ramos y Ramos | Mantenimiento";
+  }, [rc, revLabel]);
 
   return (
     <div id="client-root" style={{ minHeight:"100vh", background:"#09090e", fontFamily:"'Segoe UI', Arial, sans-serif", color:"#e0d8cc", paddingBottom:48 }}>
@@ -147,7 +160,7 @@ function ReportView({ data }) {
 
           {/* Título del reporte */}
           <div style={{ background:"#C8A96E10", border:"1px solid #C8A96E30", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>{rc ? "INFORME DE REVISIÓN DE COMPRA" : "RESUMEN DE SERVICIO"}</div>
+            <div style={{ fontSize:10, color:"#C8A96E", letterSpacing:3, marginBottom:6 }}>{rc ? `INFORME DE ${revLabel.toUpperCase()}` : "RESUMEN DE SERVICIO"}</div>
             <div style={{ fontSize:18, fontWeight:"bold", color:"#e0d8cc", marginBottom:4 }}>
               {vehiculo?.modelo || "Vehículo Mercedes-Benz"}
             </div>
@@ -194,7 +207,7 @@ function ReportView({ data }) {
         {/* RECHAZADO */}
         {rechazado === true && (
           <div style={{ margin:"16px 0", background:"#f8717110", border:"1px solid #f8717140", borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ color:"#f87171", fontWeight:700, fontSize:13, marginBottom:6 }}>❌ {rc ? "Revisión de Compra rechazada" : "Servicio rechazado"}</div>
+            <div style={{ color:"#f87171", fontWeight:700, fontSize:13, marginBottom:6 }}>❌ {rc ? `${revLabel} rechazada` : "Servicio rechazado"}</div>
             {rechazado_por && (
               <div style={{ color:"#cbd5e1", fontSize:11 }}>Por: <strong>{rechazado_por}</strong></div>
             )}
@@ -205,7 +218,7 @@ function ReportView({ data }) {
         )}
 
         {/* DATOS DEL SERVICIO */}
-        <Section title={rc ? "🔧 Datos de la Revisión de Compra" : "🔧 Datos del Servicio"}>
+        <Section title={rc ? `🔧 Datos de la ${revLabel}` : "🔧 Datos del Servicio"}>
           <Row label={rc ? "Código de revisión" : "Código de servicio"} value={<span style={{ color:"#C8A96E", fontWeight:"bold" }}>{servicio?.codigo}{servicio?.descripcion && servicio.descripcion.toUpperCase() !== "PENDIENTE" ? ` — ${servicio.descripcion}` : ""}</span>} />
           <Row label="Realizado por" value={mecanico} />
           {aprobado_por && <Row label="Aprobado por" value={<span style={{ color:"#4ade80" }}>✅ {aprobado_por}</span>} />}
