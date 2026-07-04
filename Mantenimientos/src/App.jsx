@@ -2483,7 +2483,7 @@ function MainApp({ session, onLogout }) {
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           {cmTab === "recetas" && (
             <>
-              {[["Serie A", activeAKeys],["Serie B", activeBKeys]].map(([titulo, keys]) => (
+              {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeCKeys.length > 0 ? [["Serie C — Revisión de Compra", activeCKeys]] : [])].map(([titulo, keys]) => (
                 <div key={titulo} style={{ marginBottom:16 }}>
                   <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>{titulo.toUpperCase()}</div>
                   {keys.map(k => {
