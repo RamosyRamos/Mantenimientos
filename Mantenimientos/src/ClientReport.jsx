@@ -16,7 +16,7 @@ const CRIT = { bg:'#F7E0DC', border:'#D99B92', text:'#B83A2E' };
 const WARN = { bg:'#FBF3E0', border:'#D9B870', text:'#8A5A0A' };
 const FONT  = "'Titillium Web', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const SERIF = "'Cormorant', Georgia, 'Times New Roman', serif";
-const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&family=Titillium+Web:wght@300;400;600;700;900&display=swap";
+const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&family=Inter:wght@700&family=Titillium+Web:wght@300;400;600;700;900&display=swap";
 const PRINT_CSS = `
 @page { margin: 1cm; }
 @media print {
@@ -74,7 +74,7 @@ export default function ClientReport({ binId }) {
             mecanico:     r.mecanico,
             aprobado_por: r.aprobado_por || null,
             servicio:     { codigo: r.servicio_codigo, descripcion: r.servicio_desc },
-            vehiculo:     { modelo: r.modelo, motor: r.motor, placa: r.placa, km: r.km, combustible: r.combustible, traccion: r.traccion },
+            vehiculo:     { modelo: r.modelo, motor: r.motor, placa: r.placa, km: r.km, combustible: r.combustible, traccion: r.traccion, version: r.version, anio: r.anio },
             aceite:       r.aceite_litros ? { litros: r.aceite_litros, especificacion: r.aceite_spec } : null,
             revisiones:   r.revisiones,
             observaciones:  r.observaciones,
@@ -152,6 +152,10 @@ function ReportView({ data }) {
   const rc       = tipoRev !== null;
   const revLabel = tipoRev === "general" ? "Revisión General" : "Revisión de Compra";
 
+  // Línea de modelo estilo cotización: limpia el año colgante del modelo y compone "modelo · versión · año"
+  const modeloLimpio = (vehiculo?.modelo || "").replace(/\s*\d{4}\s*[-–]\s*(\d{4}|presente|present|actual|hoy)?\s*$/i, "").trim();
+  const modeloLinea  = [modeloLimpio, vehiculo?.version, vehiculo?.anio].filter(Boolean).join(" · ");
+
   useEffect(() => {
     document.title = rc ? `Ramos y Ramos | ${revLabel}` : "Ramos y Ramos | Mantenimiento";
   }, [rc, revLabel]);
@@ -183,15 +187,16 @@ function ReportView({ data }) {
 
       <div style={{ maxWidth:600, margin:"0 auto", padding:"20px 16px 48px" }}>
 
-        {/* Título del reporte */}
-        <div style={{ background:`${T.rojo}0F`, border:`1px solid ${T.rojo}33`, borderRadius:14, padding:"16px 18px", marginBottom:18 }}>
-          <div style={{ fontSize:10, color:T.rojo, letterSpacing:3, marginBottom:8, fontWeight:700 }}>{rc ? `INFORME DE ${revLabel.toUpperCase()}` : "RESUMEN DE SERVICIO"}</div>
-          <div style={{ fontFamily:SERIF, fontSize:20, fontWeight:600, color:T.dim, lineHeight:1.1 }}>Mercedes-Benz</div>
-          <div style={{ fontFamily:SERIF, fontSize:28, fontWeight:500, color:T.texto, lineHeight:1.15 }}>{vehiculo?.modelo || "Vehículo Mercedes-Benz"}</div>
-          <div style={{ fontSize:12, color:T.dim, marginTop:8 }}>
-            {vehiculo?.placa && <span style={{ background:T.card2, border:`1px solid ${T.borde}`, borderRadius:4, padding:"2px 8px", marginRight:8, letterSpacing:2, fontWeight:700, color:T.texto }}>{vehiculo.placa}</span>}
-            {vehiculo?.km && <span>{parseInt(vehiculo.km).toLocaleString()} km</span>}
+        {/* Título del reporte + bloque de vehículo (estilo cotización) */}
+        <div style={{ background:T.card, border:`1px solid ${T.borde}`, borderRadius:14, padding:"18px", marginBottom:18 }}>
+          <div style={{ fontSize:10, color:T.rojo, letterSpacing:3, marginBottom:10, fontWeight:700 }}>{rc ? `INFORME DE ${revLabel.toUpperCase()}` : "RESUMEN DE SERVICIO"}</div>
+          <div style={{ fontFamily:SERIF, fontSize:22, fontWeight:600, color:T.dim, lineHeight:1.15 }}>Mercedes-Benz</div>
+          <div style={{ fontFamily:SERIF, fontSize:"clamp(24px, 6vw, 30px)", fontWeight:500, color:T.texto, lineHeight:1.15 }}>{modeloLinea || "Vehículo Mercedes-Benz"}</div>
+          <div style={{ display:"flex", justifyContent:"flex-start", alignItems:"flex-end", gap:12, marginTop:16, flexWrap:"wrap" }}>
+            <Placa patente={vehiculo?.placa} />
           </div>
+          {vehiculo?.km && <div style={{ fontSize:12, color:T.dim, marginTop:8 }}>📍 {parseInt(vehiculo.km).toLocaleString()} km</div>}
+          {vehiculo?.vin && <div style={{ marginTop:14, fontFamily:FONT, fontSize:11, letterSpacing:1, color:T.muted }}>VIN · <span style={{ color:T.dim, fontWeight:600, letterSpacing:0.5 }}>{vehiculo.vin}</span></div>}
         </div>
 
         {/* DICTAMEN — Revisión de Compra (prominente, antes del detalle por sistema) */}
@@ -344,7 +349,7 @@ function ReportView({ data }) {
           {/* Firma / generado */}
           <div style={{ fontSize:11, color:T.muted, lineHeight:1.8, marginTop:18, paddingTop:14, borderTop:`1px solid ${T.borde}` }}>
             <div style={{ color:T.rojo, fontWeight:700, marginBottom:4 }}>Ramos y Ramos Taller Especializado</div>
-            <div>Este resumen fue generado automáticamente al finalizar {rc ? "la revisión de compra" : "el servicio"}.</div>
+            <div>Este informe se generó automáticamente al finalizar {rc ? `la ${revLabel.toLowerCase()}` : "el servicio"}.</div>
             <div style={{ marginTop:4, fontSize:10 }}>{rc ? "Revisión realizada por" : "Servicio realizado por"} <strong style={{ color:T.texto }}>{mecanico}</strong> · {fecha}</div>
           </div>
 
@@ -381,6 +386,36 @@ function ReportView({ data }) {
 
       </div>
     </div>
+  );
+}
+
+// Placa costarricense vectorial (portada del bloque de vehículo de las cotizaciones)
+function Placa({ patente }) {
+  const p = (patente || "").trim();
+  const AZUL = "#1B2A7A";
+  const F = "'Inter','Titillium Web',sans-serif";
+  if (!p) {
+    return (
+      <span style={{ position:"relative", display:"inline-flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#DDDDD6", border:"2.5px solid #9aa0a6", borderRadius:6, padding:"8px 28px 9px", minWidth:130, lineHeight:1, whiteSpace:"nowrap", verticalAlign:"middle" }}>
+        <span style={{ fontFamily:F, fontSize:6.5, letterSpacing:2.2, color:"#8a8a8a", fontWeight:700, marginBottom:3 }}>COSTA RICA</span>
+        <span style={{ fontFamily:F, fontSize:24, fontWeight:700, color:"#8a8a8a", letterSpacing:2.5, textTransform:"uppercase" }}>S/P</span>
+        <span style={{ fontFamily:F, fontSize:6, letterSpacing:1.6, color:"#8a8a8a", fontWeight:700, marginTop:3 }}>CENTROAMÉRICA</span>
+      </span>
+    );
+  }
+  return (
+    <span style={{ position:"relative", display:"inline-flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"linear-gradient(180deg,#E6E6E0 0%,#D5D5CE 100%)", opacity:0.95, border:`2.5px solid ${AZUL}`, borderRadius:6, boxShadow:"0 0 0 1px #9aa0a6", padding:"8px 28px 9px", minWidth:130, lineHeight:1, whiteSpace:"nowrap", verticalAlign:"middle" }}>
+      <span style={{ position:"absolute", top:5, left:"20%", width:11, height:3.5, borderRadius:2, background:"#C9CCC9", boxShadow:"inset 0 1px 1.5px rgba(0,0,0,0.45)" }} />
+      <span style={{ position:"absolute", top:5, right:"20%", width:11, height:3.5, borderRadius:2, background:"#C9CCC9", boxShadow:"inset 0 1px 1.5px rgba(0,0,0,0.45)" }} />
+      <svg viewBox="0 0 9 6" preserveAspectRatio="none" style={{ position:"absolute", top:5, right:5, width:16, height:10, borderRadius:1.5, boxShadow:"0 0 0 0.5px rgba(0,0,0,0.18)", overflow:"hidden", display:"block" }}>
+        <rect width="9" height="6" fill="#002B7F" />
+        <rect y="1" width="9" height="4" fill="#FFFFFF" />
+        <rect y="2" width="9" height="2" fill="#CE1126" />
+      </svg>
+      <span style={{ fontFamily:F, fontSize:6.5, letterSpacing:2.2, color:AZUL, fontWeight:700, marginBottom:3 }}>COSTA RICA</span>
+      <span style={{ fontFamily:F, fontSize:24, fontWeight:700, color:AZUL, letterSpacing:2.5, textTransform:"uppercase", textShadow:"0 1px 0 rgba(255,255,255,0.8),0 -1px 0 rgba(0,0,0,0.2)" }}>{p.toUpperCase()}</span>
+      <span style={{ fontFamily:F, fontSize:6, letterSpacing:1.6, color:AZUL, fontWeight:700, marginTop:3 }}>CENTROAMÉRICA</span>
+    </span>
   );
 }
 
