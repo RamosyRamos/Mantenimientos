@@ -2374,7 +2374,7 @@ function MainApp({ session, onLogout }) {
       <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:"#16181c", borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
           <div>
-            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>📋 Mantenimientos realizados</div>
+            <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>📋 Servicios realizados</div>
             <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>
               {completedList.length === 100 ? "MOSTRANDO LOS 100 MÁS RECIENTES" : `${completedList.length} REGISTRO${completedList.length !== 1 ? "S" : ""}`}
             </div>
@@ -2383,7 +2383,7 @@ function MainApp({ session, onLogout }) {
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           {completedLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
-          {!completedLoading && completedList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay mantenimientos completados todavía.</div>}
+          {!completedLoading && completedList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios completados todavía.</div>}
           {completedList.map(s => serviceRow(s,
             <button onClick={() => { setModoRevision(true); loadService(s); }}
               style={{ width:"100%", padding:"7px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8012", color:"#4ade80", fontSize:10, fontFamily:"monospace", cursor:"pointer", letterSpacing:1 }}>
@@ -2493,7 +2493,7 @@ function MainApp({ session, onLogout }) {
         <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
           <div>
             <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc" }}>🛠 Centro de Mando</div>
-            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>CATÁLOGO DE MANTENIMIENTOS</div>
+            <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>CATÁLOGO DE SERVICIOS</div>
           </div>
           <button onClick={() => setShowCentroMando(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#555", fontSize:14, cursor:"pointer" }}>✕</button>
         </div>
@@ -2590,7 +2590,7 @@ function MainApp({ session, onLogout }) {
           ✕ CERRAR
         </button>
         <div style={{ flexShrink:0 }}>
-          <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc", letterSpacing:1 }}>TODOS LOS MANTENIMIENTOS</div>
+          <div style={{ fontWeight:"bold", fontSize:13, color:"#e0d8cc", letterSpacing:1 }}>TODOS LOS SERVICIOS</div>
           <div style={{ fontSize:9, color:"#555", letterSpacing:2 }}>{verTodosFiltered.length} REGISTROS{verTodosSearch ? " (filtrados)" : ""}</div>
         </div>
         <input
@@ -2615,7 +2615,7 @@ function MainApp({ session, onLogout }) {
         )}
         {!verTodosLoading && verTodosFiltered.length === 0 && (
           <div style={{ textAlign:"center", color:"#555", padding:60, fontSize:12 }}>
-            {verTodosSearch ? "Sin resultados." : "No hay mantenimientos registrados."}
+            {verTodosSearch ? "Sin resultados." : "No hay servicios registrados."}
           </div>
         )}
         {verTodosPaged.map((s, i) => {
@@ -2771,7 +2771,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       txt += `\n\n📝 Observaciones del mecánico:\n${notes.trim()}`;
     }
     const finalUrl = overrideClientUrl || clientUrl;
-    txt += `\n\n🔗 Detalle completo del mantenimiento:\n${finalUrl || "(enlace pendiente)"}`;
+    const tipoFrase = tipoRev === "general" ? "de la revisión general" : tipoRev === "compra" ? "de la revisión de compra" : "del mantenimiento";
+    txt += `\n\n🔗 Detalle completo ${tipoFrase}:\n${finalUrl || "(enlace pendiente)"}`;
     return txt;
   };
 
@@ -2786,7 +2787,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       );
       const checkData = await checkRes.json();
       if (checkData?.[0]?.informe_mantenimiento) {
-        const ok = confirm("⚠️ Esta orden ya tiene un informe de mantenimiento guardado. ¿Sobrescribir?");
+        const ok = confirm("⚠️ Esta orden ya tiene un informe guardado. ¿Sobrescribir?");
         if (!ok) { setOrdenEnvioStatus("idle"); return; }
       }
 
@@ -2959,7 +2960,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       setSigDate(fecha);
     } catch(e) {
       console.error("[confirmSig] save failed:", e.message);
-      alert(`⚠️ ERROR al guardar el mantenimiento:\n\n${e.message}\n\nPor favor reintentá. Si persiste, contactá soporte. NO cierres la app.`);
+      alert(`⚠️ ERROR al guardar el informe:\n\n${e.message}\n\nPor favor reintentá. Si persiste, contactá soporte. NO cierres la app.`);
     }
   };
 
@@ -2986,7 +2987,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
           <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:420, width:"100%", fontFamily:"monospace", maxHeight:"85vh", overflowY:"auto" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold" }}>📝 Tus mantenimientos en progreso ({pendingDrafts.length})</div>
+              <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold" }}>📝 Tus servicios en progreso ({pendingDrafts.length})</div>
               <button onClick={() => setDraftPrompt(false)} style={{ background:"transparent", border:"none", fontSize:20, cursor:"pointer", color:"#666", lineHeight:1 }}>×</button>
             </div>
             {pendingDrafts.length === 0 ? (
@@ -3074,7 +3075,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
         </div>
         {pendingDrafts.length > 0 && (
-          <button onClick={() => setDraftPrompt(true)} title="Ver mis mantenimientos no finalizados"
+          <button onClick={() => setDraftPrompt(true)} title="Ver mis servicios no finalizados"
             style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid #C8A96E60`, background:"#C8A96E18", color:"#C8A96E", fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:"monospace", flexShrink:0 }}>
             📝 {pendingDrafts.length}
           </button>
@@ -3089,7 +3090,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </span>
             )}
           </button>
-          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Mantenimientos realizados"
+          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Servicios realizados"
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
@@ -3297,7 +3298,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         </div>
         <button onClick={()=>setStep(1)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontFamily:"monospace" }}>← Vehículo</button>
         {pendingDrafts.length > 0 && (
-          <button onClick={() => setDraftPrompt(true)} title="Ver mis mantenimientos no finalizados"
+          <button onClick={() => setDraftPrompt(true)} title="Ver mis servicios no finalizados"
             style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid #C8A96E60`, background:"#C8A96E18", color:"#C8A96E", fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:"monospace", flexShrink:0 }}>
             📝 {pendingDrafts.length}
           </button>
@@ -3312,7 +3313,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </span>
             )}
           </button>
-          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Mantenimientos realizados"
+          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Servicios realizados"
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
@@ -3446,7 +3447,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
           <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:420, width:"100%", fontFamily:"monospace", maxHeight:"85vh", overflowY:"auto" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold" }}>📝 Tus mantenimientos en progreso ({pendingDrafts.length})</div>
+              <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold" }}>📝 Tus servicios en progreso ({pendingDrafts.length})</div>
               <button onClick={() => setDraftPrompt(false)} style={{ background:"transparent", border:"none", fontSize:20, cursor:"pointer", color:"#666", lineHeight:1 }}>×</button>
             </div>
             {pendingDrafts.length === 0 ? (
@@ -3544,7 +3545,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
         )}
         {pendingDrafts.length > 0 && (
-          <button onClick={() => setDraftPrompt(true)} title="Ver mis mantenimientos no finalizados"
+          <button onClick={() => setDraftPrompt(true)} title="Ver mis servicios no finalizados"
             style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid #C8A96E60`, background:"#C8A96E18", color:"#C8A96E", fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:"monospace", flexShrink:0 }}>
             📝 {pendingDrafts.length}
           </button>
@@ -3559,7 +3560,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </span>
             )}
           </button>
-          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Mantenimientos realizados"
+          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Servicios realizados"
             style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:"#888", fontSize:13, cursor:"pointer", lineHeight:1 }}>
             📋
           </button>
