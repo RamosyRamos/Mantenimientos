@@ -1773,7 +1773,7 @@ function MainApp({ session, onLogout }) {
   const [checked, setChk]   = useState({});
   const [taskStatus, setTaskStatus] = useState({}); // id -> "ok" | "issue"
   const [taskIssue, setTaskIssue]   = useState({}); // id -> texto del detalle
-  const [taskPhotos, setTaskPhotos] = useState({}); // id -> string[] (URLs ImgBB)
+  const [taskPhotos, setTaskPhotos] = useState({}); // id -> string[] (URLs Supabase Storage, bucket fotos-servicios)
   const [activeIssue, setActiveIssue] = useState(null); // id del ítem abierto
   const [exChk, setExChk]   = useState({});
   const [notes, setNotes]   = useState("");
