@@ -398,7 +398,7 @@ function loadModelsFromDB() {
 async function loadVehiculoByPlaca(placa) {
   if (!placa) return null
   try {
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos?patente=eq.${encodeURIComponent(placa.toUpperCase())}&select=motor,combustible,aceite_lt,especif_mb,version,modelo&limit=1`
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos?patente=eq.${encodeURIComponent(placa.toUpperCase())}&select=motor,combustible,aceite_lt,especif_mb,version,modelo,anio&limit=1`
     const res = await fetch(url, {
       headers: {
         apikey: import.meta.env.VITE_SUPABASE_KEY,
@@ -1917,6 +1917,15 @@ function MainApp({ session, onLogout }) {
     setTab("check"); setStep(1); setEditingId(null);
     setAutoSaveStatus(null);
   };
+  // Limpia SOLO el estado ligado al vehículo y a la orden. El estado de un
+  // vehículo nunca debe sobrevivir al servicio de otro: se llama antes de
+  // cargar un servicio distinto (loadService) o de pre-poblar desde un link.
+  const resetVehiculoOrden = () => {
+    setModel(""); setModelSearch(""); setEngine(""); setPlate(""); setKm("");
+    setFuel("gasolina"); setIs4m(false);
+    setVehAnio(""); setVehVersion("");
+    setOrdenId(""); setOrdenNumero(""); setOrdenFalla("");
+  };
   const continuarDraft = (draft) => {
     loadService(draft);
     setDraftPrompt(false);
@@ -1996,24 +2005,36 @@ function MainApp({ session, onLogout }) {
     const pFalla    = params.get('falla')?.trim()               || '';
     const pAnio     = params.get('anio')?.trim()                || '';
     const pVersion  = params.get('version')?.trim()             || '';
-    if (pPlaca)    setPlate(pPlaca);
-    if (pModelo) {
+    if (pPlaca) {
+      // Apertura intencional desde Taller: los datos del vehículo son los del
+      // link. Lo que NO venga en el link queda vacío — nunca heredado de un
+      // vehículo anterior en memoria.
+      if (plate && plate !== pPlaca) resetVehiculoOrden();
+      setPlate(pPlaca);
       setModelSearch(pModelo);
       // Only lock the model selection if it exactly matches a key in MODEL_DATA
-      if (MODEL_DATA[pModelo]) setModel(pModelo);
+      setModel(MODEL_DATA[pModelo] ? pModelo : "");
+      setVehAnio(pAnio);
+      setVehVersion(pVersion);
+    } else {
+      if (pModelo) {
+        setModelSearch(pModelo);
+        if (MODEL_DATA[pModelo]) setModel(pModelo);
+      }
+      if (pAnio)    setVehAnio(pAnio);
+      if (pVersion) setVehVersion(pVersion);
     }
     if (pMecanico) setMechName(pMecanico);
     if (pOrdenId)  setOrdenId(pOrdenId);
     if (pNumero)   setOrdenNumero(pNumero);
     if (pFalla)    setOrdenFalla(pFalla);
-    if (pAnio)     setVehAnio(pAnio);
-    if (pVersion)  setVehVersion(pVersion);
     // Registered vehicle data wins over URL params
     if (pPlaca) {
       loadVehiculoByPlaca(pPlaca).then(veh => {
         if (!veh) return
         if (veh.modelo)      { setModel(veh.modelo); setModelSearch(veh.modelo) }
         if (veh.version)       setVehVersion(veh.version)
+        if (veh.anio)          setVehAnio(String(veh.anio))
         if (veh.motor)         setEngine(veh.motor)
         if (veh.combustible)   setFuel(veh.combustible)
       }).catch(() => {})
@@ -2175,6 +2196,9 @@ function MainApp({ session, onLogout }) {
   };
 
   const loadService = (s) => {
+    // Reset ANTES de repoblar: nada del vehículo/orden anterior debe sobrevivir
+    // a la carga de otro servicio (los setters de abajo pisan lo recién limpiado).
+    resetVehiculoOrden();
     const d = s.datos || {};
     const v = d.vehiculo || {};
     const modelo      = v.modelo      || s.modelo      || "";
@@ -2191,6 +2215,10 @@ function MainApp({ session, onLogout }) {
     setModel(modelo); setModelSearch(modelo);
     setEngine(motor); setPlate(placa); setKm(km);
     setFuel(combustible); setIs4m(traccion === "4MATIC");
+    // ?? y no ||: si la fila tiene null, el campo queda VACÍO — no debe
+    // conservarse el año/versión del vehículo que estaba antes en memoria.
+    setVehAnio(s.anio ?? "");
+    setVehVersion(s.version ?? "");
     setSel(servCodigo); setMechName(mecanico); setNotes(observaciones);
     setDictamenRec(s.dictamen?.recomendacion || "");
     setReparaciones(Array.isArray(s.dictamen?.reparaciones) ? s.dictamen.reparaciones : []);
@@ -2215,7 +2243,10 @@ function MainApp({ session, onLogout }) {
       });
       setTaskStatus(newStatus);
       setTaskIssue(newIssue);
-      setTaskPhotos(newPhotos);
+      // La columna fotos ({taskId: [urls]}) es más completa que las fotos por
+      // ítem de revisiones (los ítems "pending" con foto no llegan a newPhotos).
+      const colFotos = (s.fotos && typeof s.fotos === "object" && !Array.isArray(s.fotos)) ? s.fotos : {};
+      setTaskPhotos({ ...colFotos, ...newPhotos });
       setChk(newChecked);
     }
 
@@ -2233,6 +2264,8 @@ function MainApp({ session, onLogout }) {
     const urlOrdenNumero = urlParams.get('numero')?.trim() || '';
     setOrdenId(urlOrdenId || s.orden_id || "");
     setOrdenNumero(urlOrdenNumero || s.orden_numero || "");
+    // falla no se guarda en servicios: se re-lee de la URL (el reset la limpió)
+    setOrdenFalla(urlParams.get('falla')?.trim() || "");
     setShowNotifications(false);
     setShowCompleted(false);
     setShowBorradores(false);
@@ -2780,13 +2813,25 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   const enviarAOrden = async () => {
     setOrdenEnvioStatus("sending");
     try {
-      // 1. Check if already filled
+      // 1. Guard de placa + check de informe existente — antes de CUALQUIER
+      // escritura (el guardado a servicios de abajo también cuenta).
       const checkRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=informe_mantenimiento`,
+        `${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=informe_mantenimiento,vehiculo_id,vehiculos(patente)`,
         { headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` } }
       );
-      const checkData = await checkRes.json();
-      if (checkData?.[0]?.informe_mantenimiento) {
+      const checkData = checkRes.ok ? await checkRes.json() : null;
+      const ordenRow = checkData?.[0] || null;
+      const placaOrden = (ordenRow?.vehiculos?.patente || "").trim().toUpperCase();
+      const placaServicio = (plate || "").trim().toUpperCase();
+      if (!ordenRow || !ordenRow.vehiculo_id || !placaOrden || !placaServicio) {
+        // Órdenes viejas sin vehículo o fetch incompleto: no bloquear por datos faltantes
+        console.warn("[enviarAOrden] guard placa omitido: datos incompletos", { ordenRow, placaOrden, placaServicio });
+      } else if (placaOrden !== placaServicio) {
+        alert(`⛔ El servicio es de la placa ${placaServicio} pero la orden ${ordenNumero ? `#${ordenNumero}` : "destino"} es del vehículo con placa ${placaOrden}.\n\nNo se guardó nada. Revisá que estés en el servicio correcto antes de reintentar.`);
+        setOrdenEnvioStatus("idle");
+        return;
+      }
+      if (ordenRow?.informe_mantenimiento) {
         const ok = confirm("⚠️ Esta orden ya tiene un informe guardado. ¿Sobrescribir?");
         if (!ok) { setOrdenEnvioStatus("idle"); return; }
       }
