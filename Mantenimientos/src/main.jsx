@@ -19,9 +19,14 @@ createRoot(rootEl).render(
   </StrictMode>
 );
 
-// Restaurar tema claro si estaba activo
+// Restaurar tema claro si estaba activo — SOLO en la app interna (App.jsx,
+// que escribe localStorage.theme y depende de este restore al recargar).
+// Las vistas de cliente /servicio y /historial son claras de por sí:
+// el filtro invert las rompería.
 try {
-  if (localStorage.getItem('theme') === 'light') {
+  const path = window.location.pathname;
+  const esVistaCliente = path.startsWith('/servicio/') || path === '/historial' || path === '/cliente';
+  if (!esVistaCliente && localStorage.getItem('theme') === 'light') {
     rootEl.style.filter = 'invert(1) hue-rotate(180deg)';
     // Re-invertir imágenes después de que React renderice
     setTimeout(() => {

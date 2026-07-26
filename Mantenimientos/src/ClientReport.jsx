@@ -1,22 +1,11 @@
 import { useState, useEffect } from "react";
+// Identidad visual (tema CLARO, alineado con las cotizaciones del cliente):
+// paleta y fuentes viven en temaCliente.js, compartidas con ClientHistory.
+import { T, OK, CRIT, WARN, FONT, SERIF, FONTS_HREF } from "./temaCliente.js";
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
-
-// ── Identidad visual (tema CLARO, alineado con las cotizaciones del cliente) ──
-const T = {
-  fondo:'#E6E4DB', card:'#FCFBF8', card2:'#F2F0E9', borde:'#D6D3C8', line2:'#E4E1D8',
-  texto:'#1A1A1D', muted:'#8A8C86', dim:'#5C5C62',
-  rojo:'#B83A2E', navy:'#15225F', success:'#1F7A4D',
-};
-// Estados suaves (checklist + dictamen)
-const OK   = { bg:'#E0F0E6', border:'#9BCBAE', text:'#1F7A4D' };
-const CRIT = { bg:'#F7E0DC', border:'#D99B92', text:'#B83A2E' };
-const WARN = { bg:'#FBF3E0', border:'#D9B870', text:'#8A5A0A' };
-const FONT  = "'Titillium Web', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const SERIF = "'Cormorant', Georgia, 'Times New Roman', serif";
-const FONTS_HREF = "https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&family=Inter:wght@700&family=Titillium+Web:wght@300;400;600;700;900&display=swap";
 const PRINT_CSS = `
 @page { margin: 1cm; }
 @media print {
