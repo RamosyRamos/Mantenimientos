@@ -41,11 +41,13 @@ export default function ClientReport({ binId }) {
   useEffect(() => {
     const load = async () => {
       try {
-        // Compatibilidad: UUID para registros viejos, slug para nuevos
+        // Compatibilidad: UUID para registros viejos, slug para nuevos.
+        // Solo servicios APROBADOS son públicos: borradores, pendientes y
+        // descartados responden vacío y caen en el ErrorScreen.
         const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(binId);
         const query = isUUID
-          ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${binId}&select=*`
-          : `${SUPABASE_URL}/rest/v1/servicios?slug=eq.${binId}&select=*`;
+          ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${binId}&estado=eq.aprobado&select=*`
+          : `${SUPABASE_URL}/rest/v1/servicios?slug=eq.${binId}&estado=eq.aprobado&select=*`;
         const res = await fetch(query, {
             headers: {
               "apikey": SUPABASE_KEY,
