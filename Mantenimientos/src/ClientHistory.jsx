@@ -43,7 +43,7 @@ export default function ClientHistory() {
     setSearched(q);
     try {
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/servicios?placa=eq.${q}&select=*&order=created_at.desc`,
+        `${SUPABASE_URL}/rest/v1/servicios?placa=eq.${q}&estado=eq.aprobado&select=*&order=created_at.desc`,
         {
           headers: {
             "apikey": SUPABASE_KEY,
