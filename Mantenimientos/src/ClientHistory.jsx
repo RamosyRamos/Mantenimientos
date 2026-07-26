@@ -65,6 +65,19 @@ export default function ClientHistory() {
   return (
     <div id="history-root" style={{ minHeight:"100vh", background:T.fondo, fontFamily:FONT, color:T.texto, paddingBottom:48 }}>
 
+      {/* El CSS global de index.html fuerza inputs oscuros con !important
+          (input { background: var(--inp-bg) !important }); los inline no
+          alcanzan. Se pisa con mayor especificidad, scopeado a esta vista. */}
+      <style>{`
+        #history-root input {
+          background: ${T.card} !important;
+          color: ${T.texto} !important;
+          border-color: ${T.borde} !important;
+        }
+        #history-root input::placeholder { color: ${T.muted} !important; }
+        #history-root input:focus { border-color: ${T.navy} !important; }
+      `}</style>
+
       {/* HEADER (misma gramática que ClientReport) */}
       <div style={{ position:"sticky", top:0, zIndex:100, background:T.card, padding:"16px 20px" }}>
         <div style={{ maxWidth:600, margin:"0 auto", display:"flex", alignItems:"center", gap:14 }}>
@@ -90,7 +103,7 @@ export default function ClientHistory() {
               onKeyDown={handleKey}
               placeholder="Ej: ABC123"
               maxLength={8}
-              style={{ flex:1, minWidth:0, background:T.card2, border:`1px solid ${T.borde}`, color:T.texto, borderRadius:8, padding:"12px 14px", fontSize:16, fontFamily:FONT, outline:"none", letterSpacing:3, textAlign:"center" }}
+              style={{ flex:1, minWidth:0, background:T.card, border:`1px solid ${T.borde}`, color:T.texto, borderRadius:8, padding:"12px 14px", fontSize:16, fontFamily:FONT, outline:"none", letterSpacing:3, textAlign:"center" }}
             />
             <button
               onClick={search}

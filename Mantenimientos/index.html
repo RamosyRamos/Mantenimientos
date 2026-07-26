@@ -163,9 +163,13 @@
 
     </style>
     <script>
-      // Restaurar tema guardado antes de que React cargue
+      // Restaurar tema guardado antes de que React cargue — SOLO en la app
+      // interna: /servicio y /historial son claras y el invert las rompe
+      // (mismo scoping que el restore de main.jsx).
       try {
-        if (localStorage.getItem('theme') === 'light') {
+        var p = window.location.pathname;
+        var esVistaCliente = p.indexOf('/servicio/') === 0 || p === '/historial' || p === '/cliente';
+        if (!esVistaCliente && localStorage.getItem('theme') === 'light') {
           document.addEventListener('DOMContentLoaded', () => {
             const root = document.getElementById('root');
             if (root) { root.style.filter = 'invert(1) hue-rotate(180deg)'; }
