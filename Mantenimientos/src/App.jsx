@@ -358,6 +358,7 @@ function buildModelsFromRows(rows) {
     const code = extractEngineCode(r.nombre)
     if (!modelData[r.categoria].some(e => e.name === code)) {
       modelData[r.categoria].push({
+        id: r.id ?? null,
         name: code,
         fuel: r.combustible,
         oil: r.aceite_lt != null ? Number(r.aceite_lt) : null,
@@ -378,7 +379,7 @@ function buildModelsFromRows(rows) {
 function loadModelsFromDB() {
   if (_modelsCache) return Promise.resolve(_modelsCache)
   if (_modelsCachePromise) return _modelsCachePromise
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos_modelos?activo=eq.true&select=clase,categoria,nombre,combustible,aceite_lt,especif_mb,orden&order=clase.asc,categoria.asc,orden.asc`
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos_modelos?activo=eq.true&select=id,clase,categoria,nombre,combustible,aceite_lt,especif_mb,orden&order=clase.asc,categoria.asc,orden.asc`
   _modelsCachePromise = fetch(url, {
     headers: {
       apikey: import.meta.env.VITE_SUPABASE_KEY,
@@ -1738,6 +1739,15 @@ function MainApp({ session, onLogout }) {
   });
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifList, setNotifList]                 = useState([]);
+  // Correcciones de aceite (mecánico propone → jefe aprueba vía RPC)
+  const [corrList, setCorrList]                   = useState([]);
+  const [corrResolvingId, setCorrResolvingId]     = useState(null);
+  const [corrOpen, setCorrOpen]                   = useState(false);
+  const [corrLitros, setCorrLitros]               = useState("");
+  const [corrComentario, setCorrComentario]       = useState("");
+  const [corrSending, setCorrSending]             = useState(false);
+  const [corrEnviada, setCorrEnviada]             = useState(false);
+  const [corrError, setCorrError]                 = useState("");
   const [notifLoading, setNotifLoading]           = useState(false);
   const [notifCount, setNotifCount]               = useState(0);
   const [showBorradores, setShowBorradores]       = useState(false);
@@ -1866,15 +1876,20 @@ function MainApp({ session, onLogout }) {
   const isEV      = engineInfo ? engineInfo.fuel === "electrico" : false;
 
   // Auto-set fuel when engine selected
+  const resetCorreccionAceite = () => {
+    setCorrOpen(false); setCorrLitros(""); setCorrComentario(""); setCorrEnviada(false); setCorrError("");
+  };
   const handleEngineChange = (e) => {
     const eng = availableEngines.find(x => x.name === e.target.value);
     setEngine(e.target.value);
     if (eng && eng.fuel !== "electrico") setFuel(eng.fuel);
+    resetCorreccionAceite();
   };
   const handleModelChange = (e) => {
     setModel(e.target.value);
     setModelSearch(e.target.value);
     setEngine("");
+    resetCorreccionAceite();
   };
   const tasks        = buildTasks(sel, fuel, is4m, activeCodes, activeItems);
   const extras       = getExtras(fuel);
@@ -2290,8 +2305,64 @@ function MainApp({ session, onLogout }) {
       const list = Array.isArray(data) ? data : [];
       setNotifList(list);
       setNotifCount(list.length);
+      // Correcciones de aceite pendientes (sección propia en la campana)
+      try {
+        const resCorr = await fetch(`${SURL}/rest/v1/correcciones_aceite?estado=eq.pendiente&order=created_at.desc`, {
+          headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
+        });
+        if (resCorr.ok) {
+          const dCorr = await resCorr.json();
+          setCorrList(Array.isArray(dCorr) ? dCorr : []);
+        }
+      } catch(e) { console.error("[fetchNotifications correcciones]", e); }
     } catch(e) { console.error("[fetchNotifications]", e); }
     setNotifLoading(false);
+  };
+
+  // Mecánico propone corrección del aceite del catálogo (vehiculos_modelos)
+  const proponerCorreccionAceite = async () => {
+    const litros = Number(String(corrLitros).replace(",", "."));
+    if (!Number.isFinite(litros) || litros <= 0) { setCorrError("Ingresá los litros propuestos."); return; }
+    setCorrSending(true); setCorrError("");
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/correcciones_aceite`, {
+        method: "POST",
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json", "Prefer": "return=minimal" },
+        body: JSON.stringify({
+          modelo_id: engineInfo?.id ?? null,
+          categoria: model,
+          nombre: engine,
+          litros_actual: oilLiters,
+          litros_propuesto: litros,
+          comentario: corrComentario.trim() || null,
+          propuesto_por: session?.nombre || mechName || null,
+          propuesto_por_id: session?.id ?? null,
+        }),
+      });
+      if (res.status === 409) { setCorrError("Ya hay una corrección pendiente para este modelo."); setCorrSending(false); return; }
+      if (!res.ok) { console.error("[proponerCorreccionAceite]", res.status, await res.text()); setCorrError("No se pudo enviar. Intentá de nuevo."); setCorrSending(false); return; }
+      setCorrEnviada(true); setCorrOpen(false);
+    } catch(e) { console.error("[proponerCorreccionAceite]", e); setCorrError("No se pudo enviar. Intentá de nuevo."); }
+    setCorrSending(false);
+  };
+
+  // Jefe aprueba/rechaza vía RPC (el RPC actualiza vehiculos_modelos si aprueba)
+  const resolverCorreccionAceite = async (correccionId, aprobador, aprobar) => {
+    setCorrResolvingId(correccionId);
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/rpc/aprobar_correccion_aceite`, {
+        method: "POST",
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_correccion_id: correccionId, p_aprobador: aprobador, p_aprobar: aprobar }),
+      });
+      if (!res.ok) { console.error("[aprobar_correccion_aceite]", res.status, await res.text()); alert("No se pudo resolver la corrección. Intentá de nuevo."); }
+    } catch(e) { console.error("[aprobar_correccion_aceite]", e); }
+    setCorrResolvingId(null);
+    fetchNotifications();
   };
 
   const fetchBorradores = async () => {
@@ -2390,13 +2461,39 @@ function MainApp({ session, onLogout }) {
         </div>
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           {notifLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
-          {!notifLoading && notifList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios pendientes de aprobación.</div>}
+          {!notifLoading && notifList.length === 0 && corrList.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>No hay servicios pendientes de aprobación.</div>}
           {notifList.map(s => serviceRow(s,
             <button onClick={() => { setModoRevision(true); loadService(s); }}
               style={{ width:"100%", padding:"7px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontSize:10, fontFamily:"monospace", cursor:"pointer", fontWeight:"bold", letterSpacing:1 }}>
               ▶ Ver / Aprobar
             </button>
           ))}
+          {!notifLoading && corrList.length > 0 && (
+            <>
+              <div style={{ margin:"16px 0 8px", fontSize:10, color:"#C8A96E", letterSpacing:2, fontWeight:"bold" }}>🛢️ CORRECCIONES DE ACEITE ({corrList.length})</div>
+              {corrList.map(c => (
+                <div key={c.id} style={{ marginBottom:10, padding:"10px 12px", borderRadius:8, border:"1px solid #C8A96E30", background:"#C8A96E08" }}>
+                  <div style={{ fontSize:12, color:"#e0d8cc", fontWeight:"bold" }}>{c.nombre}</div>
+                  <div style={{ fontSize:10, color:"#888", marginBottom:5 }}>{c.categoria}</div>
+                  <div style={{ fontSize:14, color:"#C8A96E", fontWeight:"bold", marginBottom:5 }}>{c.litros_actual != null ? `${c.litros_actual} L` : "—"} → {c.litros_propuesto} L</div>
+                  <div style={{ fontSize:10, color:"#888", marginBottom:c.comentario ? 3 : 8 }}>Propuesto por {c.propuesto_por || "—"}</div>
+                  {c.comentario && <div style={{ fontSize:10, color:"#aaa", fontStyle:"italic", marginBottom:8 }}>"{c.comentario}"</div>}
+                  <div style={{ display:"flex", flexDirection:"column", gap:5, opacity:corrResolvingId === c.id ? 0.5 : 1 }}>
+                    {["Otto Ramos","Gustavo Ramos","Arturo Ramos"].map(nombre => (
+                      <button key={nombre} onClick={() => resolverCorreccionAceite(c.id, nombre, true)} disabled={corrResolvingId === c.id}
+                        style={{ width:"100%", padding:"7px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8010", color:"#4ade80", fontFamily:"monospace", fontSize:10, cursor:"pointer", letterSpacing:1 }}>
+                        ✅ Aprobar — {nombre}
+                      </button>
+                    ))}
+                    <button onClick={() => resolverCorreccionAceite(c.id, session?.nombre || "—", false)} disabled={corrResolvingId === c.id}
+                      style={{ width:"100%", padding:"7px", borderRadius:6, border:"1px solid #f8717140", background:"#f8717110", color:"#f87171", fontFamily:"monospace", fontSize:10, cursor:"pointer", letterSpacing:1 }}>
+                      ✕ Rechazar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -3262,13 +3359,44 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
         {/* Badge de aceite — aparece al seleccionar motor */}
         {oilLiters > 0 && (
-          <div style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:"#C8A96E12", border:"1px solid #C8A96E40", display:"flex", alignItems:"center", gap:12 }}>
-            <span style={{ fontSize:22 }}>🛢️</span>
-            <div>
-              <div style={{ fontSize:11, color:"#888", letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE</div>
-              <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{oilLiters} L</div>
-              <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{oilSpec}</div>
+          <div style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:"#C8A96E12", border:"1px solid #C8A96E40" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <span style={{ fontSize:22 }}>🛢️</span>
+              <div>
+                <div style={{ fontSize:11, color:"#888", letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE</div>
+                <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{oilLiters} L</div>
+                <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{oilSpec}</div>
+              </div>
             </div>
+            {corrEnviada ? (
+              <div style={{ marginTop:8, fontSize:10, color:"#C8A96E" }}>⏳ corrección propuesta</div>
+            ) : !corrOpen ? (
+              <button onClick={() => { setCorrOpen(true); setCorrLitros(""); setCorrComentario(""); setCorrError(""); }}
+                style={{ marginTop:8, padding:0, background:"none", border:"none", color:"#C8A96E88", fontSize:10, fontFamily:"monospace", cursor:"pointer", textDecoration:"underline" }}>
+                ¿Valor incorrecto?
+              </button>
+            ) : (
+              <div style={{ marginTop:10, paddingTop:10, borderTop:"1px solid #C8A96E30" }}>
+                <div style={{ fontSize:10, color:"#888", marginBottom:6 }}>Proponer corrección (la revisa un jefe antes de aplicarse):</div>
+                <div style={{ display:"flex", gap:6, marginBottom:6 }}>
+                  <input type="number" step="0.1" min="0" value={corrLitros} onChange={e => setCorrLitros(e.target.value)} placeholder="Litros"
+                    style={{ width:90, padding:"7px 9px", borderRadius:6, border:"1px solid #C8A96E40", background:"#0d0f12", color:"#C8A96E", fontFamily:"monospace", fontSize:12 }} />
+                  <input value={corrComentario} onChange={e => setCorrComentario(e.target.value)} placeholder="Comentario (opcional)"
+                    style={{ flex:1, padding:"7px 9px", borderRadius:6, border:"1px solid #C8A96E40", background:"#0d0f12", color:"#e0d8cc", fontFamily:"monospace", fontSize:11 }} />
+                </div>
+                {corrError && <div style={{ fontSize:10, color:"#f87171", marginBottom:6 }}>{corrError}</div>}
+                <div style={{ display:"flex", gap:6 }}>
+                  <button onClick={proponerCorreccionAceite} disabled={corrSending}
+                    style={{ flex:1, padding:"7px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E18", color:"#C8A96E", fontFamily:"monospace", fontSize:10, fontWeight:"bold", cursor:"pointer", letterSpacing:1, opacity:corrSending ? 0.5 : 1 }}>
+                    {corrSending ? "Enviando…" : "Proponer"}
+                  </button>
+                  <button onClick={() => { setCorrOpen(false); setCorrError(""); }}
+                    style={{ padding:"7px 12px", borderRadius:6, border:"1px solid #333", background:"transparent", color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {isEV && engine && (
