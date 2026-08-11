@@ -66,6 +66,20 @@ export default function ClientReport({ binId }) {
             ? new Date(r.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" })
               + " · " + new Date(r.created_at).toLocaleTimeString("es-CR", { hour:"2-digit", minute:"2-digit" })
             : (r.fecha || undefined);
+          // PUNTOS A ATENDER: derivados de `revisiones` (fuente viva — el jefe
+          // puede editar revisiones desde el Taller sin que se recalcule el
+          // snapshot `pendientes`). Mismos campos que el contador de issues de
+          // ReportView: status === "issue" + detail. El snapshot solo actúa de
+          // respaldo para registros históricos cuyas revisiones no traen
+          // `status` por ítem; si la estructura moderna existe, la derivación
+          // manda aunque salga vacía (un detalle borrado debe desaparecer).
+          const itemsRev = Object.values(r.revisiones || {})
+            .flat()
+            .filter(t => t && typeof t === "object");
+          const tieneStatus = itemsRev.some(t => "status" in t);
+          const pendientesDerivados = itemsRev
+            .filter(t => t.status === "issue" && t.detail)
+            .map(t => t.detail);
           setData({
             taller:       "Ramos y Ramos",
             created_at:   r.created_at,
@@ -77,7 +91,7 @@ export default function ClientReport({ binId }) {
             aceite:       r.aceite_litros ? { litros: r.aceite_litros, especificacion: r.aceite_spec } : null,
             revisiones:   r.revisiones,
             observaciones:  r.observaciones,
-            pendientes:     r.pendientes,
+            pendientes:     (tieneStatus || pendientesDerivados.length > 0) ? pendientesDerivados : r.pendientes,
             progreso:       r.progreso,
             rechazado:      r.rechazado,
             rechazado_por:  r.rechazado_por,
