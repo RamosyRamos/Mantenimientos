@@ -2857,7 +2857,7 @@ function MainApp({ session, onLogout }) {
     let atenderSection = "";
     if (issueTasks.length > 0) {
       issueTasks.forEach(t => {
-        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : "";
+        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id].replace(/\n+/g, "; ")}` : "";
         atenderSection += `⚠️ ${t.text}${detail}\n`;
       });
     }
@@ -2893,7 +2893,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     if (issueTasks.length > 0) {
       txt += `\n\n⚠️ Detalles marcados en el checklist:\n`;
       issueTasks.forEach(t => {
-        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id]}` : " (sin detalle escrito)";
+        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id].replace(/\n+/g, "; ")}` : " (sin detalle escrito)";
         txt += `- ${t.text}${detail}\n`;
       });
     }

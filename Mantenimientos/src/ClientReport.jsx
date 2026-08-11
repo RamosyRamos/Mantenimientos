@@ -33,6 +33,14 @@ const tipoRevision = (svc) => {
 };
 const esRC = (svc) => tipoRevision(svc) !== null;
 
+// Viñetas de RENDER para el detail de cada ítem (espejo de bulletize en
+// Taller/src/lib/informeSecciones.js): cada línea con contenido arranca con
+// '• ', sin duplicar en líneas que ya traen •/-. No se guarda en el dato.
+const bulletize = (texto) => String(texto || "")
+  .split("\n")
+  .map(l => (l.trim() && !/^\s*[•\-]/.test(l)) ? `• ${l}` : l)
+  .join("\n");
+
 export default function ClientReport({ binId }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
@@ -302,8 +310,8 @@ function ReportView({ data }) {
                       {isNA && <span style={{ fontSize:10, color:T.muted, marginLeft:8 }}>No aplica</span>}
                     </div>
                     {item.detail && (
-                      <div style={{ fontSize:12, color:CRIT.text, marginTop:6, padding:"6px 10px", background:CRIT.bg, borderRadius:4, borderLeft:`2px solid ${T.rojo}` }}>
-                        {item.detail}
+                      <div style={{ fontSize:12, color:CRIT.text, marginTop:6, padding:"6px 10px", background:CRIT.bg, borderRadius:4, borderLeft:`2px solid ${T.rojo}`, whiteSpace:"pre-wrap" }}>
+                        {bulletize(item.detail)}
                       </div>
                     )}
                     {item.fotos?.length > 0 && (
@@ -327,7 +335,7 @@ function ReportView({ data }) {
           <div className="ryr-card" style={{ margin:"16px 0", padding:"14px 16px", background:CRIT.bg, border:`1px solid ${CRIT.border}`, borderRadius:14 }}>
             <div style={{ fontSize:10, color:CRIT.text, letterSpacing:2, marginBottom:10, fontWeight:700 }}>⚠️ PUNTOS A ATENDER</div>
             {pendientes.map((p, i) => (
-              <div key={i} style={{ fontSize:13, color:T.texto, marginBottom:6, lineHeight:1.5, paddingLeft:10, borderLeft:`2px solid ${T.rojo}` }}>
+              <div key={i} style={{ fontSize:13, color:T.texto, marginBottom:6, lineHeight:1.5, paddingLeft:10, borderLeft:`2px solid ${T.rojo}`, whiteSpace:"pre-wrap" }}>
                 {p}
               </div>
             ))}
