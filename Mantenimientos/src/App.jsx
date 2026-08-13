@@ -101,6 +101,25 @@ const DEFAULT_ITEMS = {
     "Reemplazo de correa, bomba de agua, tensores y poleas",
     "Verificación de sincronización post-instalación",
   ]},
+  // ── EV (100% eléctricos) — usados por la serie EV (AEV/BEV) ──
+  "EV_A": { label:"Inspección A Eléctrico (menor EV)", icon:"⚡", tasks:[
+    "Cambio de filtro de habitáculo (combinado / HEPA según modelo)",
+    "Inspección visual sistema de alto voltaje (cables y conectores)",
+    "Chequeo de batería 12V (test de carga)",
+    "Chequeo de estado de salud (SoH) de batería HV con XENTRY",
+    "Revisión de frenos (discos, pastillas, oxidación)",
+    "Revisión de llantas y rotación",
+    "Revisión de suspensión y dirección",
+    "Luces, plumillas y nivel de lavaparabrisas",
+    "Verificación de nivel y condición de refrigerante (circuitos térmicos)",
+    "Reset de ASSYST y verificación de actualizaciones de software",
+  ]},
+  "EV_B": { label:"Adicionales B Eléctrico", icon:"🔌", tasks:[
+    "Servicio de mordazas (limpieza y lubricación de pines/guías)",
+    "Prueba de resistencia de aislamiento HV con XENTRY",
+    "Chequeo de sistema A/C y bomba de calor",
+    "Inspección de eATS (motor eléctrico/reductora): fugas y ruidos",
+  ]},
   // Fuera del ASSYST — siempre al final del checklist principal
   "GLOW": { label:"Bujías de precalentamiento — Solo diesel", icon:"🌡️", outOfAssyst:true, tasks:[
     "-",
@@ -162,10 +181,15 @@ const DEFAULT_CODES = {
   "BH": { color:"#34D399", desc:"B + refrigerante",                                      items:["2","3","13"] },
   "BK": { color:"#10B981", desc:"B + frenos + refrigerante",                             items:["2","3","4","13"] },
   "BS": { color:"#059669", desc:"B + techo + refrigerante + ATF",                        items:["2","3","10","13","20"] },
+  // Serie EV — 100% eléctricos. "AE"/"BE" no se pudieron usar: BE ya es un código ASSYST diesel real.
+  // ev:true → buildTasks NO suma GLOW ni diferenciales 4MATIC. BEV duplica los items de AEV + extras.
+  "AEV": { color:"#4ade80", desc:"Servicio A Eléctrico — filtro habitáculo + inspección HV + SoH batería", items:["EV_A"], ev:true, fuelLock:"electrico" },
+  "BEV": { color:"#22c55e", desc:"Servicio B Eléctrico — AEV + líq. frenos + aislamiento HV + eATS",       items:["EV_A","4","EV_B"], ev:true, fuelLock:"electrico" },
 };
 
 const DEFAULT_A_KEYS = ["A","A0","A1","A2","A3","A4","A5","A6","A7","A8","A9","AC","AF","AG","AH","AK"];
 const DEFAULT_B_KEYS = ["B","B0","B1","B2","B3","B4","B5","B6","B7","B8","B9","BC","BD","BE","BF","BH","BK","BS"];
+const DEFAULT_EV_KEYS = ["AEV","BEV"];
 
 // ─── REVISIONES ADICIONALES FUERA DEL ASSYST ─────────────────────────────
 // fuel: "all" | "gasolina" | "diesel"
@@ -1557,6 +1581,8 @@ function buildTasks(code, fuel, is4m, codes, items) {
       result.push({ id:`${resolved}_${i}`, grp:block.label, icon:block.icon, text, outOfAssyst:!!block.outOfAssyst })
     );
   });
+  // Serie EV: un eléctrico no lleva bujías glow ni servicio de diferenciales 4MATIC
+  if (def.ev) return result;
   // Bujías de precalentamiento — SOLO diesel
   if (fuel === "diesel") {
     const glow = items["GLOW"];
@@ -1813,6 +1839,7 @@ function MainApp({ session, onLogout }) {
   const [activeAKeys, setActiveAKeys] = useState(DEFAULT_A_KEYS);
   const [activeBKeys, setActiveBKeys] = useState(DEFAULT_B_KEYS);
   const [activeCKeys, setActiveCKeys] = useState([]);          // serie 'C' — Revisión de Compra
+  const [activeEVKeys, setActiveEVKeys] = useState(DEFAULT_EV_KEYS); // serie 'EV' — eléctricos
   const [dictamenRec,  setDictamenRec]  = useState("");        // clave del dictamen — RC: apto/apto_reparaciones/no_recomendable · RG: excelente/bueno/requiere_reparaciones/critico
   const [reparaciones, setReparaciones] = useState([]);        // [{ descripcion, costo_estimado }]
 
@@ -1835,16 +1862,18 @@ function MainApp({ session, onLogout }) {
         itemsArr.map(i => [i.clave, { label: i.label, icon: i.icon, tasks: i.tasks, outOfAssyst: !!i.out_of_assyst }])
       );
       const newCodes = Object.fromEntries(
-        recetas.map(r => [r.codigo, { color: r.color, desc: r.descripcion, items: r.items, fuelLock: r.fuel_lock || null }])
+        recetas.map(r => [r.codigo, { color: r.color, desc: r.descripcion, items: r.items, fuelLock: r.fuel_lock || null, ev: r.serie === 'EV' }])
       );
       const newAKeys = recetas.filter(r => r.serie === 'A').map(r => r.codigo);
       const newBKeys = recetas.filter(r => r.serie === 'B').map(r => r.codigo);
       const newCKeys = recetas.filter(r => r.serie === 'C').map(r => r.codigo);
+      const newEVKeys = recetas.filter(r => r.serie === 'EV').map(r => r.codigo);
       setActiveItems(newItems);
       setActiveCodes(newCodes);
       setActiveAKeys(newAKeys);
       setActiveBKeys(newBKeys);
       setActiveCKeys(newCKeys);
+      setActiveEVKeys(newEVKeys);
     }).catch(e => console.warn("[mant] error cargando recetas/items de Supabase:", e));
   }, []);
 
@@ -2638,7 +2667,7 @@ function MainApp({ session, onLogout }) {
         <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
           {cmTab === "recetas" && (
             <>
-              {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeCKeys.length > 0 ? [["Serie C — Revisiones", activeCKeys]] : [])].map(([titulo, keys]) => (
+              {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeEVKeys.length > 0 ? [["Serie EV — Eléctricos", activeEVKeys]] : []),...(activeCKeys.length > 0 ? [["Serie C — Revisiones", activeCKeys]] : [])].map(([titulo, keys]) => (
                 <div key={titulo} style={{ marginBottom:16 }}>
                   <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>{titulo.toUpperCase()}</div>
                   {keys.map(k => {
@@ -3566,6 +3595,19 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </button>
             );})}
           </div>
+          {activeEVKeys.length > 0 && (
+            <>
+              <div style={{ fontSize:9, color:"#4ade8080", letterSpacing:2, margin:"12px 0 6px" }}>SERIE EV — ELÉCTRICOS</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {activeEVKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
+                  <button key={k} onClick={()=>setSel(k)} className="svc-btn"
+                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
+                    {k}
+                  </button>
+                );})}
+              </div>
+            </>
+          )}
           {activeCKeys.length > 0 && (
             <>
               <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
