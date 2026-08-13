@@ -270,7 +270,7 @@ function ReportView({ data }) {
           {aprobado_por && <Row label="Aprobado por" value={<span style={{ color:T.success, fontWeight:600 }}>✅ {aprobado_por}</span>} />}
           <Row label="Fecha y hora" value={fecha} />
           <Row label="Motor" value={vehiculo?.motor} />
-          <Row label="Combustible" value={vehiculo?.combustible === "diesel" ? "🛢️ Diesel" : "⛽ Gasolina"} />
+          <Row label="Combustible" value={vehiculo?.combustible === "electrico" ? "⚡ Eléctrico" : vehiculo?.combustible === "diesel" ? "🛢️ Diesel" : "⛽ Gasolina"} />
           <Row label="Tracción" value={vehiculo?.traccion} />
           {aceite && <Row label="Aceite cargado" value={<span style={{ color:T.rojo }}>🛢️ {aceite.litros} L — {aceite.especificacion}</span>} />}
         </Section>

@@ -1581,8 +1581,8 @@ function buildTasks(code, fuel, is4m, codes, items) {
       result.push({ id:`${resolved}_${i}`, grp:block.label, icon:block.icon, text, outOfAssyst:!!block.outOfAssyst })
     );
   });
-  // Serie EV: un eléctrico no lleva bujías glow ni servicio de diferenciales 4MATIC
-  if (def.ev) return result;
+  // Serie EV / combustible eléctrico: sin bujías glow ni servicio de diferenciales 4MATIC
+  if (def.ev || fuel === "electrico") return result;
   // Bujías de precalentamiento — SOLO diesel
   if (fuel === "diesel") {
     const glow = items["GLOW"];
@@ -1605,6 +1605,9 @@ function buildTasks(code, fuel, is4m, codes, items) {
 function getExtras(fuel) {
   return EXTRAS.filter(e => e.fuel === "all" || e.fuel === fuel);
 }
+
+const fuelLabel = f =>
+  f === "diesel" ? "🛢️ Diesel" : f === "electrico" ? "⚡ Eléctrico" : "⛽ Gasolina";
 
 // ─── COMPONENT ────────────────────────────────────────────────────────────
 const bg = "#0B0B0D", card = "#16181c", line = "#2f363b";
@@ -2018,6 +2021,15 @@ function MainApp({ session, onLogout }) {
 
   // Keep editingIdRef in sync so the async save callback always has the latest ID
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
+
+  // Combustible ↔ serie del código: si quedan incompatibles (eléctrico vs serie EV),
+  // deseleccionar el código para no dejarlo elegido pero invisible en el PASO 2.
+  // No aplica editando un servicio existente (no perder el código de un registro histórico).
+  useEffect(() => {
+    if (!sel || editingId) return;
+    const esSelEV = !!activeCodes[sel]?.ev;
+    if ((fuel === "electrico") !== esSelEV) setSel(null);
+  }, [fuel, sel, activeCodes, editingId]);
 
   // On mount: check for an unfinished draft from today
   useEffect(() => {
@@ -2901,7 +2913,7 @@ function MainApp({ session, onLogout }) {
 | **Placa** | ${plate || "—"} |
 | **Motor** | ${engine || "—"} |
 | **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
-| **Combustible** | ${fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"}${is4m?" · ⚙️ 4MATIC":""} |
+| **Combustible** | ${fuelLabel(fuel)}${is4m?" · ⚙️ 4MATIC":""} |
 ${(oilLiters > 0 && llevaAceite) ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
 | **Mecánico** | ${mechName} |
 | **Fecha** | ${sigDate} |
@@ -3576,7 +3588,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
         {/* Selector de código de servicio */}
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>CÓDIGO DE SERVICIO ASSYST <span style={{ color:"#f87171" }}>*</span></div>
+          <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>{fuel === "electrico" ? "CÓDIGO DE SERVICIO" : "CÓDIGO DE SERVICIO ASSYST"} <span style={{ color:"#f87171" }}>*</span></div>
+          {fuel !== "electrico" && (<>
           <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
             {activeAKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
@@ -3595,7 +3608,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </button>
             );})}
           </div>
-          {activeEVKeys.length > 0 && (
+          </>)}
+          {fuel === "electrico" && activeEVKeys.length > 0 && (
             <>
               <div style={{ fontSize:9, color:"#4ade8080", letterSpacing:2, margin:"12px 0 6px" }}>SERIE EV — ELÉCTRICOS</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -3608,7 +3622,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </div>
             </>
           )}
-          {activeCKeys.length > 0 && (
+          {fuel !== "electrico" && activeCKeys.length > 0 && (
             <>
               <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -3628,12 +3642,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         <div style={{ marginBottom:16 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:8 }}>COMBUSTIBLE</div>
           <div style={{ display:"flex", gap:8 }}>
-            {[["gasolina","⛽ Gasolina"],["diesel","🛢️ Diesel"]].map(([v,lbl])=>(
-              <button key={v} onClick={()=>setFuel(v)}
-                style={{ flex:1, padding:"10px", borderRadius:6, border:`1px solid ${fuel===v?"#C8A96E60":line}`, background:fuel===v?"#C8A96E15":"transparent", color:fuel===v?"#C8A96E":"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:fuel===v?"bold":"normal" }}>
-                {lbl}
-              </button>
-            ))}
+            {[["gasolina","⛽ Gasolina"],["diesel","🛢️ Diesel"],["electrico","⚡ Eléctrico"]].map(([v,lbl])=>{
+              const acc = v === "electrico" ? "#4ade80" : "#C8A96E";
+              return (
+                <button key={v} onClick={()=>setFuel(v)}
+                  style={{ flex:1, padding:"10px 4px", borderRadius:6, border:`1px solid ${fuel===v?acc+"60":line}`, background:fuel===v?acc+"15":"transparent", color:fuel===v?acc:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:fuel===v?"bold":"normal" }}>
+                  {lbl}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -3646,10 +3663,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         </div>
 
         <div className="sticky-action">
-          <button onClick={()=>setStep(3)}
-            style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer" }}>
+          <button onClick={()=>{ if (activeCodes[sel]) setStep(3); }} disabled={!activeCodes[sel]}
+            style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:activeCodes[sel]?"pointer":"not-allowed", opacity:activeCodes[sel]?1:0.4 }}>
             INICIAR INSPECCIÓN →
           </button>
+          {!activeCodes[sel] && <div style={{ textAlign:"center", fontSize:10, color:"#444", marginTop:8 }}>Seleccioná un código de servicio para continuar</div>}
         </div>
       </div>
     </div>
@@ -4036,7 +4054,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 {oilLiters > 0 && llevaAceite && <div>🛢️ Aceite: <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{oilLiters} L</span> · {oilSpec}</div>}
                 {plate && <div>📋 <span style={{ letterSpacing:2 }}>{plate}</span></div>}
                 {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
-                <div>{fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"} {is4m?"· ⚙️ 4MATIC":""}</div>
+                <div>{fuelLabel(fuel)} {is4m?"· ⚙️ 4MATIC":""}</div>
                 <div>✅ Progreso ASSYST: <span style={{ color:isComplete?"#4ade80":G }}>{doneN}/{total} ({pct}%)</span>{naN > 0 && <span style={{ color:"#555", fontSize:10 }}> · {naN} N/A</span>}</div>
                 {exDoneN > 0 && <div>🔎 Revisiones adicionales: <span style={{ color:"#a855f7" }}>{exDoneN}/{exTotal}</span></div>}
               </div>
@@ -4120,7 +4138,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                   {model && <div>🚗 {model}</div>}
                   {plate && <div>📋 <span style={{ letterSpacing:2, color:"#ccc" }}>{plate}</span></div>}
                   {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
-                  <div>{fuel==="diesel"?"🛢️ Diesel":"⛽ Gasolina"} {is4m?"· ⚙️ 4MATIC":""}</div>
+                  <div>{fuelLabel(fuel)} {is4m?"· ⚙️ 4MATIC":""}</div>
                   <div>✅ Progreso: <span style={{ color:isComplete?"#4ade80":"#C8A96E" }}>{doneN}/{total} tareas ({pct}%)</span></div>
                 </div>
               </div>
