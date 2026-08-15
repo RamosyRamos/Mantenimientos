@@ -14,7 +14,7 @@
 
 insert into mant_items (clave, label, icon, tasks, out_of_assyst, orden) values
 ('EV_A', 'Inspección A Eléctrico (menor EV)', '⚡',
- '["Cambio de filtro de habitáculo (combinado / HEPA según modelo)","Inspección visual sistema de alto voltaje (cables y conectores)","Chequeo de batería 12V (test de carga)","Chequeo de estado de salud (SoH) de batería HV con XENTRY","Revisión de frenos (discos, pastillas, oxidación)","Revisión de llantas y rotación","Revisión de suspensión y dirección","Luces, plumillas y nivel de lavaparabrisas","Verificación de nivel y condición de refrigerante (circuitos térmicos)","Reset de ASSYST y verificación de actualizaciones de software"]'::jsonb,
+ '["Cambio de filtro de habitáculo (combinado / HEPA según modelo)","Inspección visual sistema de alto voltaje (cables y conectores)","Chequeo de batería 12V (test de carga)","Chequeo de estado de salud (SoH) de batería HV con XENTRY","Revisión de frenos (discos, pastillas, oxidación)","Revisión de llantas y rotación","Revisión de suspensión y dirección","Luces, escobillas limpiaparabrisas y nivel de lavaparabrisas","Verificación de nivel y condición de refrigerante (circuitos térmicos)","Reset de ASSYST y verificación de actualizaciones de software"]'::jsonb,
  false, 30)
 on conflict (clave) do nothing;
 

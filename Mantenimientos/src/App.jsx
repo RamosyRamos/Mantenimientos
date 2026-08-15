@@ -31,6 +31,7 @@ const DEFAULT_ITEMS = {
     "Inspección visual de llantas — desgaste y daños",
     "Reemplazo del filtro de habitáculo / carbón activo",
     "Revisión de luces, alertas y sensores",
+    "Revisión de escobillas limpiaparabrisas y lavadores",
     "Inspección de sistema de escape",
     "Inspección de suspensión y dirección",
     "Inspección de faja de accesorios",
@@ -110,7 +111,7 @@ const DEFAULT_ITEMS = {
     "Revisión de frenos (discos, pastillas, oxidación)",
     "Revisión de llantas y rotación",
     "Revisión de suspensión y dirección",
-    "Luces, plumillas y nivel de lavaparabrisas",
+    "Luces, escobillas limpiaparabrisas y nivel de lavaparabrisas",
     "Verificación de nivel y condición de refrigerante (circuitos térmicos)",
     "Reset de ASSYST y verificación de actualizaciones de software",
   ]},
@@ -122,7 +123,7 @@ const DEFAULT_ITEMS = {
   ]},
   // Fuera del ASSYST — siempre al final del checklist principal
   "GLOW": { label:"Bujías de precalentamiento — Solo diesel", icon:"🌡️", outOfAssyst:true, tasks:[
-    "-",
+    "Extracción de bujías de precalentamiento",
     "Verificación eléctrica de cada bujía (resistencia con multímetro)",
     "Inspección del controlador de bujías (glow plug relay/module)",
     "Descarbonar los alojamientos antes de extraer (motor caliente)",

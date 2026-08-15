@@ -33,7 +33,7 @@ on conflict (clave) do nothing;
 
 insert into mant_items (clave, label, icon, tasks, out_of_assyst, orden) values
 ('2', 'Inspección B (mayor)', '🔍',
- '["Inspección visual del motor — fugas, correas, mangueras","Revisión y corrección de todos los niveles de fluidos","Inspección de pastillas y discos de freno (todos los ejes)","Revisión del freno de estacionamiento","Inspección de presión de llantas (Incluida llanta de repuesto)","Inspección visual de llantas — desgaste y daños","Reemplazo del filtro de habitáculo / carbón activo","Revisión de luces, alertas y sensores","Inspección de sistema de escape","Inspección de suspensión y dirección","Inspección de faja de accesorios","Prueba de batería con analizador de batería (Anotar estado de salud y carga)","Escaneo completo de fallas (Star Diagnosis)","Prueba en carretera","Reiniciar intervalo de mantenimiento"]'::jsonb,
+ '["Inspección visual del motor — fugas, correas, mangueras","Revisión y corrección de todos los niveles de fluidos","Inspección de pastillas y discos de freno (todos los ejes)","Revisión del freno de estacionamiento","Inspección de presión de llantas (Incluida llanta de repuesto)","Inspección visual de llantas — desgaste y daños","Reemplazo del filtro de habitáculo / carbón activo","Revisión de luces, alertas y sensores","Revisión de escobillas limpiaparabrisas y lavadores","Inspección de sistema de escape","Inspección de suspensión y dirección","Inspección de faja de accesorios","Prueba de batería con analizador de batería (Anotar estado de salud y carga)","Escaneo completo de fallas (Star Diagnosis)","Prueba en carretera","Reiniciar intervalo de mantenimiento"]'::jsonb,
  false, 2)
 on conflict (clave) do nothing;
 
@@ -99,7 +99,7 @@ on conflict (clave) do nothing;
 
 insert into mant_items (clave, label, icon, tasks, out_of_assyst, orden) values
 ('GLOW', 'Bujías de precalentamiento — Solo diesel', '🌡️',
- '["-","Verificación eléctrica de cada bujía (resistencia con multímetro)","Inspección del controlador de bujías (glow plug relay/module)","Descarbonar los alojamientos antes de extraer (motor caliente)","Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta","Instalación con torque especificado según WIS del motor","Verificación con Star Diagnosis (test de precalentamiento)"]'::jsonb,
+ '["Extracción de bujías de precalentamiento","Verificación eléctrica de cada bujía (resistencia con multímetro)","Inspección del controlador de bujías (glow plug relay/module)","Descarbonar los alojamientos antes de extraer (motor caliente)","Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta","Instalación con torque especificado según WIS del motor","Verificación con Star Diagnosis (test de precalentamiento)"]'::jsonb,
  true, 13)
 on conflict (clave) do nothing;
 
