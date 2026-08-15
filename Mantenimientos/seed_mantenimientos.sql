@@ -99,19 +99,19 @@ on conflict (clave) do nothing;
 
 insert into mant_items (clave, label, icon, tasks, out_of_assyst, orden) values
 ('GLOW', 'Bujías de precalentamiento — Solo diesel', '🌡️',
- '["Extracción de bujías de precalentamiento","Verificación eléctrica de cada bujía (resistencia con multímetro)","Inspección del controlador de bujías (glow plug relay/module)","Descarbonar los alojamientos antes de extraer (motor caliente)","Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta","Instalación con torque especificado según WIS del motor","Verificación con Star Diagnosis (test de precalentamiento)"]'::jsonb,
+ '["Extracción de bujías de precalentamiento","~Verificación eléctrica de cada bujía (resistencia con multímetro)","~Inspección del controlador de bujías (glow plug relay/module)","~Descarbonar los alojamientos antes de extraer (motor caliente)","~Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta","~Instalación con torque especificado según WIS del motor","Verificación con Star Diagnosis (test de precalentamiento)"]'::jsonb,
  true, 13)
 on conflict (clave) do nothing;
 
 insert into mant_items (clave, label, icon, tasks, out_of_assyst, orden) values
 ('4M_DIFF', 'Diferencial trasero 4MATIC', '🔩',
- '["⚠ No pertenece al ASSYST — inspección recomendada ~100.000 km","Drenaje del aceite del diferencial trasero","Carga de aceite hypoid 75w-90 aprobado MB","Inspección de sellos y retenes del diferencial","Verificación de ausencia de fugas post-servicio"]'::jsonb,
+ '["~⚠ No pertenece al ASSYST — inspección recomendada ~100.000 km","Drenaje del aceite del diferencial trasero","Carga de aceite hypoid 75w-90 aprobado MB","Inspección de sellos y retenes del diferencial","Verificación de ausencia de fugas post-servicio"]'::jsonb,
  true, 14)
 on conflict (clave) do nothing;
 
 insert into mant_items (clave, label, icon, tasks, out_of_assyst, orden) values
 ('4M_FDIFF', 'Diferencial delantero 4MATIC', '🔩',
- '["⚠ No pertenece al ASSYST — verificar si es serviceable (consultar WIS)","Drenaje del aceite del diferencial delantero si aplica","Carga de aceite hypoid aprobado MB","Inspección de sellos y retenes"]'::jsonb,
+ '["~⚠ No pertenece al ASSYST — verificar si es serviceable (consultar WIS)","Drenaje del aceite del diferencial delantero si aplica","Carga de aceite hypoid aprobado MB","Inspección de sellos y retenes"]'::jsonb,
  true, 15)
 on conflict (clave) do nothing;
 

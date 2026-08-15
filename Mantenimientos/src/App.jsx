@@ -124,22 +124,22 @@ const DEFAULT_ITEMS = {
   // Fuera del ASSYST — siempre al final del checklist principal
   "GLOW": { label:"Bujías de precalentamiento — Solo diesel", icon:"🌡️", outOfAssyst:true, tasks:[
     "Extracción de bujías de precalentamiento",
-    "Verificación eléctrica de cada bujía (resistencia con multímetro)",
-    "Inspección del controlador de bujías (glow plug relay/module)",
-    "Descarbonar los alojamientos antes de extraer (motor caliente)",
-    "Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta",
-    "Instalación con torque especificado según WIS del motor",
+    "~Verificación eléctrica de cada bujía (resistencia con multímetro)",
+    "~Inspección del controlador de bujías (glow plug relay/module)",
+    "~Descarbonar los alojamientos antes de extraer (motor caliente)",
+    "~Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta",
+    "~Instalación con torque especificado según WIS del motor",
     "Verificación con Star Diagnosis (test de precalentamiento)",
   ]},
   "4M_DIFF": { label:"Diferencial trasero 4MATIC", icon:"🔩", outOfAssyst:true, tasks:[
-    "⚠ No pertenece al ASSYST — inspección recomendada ~100.000 km",
+    "~⚠ No pertenece al ASSYST — inspección recomendada ~100.000 km",
     "Drenaje del aceite del diferencial trasero",
     "Carga de aceite hypoid 75w-90 aprobado MB",
     "Inspección de sellos y retenes del diferencial",
     "Verificación de ausencia de fugas post-servicio",
   ]},
   "4M_FDIFF": { label:"Diferencial delantero 4MATIC", icon:"🔩", outOfAssyst:true, tasks:[
-    "⚠ No pertenece al ASSYST — verificar si es serviceable (consultar WIS)",
+    "~⚠ No pertenece al ASSYST — verificar si es serviceable (consultar WIS)",
     "Drenaje del aceite del diferencial delantero si aplica",
     "Carga de aceite hypoid aprobado MB",
     "Inspección de sellos y retenes",
@@ -1570,6 +1570,15 @@ function smartSearch(query, modelGroups = MODEL_GROUPS) {
   return results;
 }
 // ─── BUILD FUNCTIONS ──────────────────────────────────────────────────────
+
+// Prefijo "~" en mant_items.tasks = procedimiento interno del mecánico.
+// Acá se muestra la task NORMAL (sin el símbolo); es Taller quien la filtra de
+// las viñetas de documentos al cliente. El strip se hace al ENTRAR al runtime
+// (buildTasks y textToId): render, borradores e informes trabajan siempre con
+// el texto limpio, así los snapshots de `servicios` no arrastran el ~ y el
+// re-mapeo por texto sigue matcheando borradores guardados antes del marcado.
+const stripInterna = t => String(t || "").replace(/^~\s*/, "");
+
 function buildTasks(code, fuel, is4m, codes, items) {
   const def = codes[code];
   if (!def) return [];
@@ -1579,7 +1588,7 @@ function buildTasks(code, fuel, is4m, codes, items) {
     const resolved = id === "FUEL" ? fuelItem : id;
     const block = items[resolved];
     if (block) block.tasks.forEach((text, i) =>
-      result.push({ id:`${resolved}_${i}`, grp:block.label, icon:block.icon, text, outOfAssyst:!!block.outOfAssyst })
+      result.push({ id:`${resolved}_${i}`, grp:block.label, icon:block.icon, text: stripInterna(text), outOfAssyst:!!block.outOfAssyst })
     );
   });
   // Serie EV / combustible eléctrico: sin bujías glow ni servicio de diferenciales 4MATIC
@@ -1588,7 +1597,7 @@ function buildTasks(code, fuel, is4m, codes, items) {
   if (fuel === "diesel") {
     const glow = items["GLOW"];
     if (glow) glow.tasks.forEach((text, i) =>
-      result.push({ id:`GLOW_${i}`, grp:glow.label, icon:glow.icon, text, outOfAssyst:true })
+      result.push({ id:`GLOW_${i}`, grp:glow.label, icon:glow.icon, text: stripInterna(text), outOfAssyst:true })
     );
   }
   // 4MATIC — diferencial
@@ -1596,7 +1605,7 @@ function buildTasks(code, fuel, is4m, codes, items) {
     ["4M_DIFF","4M_FDIFF"].forEach(key => {
       const block = items[key];
       if (block) block.tasks.forEach((text, i) =>
-        result.push({ id:`${key}_${i}`, grp:block.label, icon:block.icon, text, outOfAssyst:true })
+        result.push({ id:`${key}_${i}`, grp:block.label, icon:block.icon, text: stripInterna(text), outOfAssyst:true })
       );
     });
   }
@@ -2285,12 +2294,15 @@ function MainApp({ session, onLogout }) {
       const newIssue   = {};
       const newChecked = {};
       const textToId   = {};
+      // Claves SIN el prefijo ~ (interno): los snapshots de servicios siempre
+      // guardan el texto limpio (buildTasks stripea), y los borradores previos
+      // al marcado tampoco lo tienen — matcheo consistente en ambos casos.
       Object.keys(activeItems).forEach(k => {
-        activeItems[k].tasks.forEach((t, i) => { textToId[t] = `${k}_${i}`; });
+        activeItems[k].tasks.forEach((t, i) => { textToId[stripInterna(t)] = `${k}_${i}`; });
       });
       const newPhotos = {};
       Object.values(revisiones).flat().forEach(item => {
-        const taskId = item.id || textToId[item.text] || null;
+        const taskId = item.id || textToId[stripInterna(item.text)] || null;
         if (taskId && item.status && item.status !== "pending") {
           newStatus[taskId]  = item.status;
           newChecked[taskId] = true;
