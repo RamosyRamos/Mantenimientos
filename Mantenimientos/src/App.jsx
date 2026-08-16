@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import imageCompression from 'browser-image-compression';
+import FotoPicker from './FotoPicker.jsx';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const DEFAULT_ITEMS = {
@@ -2213,37 +2214,33 @@ function MainApp({ session, onLogout }) {
     setActiveIssue(null);
   };
 
-  const uploadPhoto = (id) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.capture = "environment";
-    input.onchange = async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return; }
-      if (file.size > 25 * 1024 * 1024) { alert('La imagen supera los 25 MB'); return; }
-      const comprimida = await imageCompression(file, {
-        maxSizeMB: 1,
-        maxWidthOrHeight: 2000,
-        useWebWorker: true,
-        fileType: 'image/jpeg',
-      });
-      const path = `servicios/${id}/${crypto.randomUUID()}.jpg`;
-      const SURL = import.meta.env.VITE_SUPABASE_URL;
-      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-      const res = await fetch(
-        `${SURL}/storage/v1/object/fotos-servicios/${path}`,
-        { method: 'POST',
-          headers: { apikey: SKEY, Authorization: 'Bearer ' + SKEY,
-                     'Content-Type': 'image/jpeg', 'x-upsert': 'false' },
-          body: comprimida }
-      );
-      if (!res.ok) { alert('Error al subir la imagen. Intentá de nuevo.'); return; }
-      const url = `${SURL}/storage/v1/object/public/fotos-servicios/${path}`;
-      setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
-    };
-    input.click();
+  // Sube la foto de evidencia de una tarea. El picker (cámara/galería) es
+  // FotoPicker — este flujo de compresión/bucket fotos-servicios NO cambió;
+  // solo dejó de crear el input a mano (que forzaba capture y en Android
+  // bloqueaba la galería).
+  const subirFotoTarea = async (id, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return; }
+    if (file.size > 25 * 1024 * 1024) { alert('La imagen supera los 25 MB'); return; }
+    const comprimida = await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 2000,
+      useWebWorker: true,
+      fileType: 'image/jpeg',
+    });
+    const path = `servicios/${id}/${crypto.randomUUID()}.jpg`;
+    const SURL = import.meta.env.VITE_SUPABASE_URL;
+    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+    const res = await fetch(
+      `${SURL}/storage/v1/object/fotos-servicios/${path}`,
+      { method: 'POST',
+        headers: { apikey: SKEY, Authorization: 'Bearer ' + SKEY,
+                   'Content-Type': 'image/jpeg', 'x-upsert': 'false' },
+        body: comprimida }
+    );
+    if (!res.ok) { alert('Error al subir la imagen. Intentá de nuevo.'); return; }
+    const url = `${SURL}/storage/v1/object/public/fotos-servicios/${path}`;
+    setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
   };
 
   // ── Firma helpers ──
@@ -4001,10 +3998,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                                 style={{ flex:1, padding:"6px", borderRadius:4, border:`1px solid ${line}`, background:card, color:"#555", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
                                 Cancelar
                               </button>
-                              <button onClick={()=>uploadPhoto(id)}
-                                style={{ flex:1, padding:"6px", borderRadius:4, border:"1px solid #60a5fa60", background:"#60a5fa18", color:"#60a5fa", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
-                                📷 Foto
-                              </button>
+                              <FotoPicker variant="compact" onFile={f => subirFotoTarea(id, f)} />
                               <button onClick={()=>confirmIssue(id,text)}
                                 style={{ flex:2, padding:"6px", borderRadius:4, border:"1px solid #f8717150", background:"#f8717118", color:"#f87171", fontFamily:"monospace", fontSize:10, cursor:"pointer", fontWeight:"bold" }}>
                                 ⚠ Guardar en notas

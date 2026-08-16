@@ -10,6 +10,10 @@ App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL
 - Bandeja jefe: la campana 🔔 (gate existente `showAdminButtons` = rol admin/jefe y no venir del Taller) suma la sección "🛢️ CORRECCIONES DE ACEITE" — card con nombre/categoría, "X L → Y L", proponente y comentario; botones de aprobador (Otto/Gustavo/Arturo, mismo patrón que la aprobación de servicios) + Rechazar; ambos van al RPC y refrescan la bandeja.
 - El flujo de aprobación de SERVICIOS (`servicios.estado/aprobado/aprobado_por`) no se tocó.
 
+## FotoPicker (ago 2026)
+
+`src/FotoPicker.jsx` — port del FotoPicker de Taller (057670a), copia propia como useIsMobile. Dos caminos: "📷" (input con `capture`, cámara directa en móvil) y "🖼" (galería) al mismo `onFile`; el input viejo creado a mano forzaba `capture="environment"` y en Android bloqueaba la galería. Única superficie de fotos de la app: evidencia por tarea de revisión (`subirFotoTarea(id, file)` — compresión + bucket `fotos-servicios` intactos). Devuelve un Fragment con los DOS botones (sin wrapper) a propósito: se integran a la fila flex existente del panel de detalle. Look monospace/azul propio, no el Carbon de Taller.
+
 ## Convenciones
 
 - Identidad git: `RamosyRamos` / `contacto@ramosyramoscr.com`. Branch `main`. Commits en español.
