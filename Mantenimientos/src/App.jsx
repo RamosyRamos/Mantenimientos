@@ -1640,15 +1640,23 @@ function LoginScreen({ onLogin }) {
     try {
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-      const res = await fetch(`${SURL}/rest/v1/rpc/login_mantenimientos`, {
+      const rpcLogin = (fn, body) => fetch(`${SURL}/rest/v1/rpc/${fn}`, {
         method: 'POST',
         headers: {
           "apikey": SKEY,
           "Authorization": `Bearer ${SKEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ p_nombre: nombre.trim(), p_password: password }),
+        body: JSON.stringify(body),
       });
+      // Login unificado (migración 20260817000001 de Taller): bcrypt con
+      // fallback legacy y re-hash transparente server-side. Si el RPC nuevo
+      // aún no existe (404 = migración sin correr), cae al
+      // login_mantenimientos viejo — deploy-safe en cualquier orden.
+      let res = await rpcLogin('login_usuario', { p_nombre: nombre.trim(), p_password: password, p_app: 'mantenimientos' });
+      if (res.status === 404) {
+        res = await rpcLogin('login_mantenimientos', { p_nombre: nombre.trim(), p_password: password });
+      }
       const data = await res.json();
       if (!res.ok || !data || data.error || !data.success) {
         setError(data?.error === 'invalid_credentials'
