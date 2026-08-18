@@ -1659,9 +1659,14 @@ function LoginScreen({ onLogin }) {
       }
       const data = await res.json();
       if (!res.ok || !data || data.error || !data.success) {
-        setError(data?.error === 'invalid_credentials'
-          ? 'Nombre o contraseña incorrectos'
-          : 'Error al iniciar sesión');
+        // usuario_inactivo (migración 20260818000002 de Taller): la clave era
+        // CORRECTA pero la cuenta está dada de baja. Antes caía en el genérico
+        // y el jefe reseteaba una contraseña que no era el problema.
+        setError(data?.error === 'usuario_inactivo'
+          ? 'Este usuario está desactivado. Contactá a un administrador.'
+          : data?.error === 'invalid_credentials'
+            ? 'Nombre o contraseña incorrectos'
+            : 'Error al iniciar sesión');
         setLoading(false);
         return;
       }
