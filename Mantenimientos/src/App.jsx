@@ -1748,12 +1748,61 @@ export default function App() {
       return s ? JSON.parse(s) : null;
     } catch(e) { return null; }
   });
-  if (!session) return <LoginScreen onLogin={setSession} />;
-  return <MainApp session={session} onLogout={() => {
+  const logout = () => {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem('ryr_session_source');
     setSession(null);
-  }} />;
+  };
+
+  // REVALIDACIÓN DE SESIÓN — Parte A del fix de seguridad (migración
+  // 20260818000001 de Taller). La sesión vive en localStorage sin expiración
+  // ni revalidación, y la baja de un usuario es desactivación y NUNCA DELETE:
+  // sin esto, un desactivado seguía con la app usable hasta cerrar sesión a
+  // mano. El RPC `mi_perfil` (SECURITY DEFINER, mismo proyecto Supabase)
+  // filtra `activo = true` ⇒ CERO FILAS = usuario desactivado o borrado.
+  //
+  // ⚠ CRÍTICO — la auto-sesión de los mecánicos que entran por el link de
+  // Taller (?mecanico=&orden_id=) NO es un usuario de la tabla: viene con
+  // `id: null` y `source: 'taller'`. Revalidarla daría cero filas SIEMPRE y
+  // los echaría del trabajo. Guard explícito por ambos campos.
+  //
+  // ⚠ FAIL-OPEN: solo una respuesta OK con cero filas expulsa. RPC sin migrar
+  // (404), red caída o env sin configurar NO echan a nadie.
+  useEffect(() => {
+    if (!session?.id || session.source === 'taller') return;
+    let vivo = true;
+    const revalidar = async () => {
+      try {
+        const SURL = import.meta.env.VITE_SUPABASE_URL;
+        const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+        if (!SURL || !SKEY) return;
+        const res = await fetch(`${SURL}/rest/v1/rpc/mi_perfil`, {
+          method: 'POST',
+          headers: {
+            "apikey": SKEY,
+            "Authorization": `Bearer ${SKEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ p_session_id: session.id }),
+        });
+        if (!vivo || !res.ok) return;
+        const data = await res.json();
+        const filas = Array.isArray(data) ? data : (data ? [data] : []);
+        if (!vivo || filas.length > 0) return;
+        alert("Tu sesión fue cerrada porque el usuario ya no está activo.");
+        logout();
+      } catch (_) { /* fail-open: nadie queda afuera por un problema de red */ }
+    };
+    revalidar();
+    // La pestaña que queda abierta todo el día: revalidar al volver a ella.
+    // Sin polling ni timers.
+    const alVolver = () => { if (document.visibilityState === "visible") revalidar(); };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => { vivo = false; document.removeEventListener("visibilitychange", alVolver); };
+  }, [session?.id, session?.source]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!session) return <LoginScreen onLogin={setSession} />;
+  return <MainApp session={session} onLogout={logout} />;
 }
 
 // ── Revisión serie 'C': distinción fina RC (compra) / RG (general) ──
