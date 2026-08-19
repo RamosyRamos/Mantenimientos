@@ -9,6 +9,9 @@
 import { useState, useEffect, useRef } from "react";
 import imageCompression from 'browser-image-compression';
 import FotoPicker from './FotoPicker.jsx';
+// Reglas de concurrencia/sellado compartidas con Taller — ver el encabezado del
+// archivo: es un GEMELO byte a byte de Taller/src/lib/servicioConcurrencia.js.
+import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad } from './servicioConcurrencia.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const DEFAULT_ITEMS = {
@@ -1832,64 +1835,6 @@ const DICTAMEN_OPCIONES = {
   ],
 };
 
-// ── Concurrencia y trazabilidad de un servicio compartido ──
-// El autosave escribe la FILA COMPLETA (revisiones/observaciones/fotos), así que
-// dos personas con el mismo servicio abierto se pisan sin más. `servicios` no
-// tiene updated_at, de modo que la detección se hace por HUELLA del contenido:
-// se compara lo que hay hoy en el servidor contra lo último que vimos nosotros.
-const stableStr = (v) => {
-  if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
-  if (Array.isArray(v)) return `[${v.map(stableStr).join(",")}]`;
-  return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stableStr(v[k])}`).join(",")}}`;
-};
-// Solo el contenido editable — los sellos (marcado_por/at) quedan fuera para que
-// un re-sello propio no se lea como cambio ajeno.
-const contenidoItem = (it) => ({
-  id: it?.id ?? null, status: it?.status ?? null,
-  detail: it?.detail ?? null, fotos: it?.fotos ?? null,
-});
-// vacío y null son la misma cosa acá: el servidor guarda null donde el cliente
-// tiene "" o {}, y esa diferencia no es un cambio de nadie.
-const vacioANull = (v) => {
-  if (v === "" || v === undefined) return null;
-  if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) return null;
-  return v ?? null;
-};
-const huellaServicio = (row) => stableStr({
-  revisiones: Object.fromEntries(
-    Object.entries(row?.revisiones || {}).map(([g, arr]) => [g, (arr || []).map(contenidoItem)])
-  ),
-  observaciones: vacioANull(row?.observaciones),
-  fotos: vacioANull(row?.fotos),
-});
-// Firma de UN ítem: cambia si cambió su estado, su detalle o sus fotos.
-const firmaItem = (it) => `${it?.status ?? ""}|${it?.detail ?? ""}|${(it?.fotos || []).join(",")}`;
-const itemTieneContenido = (it) => !!(it && ((it.status && it.status !== "pending") || it.detail || it.fotos?.length));
-
-const hace = (iso) => {
-  if (!iso) return "";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return "recién";
-  const min = Math.floor(ms / 60000);
-  if (min < 1)  return "hace menos de un minuto";
-  if (min < 60) return `hace ${min} minuto${min !== 1 ? "s" : ""}`;
-  const h = Math.floor(min / 60);
-  if (h < 24)   return `hace ${h} hora${h !== 1 ? "s" : ""}`;
-  const d = Math.floor(h / 24);
-  return `hace ${d} día${d !== 1 ? "s" : ""}`;
-};
-
-// Última actividad registrada en la fila: el sello más reciente del checklist;
-// si el servicio es anterior a los sellos, el mecánico y la fecha de creación.
-const ultimaActividad = (row) => {
-  let quien = null, at = null;
-  Object.values(row?.revisiones || {}).flat().forEach(it => {
-    if (it?.marcado_at && (!at || it.marcado_at > at)) { at = it.marcado_at; quien = it.marcado_por || null; }
-  });
-  if (!at) return { quien: row?.mecanico || null, at: row?.created_at || null, estimado: true };
-  return { quien, at, estimado: false };
-};
-
 function MainApp({ session, onLogout }) {
   const isMobile = useIsMobile();
   const [step, setStep]     = useState(1);
@@ -2326,12 +2271,7 @@ function MainApp({ session, onLogout }) {
   // anti-pisado y sellos/firmas por ítem para la trazabilidad.
   const registrarFilaVista = (row) => {
     baselineRef.current = huellaServicio(row);
-    const stamps = {}, snap = {};
-    Object.values(row?.revisiones || {}).flat().forEach(it => {
-      if (!it?.id) return;
-      snap[it.id] = firmaItem(it);
-      if (it.marcado_por || it.marcado_at) stamps[it.id] = { por: it.marcado_por || null, at: it.marcado_at || null };
-    });
+    const { snap, stamps } = instantaneaServicio(row);
     itemStampsRef.current = stamps;
     itemSnapRef.current   = snap;
     setItemStamps(stamps);
@@ -2391,27 +2331,16 @@ function MainApp({ session, onLogout }) {
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
       setAutoSaveStatus("saving");
       try {
-        const ahora  = new Date().toISOString();
-        const quien  = session?.nombre || d.mechName || null;
-        const stamps = itemStampsRef.current || {};
-        const snap   = itemSnapRef.current   || {};
-        const byGrpMap = {};
+        const crudo = {};
         d.tasks.forEach(t => {
-          if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
+          if (!crudo[t.grp]) crudo[t.grp] = [];
           const hasDetail = !!d.taskIssue[t.id];
           const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
-          const item = { id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null };
-          // Trazabilidad: el ítem que cambió desde el último guardado se sella
-          // con QUIEN ESTÁ LOGUEADO (no con el mecánico de la orden); el que no
-          // cambió conserva el sello de quien lo marcó originalmente.
-          const cambio = firmaItem(item) !== snap[t.id];
-          if (cambio && itemTieneContenido(item)) {
-            item.marcado_por = quien; item.marcado_at = ahora;
-          } else if (stamps[t.id]) {
-            item.marcado_por = stamps[t.id].por || null; item.marcado_at = stamps[t.id].at || null;
-          }
-          byGrpMap[t.grp].push(item);
+          crudo[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null });
         });
+        // Trazabilidad: regla compartida con Taller (servicioConcurrencia.js) —
+        // lo que cambió se sella con quien está logueado, lo demás conserva su autor.
+        const byGrpMap = sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || d.mechName || null, new Date().toISOString());
 
         // Abrir un servicio ya no lo re-escribe: si el contenido es idéntico al
         // que trajimos del servidor no hay nada que guardar. Esto evita que dos
