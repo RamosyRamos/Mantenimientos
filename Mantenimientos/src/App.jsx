@@ -1917,6 +1917,10 @@ function MainApp({ session, onLogout }) {
   const [conflicto,     setConflicto]     = useState(null); // {quien, at}
   const [itemStamps,    setItemStamps]    = useState({});   // {id: {por, at}} — espejo del ref, para pintar el sello
   const [recetasReady,  setRecetasReady]  = useState(false);
+  // Estado con el que se CARGÓ la fila (no se relee al vuelo: si el autosave
+  // tuviera que preguntarle al servidor, la ventana entre la lectura y el PATCH
+  // volvería a dejar pasar la escritura). Un servicio nuevo nace 'borrador'.
+  const [estadoOriginal, setEstadoOriginal] = useState('borrador');
   const [saveNonce,     setSaveNonce]     = useState(0);  // reintento manual del autosave tras un conflicto
   const autoSaveTimer = useRef(null);
   const editingIdRef  = useRef(null);
@@ -2038,7 +2042,7 @@ function MainApp({ session, onLogout }) {
   const esTavo = normalizar(session?.nombre) === normalizar('Gustavo Ramos');
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2067,6 +2071,7 @@ function MainApp({ session, onLogout }) {
     itemStampsRef.current = {}; itemSnapRef.current = {};
     conflictoRef.current = false;
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
+    setEstadoOriginal('borrador');   // arranca de cero: es un borrador nuevo
   };
   // Limpia SOLO el estado ligado al vehículo y a la orden. El estado de un
   // vehículo nunca debe sobrevivir al servicio de otro: se llama antes de
@@ -2322,6 +2327,17 @@ function MainApp({ session, onLogout }) {
     autoSaveTimer.current = setTimeout(async () => {
       const d  = autoSaveRef.current;
       if (d.sigDate) return; // Already signed — don't overwrite estado to borrador
+      // CORTE POR ESTADO (auditoría 2907de9, hallazgo R1). El payload de abajo
+      // escribe la FILA ENTERA con `estado:'borrador', aprobado:false`, y
+      // reconstruye `revisiones` desde la receta de HOY. Sobre un servicio que
+      // NO se cargó como borrador eso significaba: desaprobarlo, sacarlo de la
+      // cola de aprobación, y tirar los ítems que la receta ya no tiene. Pasaba
+      // con solo abrirlo desde 📋 Servicios realizados, 🔍 VER TODOS o la
+      // campana 🔔 — `loadService` limpia `sigDate` y rearmaba este autosave.
+      // Caso real: la orden #2701 quedó con el link del informe del cliente
+      // muerto. El no-op de la huella tapaba la mitad de los casos (26 de 66),
+      // no los que traían deriva de receta.
+      if (d.estadoOriginal && d.estadoOriginal !== 'borrador') return;
       if (conflictoRef.current) return; // Conflicto sin resolver: nadie pisa nada
       // Sin tareas no hay nada que guardar y sí mucho que perder: un checklist
       // vacío (catálogo aún cargando) borraría el del mecánico.
@@ -2487,6 +2503,9 @@ function MainApp({ session, onLogout }) {
     // Punto de partida de la guarda anti-pisado y de los sellos por ítem.
     conflictoRef.current = false;
     setConflicto(null);
+    // Y del corte por estado: lo que NO nació borrador se abre en solo lectura.
+    // Sin `estado` en la fila (selects viejos) se asume el caso seguro.
+    setEstadoOriginal(s.estado || 'desconocido');
     registrarFilaVista(s);
     const act = ultimaActividad(s);
     setServicioIntro(act.at ? { ...act, mecanico: s.mecanico || "" } : null);
@@ -3302,6 +3321,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           finalClientUrl = `${APP_URL}/servicio/${slug}`;
           setClientUrl(finalClientUrl);
           if (!editingId && savedId) setEditingId(savedId);
+          setEstadoOriginal('aprobado');   // idem confirmSig: fila fuera de borrador
         } else {
           console.error("[enviarAOrden] servicios save failed:", await sbRes.text());
         }
@@ -3428,6 +3448,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const clientUrlVal = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
       setClientUrl(clientUrlVal);
       if (!editingId && savedId) setEditingId(savedId);
+      // La fila ya no es borrador: el corte por estado queda armado aunque
+      // después alguien limpie sigDate (que es lo que hace loadService).
+      setEstadoOriginal('pendiente');
       notifyPush(
         ["Otto Ramos","Gustavo Ramos","Arturo Ramos"],
         esRC ? `${revisionLabel} pendiente de aprobación` : "Servicio pendiente de aprobación",
@@ -4156,6 +4179,22 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
         )}
       </div>
+
+      {/* SOLO LECTURA — la fila no se cargó como borrador, así que el autosave
+          está cortado. Sin este aviso el corte sería silencioso: se marcarían
+          ítems que no se guardan en ningún lado. */}
+      {editingId && estadoOriginal !== 'borrador' && (
+        <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #f8717140", background:"#f871710d", display:"flex", alignItems:"flex-start", gap:8 }}>
+          <span style={{ fontSize:13, lineHeight:1.3 }}>🔒</span>
+          <div style={{ flex:1, fontSize:11, color:"#f87171", lineHeight:1.6 }}>
+            Solo lectura — este servicio está <strong>{estadoOriginal}</strong>, ya no es un borrador.
+            <div style={{ fontSize:10, color:"#8a5a5a", marginTop:2 }}>
+              Lo que marqués acá NO se guarda. Reabrir un servicio cerrado y guardarlo lo devolvería a
+              borrador y le quitaría la aprobación.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CONTINUANDO UN SERVICIO AJENO — quién lo dejó en progreso y cuándo.
           El autosave pisa la fila entera, así que el aviso importa: el otro
