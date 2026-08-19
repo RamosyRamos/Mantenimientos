@@ -1832,6 +1832,64 @@ const DICTAMEN_OPCIONES = {
   ],
 };
 
+// ── Concurrencia y trazabilidad de un servicio compartido ──
+// El autosave escribe la FILA COMPLETA (revisiones/observaciones/fotos), así que
+// dos personas con el mismo servicio abierto se pisan sin más. `servicios` no
+// tiene updated_at, de modo que la detección se hace por HUELLA del contenido:
+// se compara lo que hay hoy en el servidor contra lo último que vimos nosotros.
+const stableStr = (v) => {
+  if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
+  if (Array.isArray(v)) return `[${v.map(stableStr).join(",")}]`;
+  return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stableStr(v[k])}`).join(",")}}`;
+};
+// Solo el contenido editable — los sellos (marcado_por/at) quedan fuera para que
+// un re-sello propio no se lea como cambio ajeno.
+const contenidoItem = (it) => ({
+  id: it?.id ?? null, status: it?.status ?? null,
+  detail: it?.detail ?? null, fotos: it?.fotos ?? null,
+});
+// vacío y null son la misma cosa acá: el servidor guarda null donde el cliente
+// tiene "" o {}, y esa diferencia no es un cambio de nadie.
+const vacioANull = (v) => {
+  if (v === "" || v === undefined) return null;
+  if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) return null;
+  return v ?? null;
+};
+const huellaServicio = (row) => stableStr({
+  revisiones: Object.fromEntries(
+    Object.entries(row?.revisiones || {}).map(([g, arr]) => [g, (arr || []).map(contenidoItem)])
+  ),
+  observaciones: vacioANull(row?.observaciones),
+  fotos: vacioANull(row?.fotos),
+});
+// Firma de UN ítem: cambia si cambió su estado, su detalle o sus fotos.
+const firmaItem = (it) => `${it?.status ?? ""}|${it?.detail ?? ""}|${(it?.fotos || []).join(",")}`;
+const itemTieneContenido = (it) => !!(it && ((it.status && it.status !== "pending") || it.detail || it.fotos?.length));
+
+const hace = (iso) => {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "recién";
+  const min = Math.floor(ms / 60000);
+  if (min < 1)  return "hace menos de un minuto";
+  if (min < 60) return `hace ${min} minuto${min !== 1 ? "s" : ""}`;
+  const h = Math.floor(min / 60);
+  if (h < 24)   return `hace ${h} hora${h !== 1 ? "s" : ""}`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} día${d !== 1 ? "s" : ""}`;
+};
+
+// Última actividad registrada en la fila: el sello más reciente del checklist;
+// si el servicio es anterior a los sellos, el mecánico y la fecha de creación.
+const ultimaActividad = (row) => {
+  let quien = null, at = null;
+  Object.values(row?.revisiones || {}).flat().forEach(it => {
+    if (it?.marcado_at && (!at || it.marcado_at > at)) { at = it.marcado_at; quien = it.marcado_por || null; }
+  });
+  if (!at) return { quien: row?.mecanico || null, at: row?.created_at || null, estimado: true };
+  return { quien, at, estimado: false };
+};
+
 function MainApp({ session, onLogout }) {
   const isMobile = useIsMobile();
   const [step, setStep]     = useState(1);
@@ -1906,9 +1964,28 @@ function MainApp({ session, onLogout }) {
   const [draftPrompt, setDraftPrompt]   = useState(false);
   const [pendingDrafts, setPendingDrafts] = useState([]);
   const [differentOrdenPrompt, setDifferentOrdenPrompt] = useState(null);
+  // ── Apertura por id (?servicio=UUID) + concurrencia ──
+  // servicioIntro: quién dejó el servicio en progreso y cuándo (banner al abrir).
+  // conflicto: la fila cambió en el servidor desde nuestro último guardado.
+  const [deepLinkMsg,   setDeepLinkMsg]   = useState(null); // {tipo:'error'|'info', texto}
+  const [servicioIntro, setServicioIntro] = useState(null); // {quien, at, mecanico}
+  const [conflicto,     setConflicto]     = useState(null); // {quien, at}
+  const [itemStamps,    setItemStamps]    = useState({});   // {id: {por, at}} — espejo del ref, para pintar el sello
+  const [recetasReady,  setRecetasReady]  = useState(false);
+  const [saveNonce,     setSaveNonce]     = useState(0);  // reintento manual del autosave tras un conflicto
   const autoSaveTimer = useRef(null);
   const editingIdRef  = useRef(null);
   const autoSaveRef   = useRef({});
+  // Sellos por ítem del checklist ({id: {por, at}}) y firma de lo ya persistido
+  // ({id: "status|detail|fotos"}): lo que cambió desde el último guardado se
+  // re-sella con quien está logueado AHORA, lo demás conserva su autor.
+  const itemStampsRef = useRef({});
+  const itemSnapRef   = useRef({});
+  // Huella de la fila tal como la devolvió el servidor la última vez que la
+  // vimos. El autosave la compara antes de PATCHear (guarda anti-pisado).
+  const baselineRef   = useRef(null);
+  const conflictoRef  = useRef(false);
+  const deepLinkRef   = useRef(false);
 
   const [activeItems, setActiveItems] = useState(DEFAULT_ITEMS);
   const [activeCodes, setActiveCodes] = useState(DEFAULT_CODES);
@@ -1922,7 +1999,7 @@ function MainApp({ session, onLogout }) {
   useEffect(() => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
     const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    if (!SURL || !SKEY) return;
+    if (!SURL || !SKEY) { setRecetasReady(true); return; }
     const headers = { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` };
     Promise.all([
       fetch(`${SURL}/rest/v1/mant_recetas?select=*&order=serie,orden`, { headers }).then(r => r.json()),
@@ -1950,7 +2027,11 @@ function MainApp({ session, onLogout }) {
       setActiveBKeys(newBKeys);
       setActiveCKeys(newCKeys);
       setActiveEVKeys(newEVKeys);
-    }).catch(e => console.warn("[mant] error cargando recetas/items de Supabase:", e));
+    })
+      .catch(e => console.warn("[mant] error cargando recetas/items de Supabase:", e))
+      // Aunque falle, los DEFAULT_* ya están montados: el catálogo está "listo"
+      // igual y la apertura por ?servicio= puede seguir (nunca queda colgada).
+      .finally(() => setRecetasReady(true));
   }, []);
 
   const [dbModels, setDbModels] = useState(null);
@@ -2036,6 +2117,11 @@ function MainApp({ session, onLogout }) {
     setModoRevision(false);
     setTab("check"); setStep(1); setEditingId(null);
     setAutoSaveStatus(null);
+    // Servicio nuevo: sin fila previa que respetar ni sellos que conservar.
+    baselineRef.current = null;
+    itemStampsRef.current = {}; itemSnapRef.current = {};
+    conflictoRef.current = false;
+    setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
   };
   // Limpia SOLO el estado ligado al vehículo y a la orden. El estado de un
   // vehículo nunca debe sobrevivir al servicio de otro: se llama antes de
@@ -2171,6 +2257,41 @@ function MainApp({ session, onLogout }) {
     // step intentionally NOT changed — mechanic must verify and fill kilometraje first
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Apertura de un servicio YA GUARDADO por id: ?servicio=<uuid>.
+  // Es el camino de los jefes desde Taller — a diferencia del link de mecánicos
+  // (?placa=&orden_id=&mecanico=) NO arranca un servicio nuevo ni sintetiza
+  // sesión: hay que estar logueado, y se abre la fila real para continuarla.
+  // Espera al catálogo: sin recetas cargadas `tasks` viene vacío y el autosave
+  // llegaría a escribir un checklist en blanco sobre el del mecánico.
+  useEffect(() => {
+    if (deepLinkRef.current) return;
+    const svcId = new URLSearchParams(window.location.search).get('servicio')?.trim() || '';
+    if (!svcId) return;
+    if (!recetasReady) return;
+    deepLinkRef.current = true;
+    const SURL = import.meta.env.VITE_SUPABASE_URL;
+    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+    fetch(`${SURL}/rest/v1/servicios?id=eq.${encodeURIComponent(svcId)}&select=*`, {
+      headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
+    })
+      .then(r => r.json())
+      .then(rows => {
+        const row = Array.isArray(rows) ? rows[0] : null;
+        if (!row) { setDeepLinkMsg({ tipo:'error', texto:'No se encontró el servicio solicitado.' }); return; }
+        // Un servicio ya enviado/aprobado no se continúa acá: el autosave lo
+        // devolvería a 'borrador' y le quitaría la aprobación. Se revisa en Taller.
+        if (row.estado !== 'borrador') {
+          setDeepLinkMsg({ tipo:'info', texto:`Este servicio ya no está en progreso (estado: ${row.estado || '—'}). Revisalo desde el sistema del Taller.` });
+          return;
+        }
+        loadService(row);
+      })
+      .catch(e => {
+        console.error('[deep-link servicio]', e);
+        setDeepLinkMsg({ tipo:'error', texto:'No se pudo abrir el servicio. Revisá la conexión e intentá de nuevo.' });
+      });
+  }, [recetasReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Smart draft auto-load: runs after mount when both URL params and draft list are ready
   useEffect(() => {
     if (!cameFromTaller) return;
@@ -2192,6 +2313,68 @@ function MainApp({ session, onLogout }) {
     }
   }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ¿El ítem lo marcó alguien distinto del mecánico de la orden? Ese es el caso
+  // que interesa mostrar: la intervención de un jefe sobre el checklist ajeno.
+  const sellorAjeno = (id) => {
+    const por = itemStamps[id]?.por;
+    if (!por) return false;
+    if (!mechName) return true;
+    return normalizar(por) !== normalizar(mechName);
+  };
+
+  // Deja registrada la fila tal como está en el servidor: huella para la guarda
+  // anti-pisado y sellos/firmas por ítem para la trazabilidad.
+  const registrarFilaVista = (row) => {
+    baselineRef.current = huellaServicio(row);
+    const stamps = {}, snap = {};
+    Object.values(row?.revisiones || {}).flat().forEach(it => {
+      if (!it?.id) return;
+      snap[it.id] = firmaItem(it);
+      if (it.marcado_por || it.marcado_at) stamps[it.id] = { por: it.marcado_por || null, at: it.marcado_at || null };
+    });
+    itemStampsRef.current = stamps;
+    itemSnapRef.current   = snap;
+    setItemStamps(stamps);
+  };
+
+  // Resolución del conflicto — dos salidas, ambas explícitas.
+  // Recargar: la fila del servidor manda, se pierde lo local sin guardar.
+  const recargarServicio = async () => {
+    const id = editingIdRef.current;
+    if (!id) { conflictoRef.current = false; setConflicto(null); return; }
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/servicios?id=eq.${id}&select=*`, {
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
+      });
+      const row = (await res.json())?.[0];
+      if (row) { loadService(row); return; }  // loadService limpia el conflicto
+    } catch(e) { console.error('[recargarServicio]', e); }
+    conflictoRef.current = false;
+    setConflicto(null);
+  };
+
+  // Pisar: se acepta el estado actual del servidor como base y se reintenta el
+  // guardado con lo que hay en pantalla.
+  const forzarGuardado = async () => {
+    const id = editingIdRef.current;
+    try {
+      const SURL = import.meta.env.VITE_SUPABASE_URL;
+      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+      const res = await fetch(`${SURL}/rest/v1/servicios?id=eq.${id}&select=*`, {
+        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
+      });
+      const row = (await res.json())?.[0];
+      // Solo la huella: los sellos por ítem se mantienen como los tenemos, para
+      // que lo que marcó esta persona quede sellado a su nombre.
+      if (row) baselineRef.current = huellaServicio(row);
+    } catch(e) { console.error('[forzarGuardado]', e); }
+    conflictoRef.current = false;
+    setConflicto(null);
+    setSaveNonce(n => n + 1);
+  };
+
   // Auto-save: debounce 2 s whenever checklist state changes while in step 3
   useEffect(() => {
     if (step !== 3) return;
@@ -2199,18 +2382,62 @@ function MainApp({ session, onLogout }) {
     autoSaveTimer.current = setTimeout(async () => {
       const d  = autoSaveRef.current;
       if (d.sigDate) return; // Already signed — don't overwrite estado to borrador
+      if (conflictoRef.current) return; // Conflicto sin resolver: nadie pisa nada
+      // Sin tareas no hay nada que guardar y sí mucho que perder: un checklist
+      // vacío (catálogo aún cargando) borraría el del mecánico.
+      if (!d.tasks?.length) return;
       const id = editingIdRef.current;
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
       setAutoSaveStatus("saving");
       try {
+        const ahora  = new Date().toISOString();
+        const quien  = session?.nombre || d.mechName || null;
+        const stamps = itemStampsRef.current || {};
+        const snap   = itemSnapRef.current   || {};
         const byGrpMap = {};
         d.tasks.forEach(t => {
           if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
           const hasDetail = !!d.taskIssue[t.id];
           const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
-          byGrpMap[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null });
+          const item = { id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null };
+          // Trazabilidad: el ítem que cambió desde el último guardado se sella
+          // con QUIEN ESTÁ LOGUEADO (no con el mecánico de la orden); el que no
+          // cambió conserva el sello de quien lo marcó originalmente.
+          const cambio = firmaItem(item) !== snap[t.id];
+          if (cambio && itemTieneContenido(item)) {
+            item.marcado_por = quien; item.marcado_at = ahora;
+          } else if (stamps[t.id]) {
+            item.marcado_por = stamps[t.id].por || null; item.marcado_at = stamps[t.id].at || null;
+          }
+          byGrpMap[t.grp].push(item);
         });
+
+        // Abrir un servicio ya no lo re-escribe: si el contenido es idéntico al
+        // que trajimos del servidor no hay nada que guardar. Esto evita que dos
+        // pestañas abiertas se peleen sin que nadie haya tocado nada.
+        const huellaLocal = huellaServicio({ revisiones: byGrpMap, observaciones: d.notes, fotos: d.taskPhotos });
+        if (id && huellaLocal === baselineRef.current) { setAutoSaveStatus(null); return; }
+
+        // Guarda anti-pisado: si la fila cambió en el servidor desde lo último
+        // que vimos, alguien más (el mecánico, otro jefe) está editando el mismo
+        // servicio. Se aborta el guardado y se le pregunta a la persona.
+        if (id && baselineRef.current !== null) {
+          const chk = await fetch(`${SURL}/rest/v1/servicios?id=eq.${id}&select=revisiones,observaciones,fotos,mecanico,created_at`, {
+            headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
+          });
+          if (chk.ok) {
+            const cur = (await chk.json())?.[0];
+            if (cur && huellaServicio(cur) !== baselineRef.current) {
+              const act = ultimaActividad(cur);
+              conflictoRef.current = true;
+              setConflicto({ quien: act.quien, at: act.at });
+              setAutoSaveStatus(null);
+              return;
+            }
+          }
+        }
+
         const draftSlug = id ? undefined : `draft-${(d.plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
         const payload = {
           ...(draftSlug ? { slug: draftSlug } : {}),
@@ -2239,6 +2466,10 @@ function MainApp({ session, onLogout }) {
         }
         const saved = await res.json();
         if (!id) { const newId = saved?.[0]?.id; if (newId) setEditingId(newId); }
+        // La huella y los sellos se recalculan sobre lo que DEVOLVIÓ el servidor
+        // (jsonb reordena claves: comparar contra el payload local daría falsos
+        // conflictos en el guardado siguiente).
+        if (saved?.[0]) registrarFilaVista(saved[0]);
         setAutoSaveStatus("saved");
         setTimeout(() => setAutoSaveStatus(s => s === "saved" ? null : s), 3000);
       } catch(e) {
@@ -2248,7 +2479,7 @@ function MainApp({ session, onLogout }) {
       }
     }, 2000);
     return () => clearTimeout(autoSaveTimer.current);
-  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setStatus = (id, status, text, taskText) => {
     setTaskStatus(p => ({ ...p, [id]: status }));
@@ -2324,6 +2555,12 @@ function MainApp({ session, onLogout }) {
     // Reset ANTES de repoblar: nada del vehículo/orden anterior debe sobrevivir
     // a la carga de otro servicio (los setters de abajo pisan lo recién limpiado).
     resetVehiculoOrden();
+    // Punto de partida de la guarda anti-pisado y de los sellos por ítem.
+    conflictoRef.current = false;
+    setConflicto(null);
+    registrarFilaVista(s);
+    const act = ultimaActividad(s);
+    setServicioIntro(act.at ? { ...act, mecanico: s.mecanico || "" } : null);
     const d = s.datos || {};
     const v = d.vehiculo || {};
     const modelo      = v.modelo      || s.modelo      || "";
@@ -2484,7 +2721,11 @@ function MainApp({ session, onLogout }) {
       const SURL = import.meta.env.VITE_SUPABASE_URL;
       const SKEY = import.meta.env.VITE_SUPABASE_KEY;
       const res = await fetch(
-        `${SURL}/rest/v1/servicios?estado=eq.borrador&select=id,placa,modelo,mecanico,slug,orden_id,orden_numero,revisiones,created_at,updated_at&order=created_at.desc`,
+        // select=* a propósito: la lista alimenta a loadService, y con un select
+        // parcial el jefe abría el borrador SIN observaciones/fotos/año/versión
+        // y el autosave los borraba. (El select viejo pedía `updated_at`, que no
+        // existe en la tabla: PostgREST devolvía 42703 y el panel salía vacío.)
+        `${SURL}/rest/v1/servicios?estado=eq.borrador&select=*&order=created_at.desc`,
         { headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` } }
       );
       const data = await res.json();
@@ -2659,7 +2900,10 @@ function MainApp({ session, onLogout }) {
           {adminDraftsLoading && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>Cargando...</div>}
           {!adminDraftsLoading && adminDrafts.length === 0 && <div style={{ textAlign:"center", color:"#555", padding:40, fontSize:12 }}>✅ No hay borradores pendientes.</div>}
           {!adminDraftsLoading && adminDrafts.map(b => {
-            const fechaRef = new Date(b.updated_at || b.created_at).getTime();
+            // `servicios` no tiene updated_at: la última actividad real sale del
+            // sello más reciente del checklist (ultimaActividad), con created_at de piso.
+            const act = ultimaActividad(b);
+            const fechaRef = new Date(act.at || b.created_at).getTime();
             const diasAtras = Math.floor((Date.now() - fechaRef) / (24 * 60 * 60 * 1000));
             const esViejo = diasAtras >= 7;
             const allItems = Object.values(b.revisiones || {}).flat();
@@ -2675,6 +2919,11 @@ function MainApp({ session, onLogout }) {
                     <div style={{ fontSize:10, color:"#aaa", marginTop:2 }}>
                       {b.mecanico || '(sin mecánico)'} · {diasAtras === 0 ? 'hoy' : `hace ${diasAtras} día${diasAtras !== 1 ? 's' : ''}`}
                     </div>
+                    {!act.estimado && act.quien && (
+                      <div style={{ fontSize:9, color:"#7a8a9a", marginTop:1 }}>
+                        ✎ {act.quien} lo actualizó {hace(act.at)}
+                      </div>
+                    )}
                     <div style={{ fontSize:10, color:"#666", marginTop:1 }}>
                       {b.orden_numero ? `📋 ${b.orden_numero}` : '⚠️ Sin orden'}{total > 0 ? ` · ${completados}/${total} ítems` : ''}
                       {esViejo ? <span style={{ marginLeft:6 }}>⚪ +7 días</span> : ''}
@@ -2727,6 +2976,49 @@ function MainApp({ session, onLogout }) {
           </div>
         </div>
       )}
+    </div>
+  ) : null;
+
+  // Aviso de la apertura por ?servicio= que no pudo continuar (id inexistente,
+  // servicio ya enviado/aprobado). No bloquea: la app queda usable igual.
+  const deepLinkBanner = deepLinkMsg ? (
+    <div style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, fontFamily:"monospace", fontSize:11, lineHeight:1.6,
+      border:`1px solid ${deepLinkMsg.tipo === 'error' ? '#f8717150' : '#C8A96E50'}`,
+      background: deepLinkMsg.tipo === 'error' ? '#1a0808' : '#1a160a',
+      color: deepLinkMsg.tipo === 'error' ? '#f87171' : '#C8A96E',
+      display:"flex", alignItems:"flex-start", gap:8 }}>
+      <span style={{ flex:1 }}>{deepLinkMsg.tipo === 'error' ? '⚠️ ' : 'ℹ️ '}{deepLinkMsg.texto}</span>
+      <button onClick={() => setDeepLinkMsg(null)}
+        style={{ background:"transparent", border:"none", color:"inherit", fontSize:13, cursor:"pointer", lineHeight:1, padding:0 }}>✕</button>
+    </div>
+  ) : null;
+
+  // El autosave escribe la fila completa: si alguien más guardó desde que
+  // abrimos, se frena ANTES de pisar y decide la persona. Sin merge ni realtime.
+  const conflictoModal = conflicto ? (
+    <div style={{ position:"fixed", inset:0, zIndex:600, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:"#16181c", border:"1px solid #f8717160", borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:"monospace" }}>
+        <div style={{ fontSize:13, color:"#f87171", fontWeight:"bold", marginBottom:10 }}>⚠️ Servicio modificado</div>
+        <div style={{ fontSize:11, color:"#ccc", lineHeight:1.7, marginBottom:6 }}>
+          Este servicio fue modificado mientras lo tenías abierto
+          {conflicto.quien ? <> por <strong style={{ color:"#C8A96E" }}>{conflicto.quien}</strong></> : null}
+          {conflicto.at ? ` (${hace(conflicto.at)})` : ''}.
+        </div>
+        <div style={{ fontSize:10, color:"#777", lineHeight:1.6, marginBottom:14 }}>
+          Tus cambios NO se guardaron todavía. Guardá lo tuyo (se pierde lo que hizo la otra persona)
+          o recargá lo guardado (se pierde lo que marcaste vos desde que abriste).
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <button onClick={recargarServicio}
+            style={{ padding:"10px", borderRadius:6, border:"1px solid #4ade8050", background:"#4ade8015", color:"#4ade80", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+            ↻ Recargar lo guardado
+          </button>
+          <button onClick={forzarGuardado}
+            style={{ padding:"10px", borderRadius:6, border:"1px solid #f8717150", background:"#f8717115", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+            ⤒ Guardar lo mío de todas formas
+          </button>
+        </div>
+      </div>
     </div>
   ) : null;
 
@@ -3378,6 +3670,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {deepLinkBanner}
+      {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
 
@@ -3632,6 +3926,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {deepLinkBanner}
+      {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
 
@@ -3907,6 +4203,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {deepLinkBanner}
+      {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
 
@@ -3929,6 +4227,25 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
         )}
       </div>
+
+      {/* CONTINUANDO UN SERVICIO AJENO — quién lo dejó en progreso y cuándo.
+          El autosave pisa la fila entera, así que el aviso importa: el otro
+          puede estar editando AHORA MISMO. */}
+      {servicioIntro && editingId && (
+        <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E0d", display:"flex", alignItems:"flex-start", gap:8 }}>
+          <span style={{ fontSize:13, lineHeight:1.3 }}>👥</span>
+          <div style={{ flex:1, fontSize:11, color:"#C8A96E", lineHeight:1.6 }}>
+            {servicioIntro.estimado
+              ? <>Servicio en progreso de <strong>{servicioIntro.mecanico || 'un mecánico'}</strong> — creado {hace(servicioIntro.at)}.</>
+              : <><strong>{servicioIntro.quien || servicioIntro.mecanico || 'Alguien'}</strong> lo actualizó {hace(servicioIntro.at)}.</>}
+            <div style={{ fontSize:10, color:"#8a7a5a", marginTop:2 }}>
+              Puede estar trabajándolo ahora. Lo que marqués queda a tu nombre.
+            </div>
+          </div>
+          <button onClick={() => setServicioIntro(null)}
+            style={{ background:"transparent", border:"none", color:"#8a7a5a", fontSize:13, cursor:"pointer", lineHeight:1, padding:0 }}>✕</button>
+        </div>
+      )}
 
       {/* MINI BAR en pestaña Notas */}
       {tab === "notes" && (
@@ -4012,7 +4329,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                                 {status==="ok" ? "✓" : status==="issue" ? "!" : status==="na" ? "—" : "·"}
                               </span>
                           }
-                          <span style={{ flex:1, fontSize:12, color: status==="ok"?"#4a6a4a": status==="issue"?"#8a4a4a": status==="na"?"#444":isInfo?"#666":"#ccc", textDecoration: status==="ok"||status==="na" ? "line-through":"none", lineHeight:1.5 }}>{text}</span>
+                          <span style={{ flex:1, fontSize:12, color: status==="ok"?"#4a6a4a": status==="issue"?"#8a4a4a": status==="na"?"#444":isInfo?"#666":"#ccc", textDecoration: status==="ok"||status==="na" ? "line-through":"none", lineHeight:1.5 }}>
+                            {text}
+                            {/* Sello de autoría: solo cuando lo marcó alguien
+                                distinto del mecánico de la orden (un jefe que
+                                entró a continuar). El resto queda limpio. */}
+                            {sellorAjeno(id) && (
+                              <span style={{ marginLeft:6, fontSize:9, color:"#7a8a9a", letterSpacing:0.5, whiteSpace:"nowrap" }}>
+                                ✎ {itemStamps[id].por}
+                              </span>
+                            )}
+                          </span>
 
                           {/* Botones OK / Detalle / N/A */}
                           {!isInfo && (
