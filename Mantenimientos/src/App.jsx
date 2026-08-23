@@ -1653,13 +1653,10 @@ function LoginScreen({ onLogin }) {
         body: JSON.stringify(body),
       });
       // Login unificado (migración 20260817000001 de Taller): bcrypt con
-      // fallback legacy y re-hash transparente server-side. Si el RPC nuevo
-      // aún no existe (404 = migración sin correr), cae al
-      // login_mantenimientos viejo — deploy-safe en cualquier orden.
-      let res = await rpcLogin('login_usuario', { p_nombre: nombre.trim(), p_password: password, p_app: 'mantenimientos' });
-      if (res.status === 404) {
-        res = await rpcLogin('login_mantenimientos', { p_nombre: nombre.trim(), p_password: password });
-      }
+      // fallback legacy y re-hash transparente server-side. El fallback 404 al
+      // login_mantenimientos viejo se retiró (20260823000001 de Taller lo dejó
+      // como wrapper de este mismo RPC, con DROP programado).
+      const res = await rpcLogin('login_usuario', { p_nombre: nombre.trim(), p_password: password, p_app: 'mantenimientos' });
       const data = await res.json();
       if (!res.ok || !data || data.error || !data.success) {
         // usuario_inactivo (migración 20260818000002 de Taller): la clave era

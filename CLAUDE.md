@@ -43,3 +43,6 @@ App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL
 
 - Identidad git: `RamosyRamos` / `contacto@ramosyramoscr.com`. Branch `main`. Commits en español.
 - Verificación post-push: `git fetch origin && git log origin/main --oneline -3`.
+
+## Login
+- `LoginScreen` (`Mantenimientos/src/App.jsx` ~1633) llama SOLO al RPC unificado `login_usuario(p_nombre, p_password, p_app:'mantenimientos')` (Taller `20260817000001`/`20260818000002`: bcrypt, re-hash transparente, `usuario_inactivo`). El fallback 404 a `login_mantenimientos` se retiró el 2026-08-23: ese RPC quedó como wrapper de `login_usuario` (Taller `20260823000001`) con DROP programado. Sesión en `localStorage['ryr_session']` = `{id, username, nombre, rol, app}`; la sesión sintética desde Taller (`?mecanico=&orden_id=`) no toca DB.
