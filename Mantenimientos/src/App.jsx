@@ -1918,6 +1918,12 @@ function MainApp({ session, onLogout }) {
   // tuviera que preguntarle al servidor, la ventana entre la lectura y el PATCH
   // volvería a dejar pasar la escritura). Un servicio nuevo nace 'borrador'.
   const [estadoOriginal, setEstadoOriginal] = useState('borrador');
+  // Modo edición (jefe): editar un servicio APROBADO preservando aprobación y
+  // link público, regenerando el informe de la orden en cada guardado. Solo
+  // activable con esJefeReal && editingId && estadoOriginal === 'aprobado'.
+  const [modoEdicionJefe, setModoEdicionJefe] = useState(false);
+  const editadoPorRef = useRef(null);  // editado_por de la fila cargada (convención primer-editor, como Taller)
+  const fechaFilaRef  = useRef("");    // fecha original de la fila (loadService limpia sigDate)
   const [saveNonce,     setSaveNonce]     = useState(0);  // reintento manual del autosave tras un conflicto
   const autoSaveTimer = useRef(null);
   const editingIdRef  = useRef(null);
@@ -2035,11 +2041,14 @@ function MainApp({ session, onLogout }) {
   const exTotal = extras.reduce((n,e) => n + e.tasks.length, 0);
 
   const showAdminButtons = !cameFromTaller && (session?.rol === 'admin' || session?.rol === 'jefe');
+  // Modo edición de aprobados: SOLO rol 'jefe' real. showAdminButtons no sirve
+  // acá (incluye admin), y una sesión sintética del link de Taller jamás califica.
+  const esJefeReal = !cameFromTaller && session?.rol === 'jefe';
   const normalizar = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   const esTavo = normalizar(session?.nombre) === normalizar('Gustavo Ramos');
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2069,6 +2078,9 @@ function MainApp({ session, onLogout }) {
     conflictoRef.current = false;
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
     setEstadoOriginal('borrador');   // arranca de cero: es un borrador nuevo
+    setModoEdicionJefe(false);
+    editadoPorRef.current = null;
+    fechaFilaRef.current  = "";
   };
   // Limpia SOLO el estado ligado al vehículo y a la orden. El estado de un
   // vehículo nunca debe sobrevivir al servicio de otro: se llama antes de
@@ -2227,7 +2239,9 @@ function MainApp({ session, onLogout }) {
         if (!row) { setDeepLinkMsg({ tipo:'error', texto:'No se encontró el servicio solicitado.' }); return; }
         // Un servicio ya enviado/aprobado no se continúa acá: el autosave lo
         // devolvería a 'borrador' y le quitaría la aprobación. Se revisa en Taller.
-        if (row.estado !== 'borrador') {
+        // Excepción: un JEFE real puede abrir un APROBADO — entra en solo
+        // lectura y el modo edición se activa a mano desde el banner.
+        if (row.estado !== 'borrador' && !(row.estado === 'aprobado' && esJefeReal)) {
           setDeepLinkMsg({ tipo:'info', texto:`Este servicio ya no está en progreso (estado: ${row.estado || '—'}). Revisalo desde el sistema del Taller.` });
           return;
         }
@@ -2334,7 +2348,10 @@ function MainApp({ session, onLogout }) {
       // Caso real: la orden #2701 quedó con el link del informe del cliente
       // muerto. El no-op de la huella tapaba la mitad de los casos (26 de 66),
       // no los que traían deriva de receta.
-      if (d.estadoOriginal && d.estadoOriginal !== 'borrador') return;
+      // ÚNICA excepción al corte: modo edición de jefe sobre un APROBADO — y en
+      // ese caso el payload de abajo OMITE estado/aprobado/slug (PATCH parcial:
+      // la fila jamás sale de 'aprobado' y el link público sigue vivo).
+      if (d.estadoOriginal && d.estadoOriginal !== 'borrador' && !(d.modoEdicionJefe && d.estadoOriginal === 'aprobado')) return;
       if (conflictoRef.current) return; // Conflicto sin resolver: nadie pisa nada
       // Sin tareas no hay nada que guardar y sí mucho que perder: un checklist
       // vacío (catálogo aún cargando) borraría el del mecánico.
@@ -2383,7 +2400,6 @@ function MainApp({ session, onLogout }) {
         const draftSlug = id ? undefined : `draft-${(d.plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
         const payload = {
           ...(draftSlug ? { slug: draftSlug } : {}),
-          estado: "borrador",
           placa: d.plate, modelo: d.model, motor: d.engine,
           mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
           km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
@@ -2392,11 +2408,23 @@ function MainApp({ session, onLogout }) {
           revisiones: byGrpMap, observaciones: d.notes,
           pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
           progreso: { completadas: d.doneN, total: d.total },
-          aprobado: false, fotos: d.taskPhotos,
+          fotos: d.taskPhotos,
           dictamen: d.esRC ? { recomendacion: d.dictamenRec, reparaciones: d.reparaciones, total_estimado: d.dictamenTotal } : null,
           orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
           anio: d.vehAnio || null, version: d.vehVersion || null,
         };
+        if (d.modoEdicionJefe) {
+          // Modo edición: estado/aprobado/slug NO viajan — el PATCH parcial
+          // preserva estado:'aprobado', aprobado, aprobado_por, slug y
+          // rechazado_*. Solo se suma el sello de edición (convención
+          // primer-editor de Taller: editado_por no se pisa si ya existe).
+          payload.editado_at = new Date().toISOString();
+          if (!editadoPorRef.current) payload.editado_por = session?.nombre || null;
+        } else {
+          // Flujo de siempre: el autosave de un borrador escribe borrador.
+          payload.estado = "borrador";
+          payload.aprobado = false;
+        }
         const res = await fetch(
           id ? `${SURL}/rest/v1/servicios?id=eq.${id}` : `${SURL}/rest/v1/servicios`,
           { method: id ? "PATCH" : "POST", headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json", "Prefer": "return=representation" }, body: JSON.stringify(payload) }
@@ -2412,6 +2440,11 @@ function MainApp({ session, onLogout }) {
         // (jsonb reordena claves: comparar contra el payload local daría falsos
         // conflictos en el guardado siguiente).
         if (saved?.[0]) registrarFilaVista(saved[0]);
+        if (saved?.[0]?.editado_por) editadoPorRef.current = saved[0].editado_por;
+        // Modo edición: el informe del cliente en la orden se regenera en cada
+        // guardado exitoso. Si falla (red), no bloquea el autosave — el próximo
+        // guardado lo reintenta.
+        if (d.modoEdicionJefe && d.ordenId) regenerarInformeOrden({ correccion: true });
         setAutoSaveStatus("saved");
         setTimeout(() => setAutoSaveStatus(s => s === "saved" ? null : s), 3000);
       } catch(e) {
@@ -2503,6 +2536,11 @@ function MainApp({ session, onLogout }) {
     // Y del corte por estado: lo que NO nació borrador se abre en solo lectura.
     // Sin `estado` en la fila (selects viejos) se asume el caso seguro.
     setEstadoOriginal(s.estado || 'desconocido');
+    // El modo edición de jefe jamás sobrevive un cambio de servicio: se
+    // re-activa a mano, con su confirm, sobre la fila nueva.
+    setModoEdicionJefe(false);
+    editadoPorRef.current = s.editado_por || null;
+    fechaFilaRef.current  = s.fecha || "";
     registrarFilaVista(s);
     const act = ultimaActividad(s);
     setServicioIntro(act.at ? { ...act, mecanico: s.mecanico || "" } : null);
@@ -3234,11 +3272,18 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
   // ── Markdown builder for ordenes.informe_mantenimiento ──
-  const buildInformeMarkdown = (overrideClientUrl) => {
+  const buildInformeMarkdown = (overrideClientUrl, { correccion = false } = {}) => {
     const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
-    let txt = `🔧 ${servicioTitulo} — ${sigDate}\n\n`;
+    // Un aprobado reabierto no tiene sigDate (loadService la limpia): la fecha
+    // del título sale de la fila original, nunca de la corrección.
+    let txt = `🔧 ${servicioTitulo} — ${sigDate || fechaFilaRef.current || ""}\n\n`;
     txt += `Mecánico: ${mechName}\n`;
     txt += `Aprobado por: ${aprobadoPor}\n`;
+    if (correccion) {
+      // Honestidad con el cliente: el informe cambió después de la aprobación.
+      const hoy = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+      txt += `✏️ Corregido el ${hoy} por ${session?.nombre || "—"}\n`;
+    }
     txt += `Kilometraje: ${km ? parseInt(km).toLocaleString() : "—"} km`;
     if (issueTasks.length > 0) {
       txt += `\n\n⚠️ Detalles marcados en el checklist:\n`;
@@ -3254,6 +3299,23 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     const tipoFrase = tipoRev === "general" ? "de la revisión general" : tipoRev === "compra" ? "de la revisión de compra" : "del mantenimiento";
     txt += `\n\n🔗 Detalle completo ${tipoFrase}:\n${finalUrl || "(enlace pendiente)"}`;
     return txt;
+  };
+
+  // Paso 3 de enviarAOrden, extraído para reuso desde el modo edición de jefe:
+  // regenera SOLO ordenes.informe_mantenimiento. Sin guard de placa, sin
+  // confirm de sobrescritura, sin tocar la fila de servicios ni es_mantenimiento.
+  // Nunca lanza: un fallo acá no debe bloquear el guardado del checklist.
+  const regenerarInformeOrden = async ({ correccion = false } = {}) => {
+    if (!ordenId) return;
+    try {
+      const markdown = buildInformeMarkdown(null, { correccion });
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ informe_mantenimiento: markdown }),
+      });
+      if (!res.ok) console.warn("[regenerarInformeOrden] PATCH ordenes falló:", res.status);
+    } catch (e) { console.warn("[regenerarInformeOrden]", e); }
   };
 
   // ── Save informe to ordenes.informe_mantenimiento ──
@@ -4179,18 +4241,42 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       {/* SOLO LECTURA — la fila no se cargó como borrador, así que el autosave
           está cortado. Sin este aviso el corte sería silencioso: se marcarían
-          ítems que no se guardan en ningún lado. */}
+          ítems que no se guardan en ningún lado. Un JEFE real puede convertirlo
+          en modo edición sobre un APROBADO (banner ámbar); todo lo demás queda
+          exactamente como siempre. */}
       {editingId && estadoOriginal !== 'borrador' && (
-        <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #f8717140", background:"#f871710d", display:"flex", alignItems:"flex-start", gap:8 }}>
-          <span style={{ fontSize:13, lineHeight:1.3 }}>🔒</span>
-          <div style={{ flex:1, fontSize:11, color:"#f87171", lineHeight:1.6 }}>
-            Solo lectura — este servicio está <strong>{estadoOriginal}</strong>, ya no es un borrador.
-            <div style={{ fontSize:10, color:"#8a5a5a", marginTop:2 }}>
-              Lo que marqués acá NO se guarda. Reabrir un servicio cerrado y guardarlo lo devolvería a
-              borrador y le quitaría la aprobación.
+        modoEdicionJefe ? (
+          <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #C8A96E60", background:"#C8A96E12", display:"flex", alignItems:"flex-start", gap:8 }}>
+            <span style={{ fontSize:13, lineHeight:1.3 }}>✏️</span>
+            <div style={{ flex:1, fontSize:11, color:"#C8A96E", lineHeight:1.6 }}>
+              <strong>MODO EDICIÓN</strong> — editando servicio aprobado; los cambios regeneran el informe del cliente.
+            </div>
+            <button onClick={() => setModoEdicionJefe(false)}
+              style={{ flexShrink:0, padding:"5px 10px", borderRadius:6, border:"1px solid #C8A96E50", background:"none", color:"#C8A96E", fontFamily:"monospace", fontSize:10, cursor:"pointer", letterSpacing:0.5 }}>
+              Salir del modo
+            </button>
+          </div>
+        ) : (
+          <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #f8717140", background:"#f871710d", display:"flex", alignItems:"flex-start", gap:8 }}>
+            <span style={{ fontSize:13, lineHeight:1.3 }}>🔒</span>
+            <div style={{ flex:1, fontSize:11, color:"#f87171", lineHeight:1.6 }}>
+              Solo lectura — este servicio está <strong>{estadoOriginal}</strong>, ya no es un borrador.
+              <div style={{ fontSize:10, color:"#8a5a5a", marginTop:2 }}>
+                Lo que marqués acá NO se guarda. Reabrir un servicio cerrado y guardarlo lo devolvería a
+                borrador y le quitaría la aprobación.
+              </div>
+              {esJefeReal && estadoOriginal === 'aprobado' && (
+                <button
+                  onClick={() => {
+                    if (confirm("Vas a editar un servicio ya aprobado. Los cambios se verán en el informe del cliente al guardar. ¿Continuar?")) setModoEdicionJefe(true);
+                  }}
+                  style={{ marginTop:8, padding:"6px 12px", borderRadius:6, border:"1px solid #C8A96E50", background:"#C8A96E15", color:"#C8A96E", fontFamily:"monospace", fontSize:10, cursor:"pointer", letterSpacing:0.5 }}>
+                  ✏️ Activar modo edición (jefe)
+                </button>
+              )}
             </div>
           </div>
-        </div>
+        )
       )}
 
       {/* CONTINUANDO UN SERVICIO AJENO — quién lo dejó en progreso y cuándo.
