@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { T, OK, CRIT, FONT, SERIF, ensureClientFonts } from "./temaCliente.js";
+import Lightbox from "./Lightbox.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
@@ -173,6 +174,8 @@ export default function ClientHistory() {
 }
 
 function ServiceCard({ service: s, index, total }) {
+  // Lightbox de fotos: { fotos, indice } | null — un solo estado por card
+  const [lightbox, setLightbox] = useState(null);
   const [open, setOpen] = useState(index === 0);
 
   const progreso = s.progreso || {};
@@ -180,6 +183,11 @@ function ServiceCard({ service: s, index, total }) {
 
   return (
     <div style={{ marginBottom:10, borderRadius:14, border:`1px solid ${hasIssues ? CRIT.border : T.borde}`, overflow:"hidden", background:T.card }}>
+      {lightbox && (
+        <Lightbox fotos={lightbox.fotos} indice={lightbox.indice}
+          onClose={() => setLightbox(null)}
+          onIndice={(i) => setLightbox(l => l ? { ...l, indice: i } : l)} />
+      )}
 
       {/* Encabezado */}
       <div
@@ -264,9 +272,11 @@ function ServiceCard({ service: s, index, total }) {
                       {item.fotos?.length > 0 && (
                         <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
                           {item.fotos.map((url, idx) => (
-                            <a key={idx} href={url} target="_blank" rel="noreferrer">
-                              <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:8, border:`1px solid ${T.borde}` }} />
-                            </a>
+                            <button key={idx} type="button" onClick={() => setLightbox({ fotos: item.fotos, indice: idx })}
+                              aria-label={`Ver foto ${idx+1} de ${item.fotos.length}`}
+                              style={{ padding:0, border:"none", background:"none", cursor:"zoom-in", display:"block", borderRadius:8 }}>
+                              <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:8, border:`1px solid ${T.borde}`, display:"block" }} />
+                            </button>
                           ))}
                         </div>
                       )}

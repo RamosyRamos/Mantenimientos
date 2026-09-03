@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 // Identidad visual (tema CLARO, alineado con las cotizaciones del cliente):
 // paleta y fuentes viven en temaCliente.js, compartidas con ClientHistory.
 import { T, OK, CRIT, WARN, FONT, SERIF, FONTS_HREF } from "./temaCliente.js";
+import Lightbox from "./Lightbox.jsx";
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -145,6 +146,8 @@ function ErrorScreen() {
 }
 
 function ReportView({ data }) {
+  // Lightbox de fotos: { fotos, indice } | null — un solo estado por vista
+  const [lightbox, setLightbox] = useState(null);
   const {
     taller, fecha, mecanico, aprobado_por, servicio, vehiculo,
     aceite, revisiones, observaciones, pendientes, progreso,
@@ -192,6 +195,11 @@ function ReportView({ data }) {
   return (
     <div id="client-root" className="ryr-root" style={{ minHeight:"100vh", background:T.fondo, fontFamily:FONT, color:T.texto, paddingBottom:0 }}>
       <style>{PRINT_CSS}</style>
+      {lightbox && (
+        <Lightbox fotos={lightbox.fotos} indice={lightbox.indice}
+          onClose={() => setLightbox(null)}
+          onIndice={(i) => setLightbox(l => l ? { ...l, indice: i } : l)} />
+      )}
 
       {/* HEADER */}
       <div className="ryr-header" style={{ position:"sticky", top:0, zIndex:100, background:T.card, padding:"16px 20px" }}>
@@ -317,9 +325,11 @@ function ReportView({ data }) {
                     {item.fotos?.length > 0 && (
                       <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
                         {item.fotos.map((url, idx) => (
-                          <a key={idx} href={url} target="_blank" rel="noreferrer">
-                            <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:8, border:`1px solid ${T.borde}` }} />
-                          </a>
+                          <button key={idx} type="button" onClick={() => setLightbox({ fotos: item.fotos, indice: idx })}
+                            aria-label={`Ver foto ${idx+1} de ${item.fotos.length}`}
+                            style={{ padding:0, border:"none", background:"none", cursor:"zoom-in", display:"block", borderRadius:8 }}>
+                            <img src={url} alt={`Evidencia ${idx+1}`} style={{ width:64, height:64, objectFit:"cover", borderRadius:8, border:`1px solid ${T.borde}`, display:"block" }} />
+                          </button>
                         ))}
                       </div>
                     )}
