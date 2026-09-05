@@ -3272,7 +3272,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
   // ── Markdown builder for ordenes.informe_mantenimiento ──
-  const buildInformeMarkdown = (overrideClientUrl, { correccion = false } = {}) => {
+  // El "Detalle completo" del informe apunta al PORTAL de clientes (?m=<servicios.id>,
+  // el mismo id que usa portal_get_mantenimiento; el portal solo muestra aprobados).
+  // La vista pública vieja /servicio/<slug> (clientUrl) queda para links ya enviados.
+  const PORTAL_URL = "https://portal.ramosyramoscr.com";
+  const buildInformeMarkdown = (servicioIdInforme, { correccion = false } = {}) => {
     const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
     // Un aprobado reabierto no tiene sigDate (loadService la limpia): la fecha
     // del título sale de la fila original, nunca de la corrección.
@@ -3295,7 +3299,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     if (notes.trim()) {
       txt += `\n\n📝 Observaciones del mecánico:\n${notes.trim()}`;
     }
-    const finalUrl = overrideClientUrl || clientUrl;
+    const finalUrl = servicioIdInforme ? `${PORTAL_URL}/?m=${servicioIdInforme}` : "";
     const tipoFrase = tipoRev === "general" ? "de la revisión general" : tipoRev === "compra" ? "de la revisión de compra" : "del mantenimiento";
     txt += `\n\n🔗 Detalle completo ${tipoFrase}:\n${finalUrl || "(enlace pendiente)"}`;
     return txt;
@@ -3308,7 +3312,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   const regenerarInformeOrden = async ({ correccion = false } = {}) => {
     if (!ordenId) return;
     try {
-      const markdown = buildInformeMarkdown(null, { correccion });
+      const markdown = buildInformeMarkdown(editingId, { correccion });   // modo edición jefe: la fila ya es 'aprobado'
       const res = await fetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
@@ -3347,6 +3351,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       // 2. Save/update servicios to get the client link slug
       let finalClientUrl = clientUrl || "";
+      let servicioIdInforme = editingId || null;   // id de servicios para el link del portal
       let slug = "";
       if (editingId && clientUrl) slug = clientUrl.split("/servicio/")[1] || "";
       if (!slug) {
@@ -3379,6 +3384,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           const savedId = sbData?.[0]?.id;
           finalClientUrl = `${APP_URL}/servicio/${slug}`;
           setClientUrl(finalClientUrl);
+          if (savedId) servicioIdInforme = savedId;
           if (!editingId && savedId) setEditingId(savedId);
           setEstadoOriginal('aprobado');   // idem confirmSig: fila fuera de borrador
         } else {
@@ -3387,7 +3393,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       } catch(e) { console.error("[enviarAOrden] servicios save exception:", e.message); }
 
       // 3. PATCH ordenes.informe_mantenimiento
-      const markdown = buildInformeMarkdown(finalClientUrl);
+      // La fila se guardó recién con estado:'aprobado' + aprobado:true (arriba), así que el portal ya la muestra.
+      const markdown = buildInformeMarkdown(servicioIdInforme);
       const ordenRes = await fetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
