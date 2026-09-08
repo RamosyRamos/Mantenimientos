@@ -3298,7 +3298,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     if (notes.trim()) {
       txt += `\n\n📝 Observaciones del mecánico:\n${notes.trim()}`;
     }
-    return txt;
+    // Sin observaciones, el último ítem del checklist deja un \n suelto y el
+    // informe termina en una línea vacía (se veía al pie de la card de Taller,
+    // que ya no imprime nada después del checklist). trimEnd solo recorta la cola.
+    return txt.trimEnd();
   };
 
   // Paso 3 de enviarAOrden, extraído para reuso desde el modo edición de jefe:
