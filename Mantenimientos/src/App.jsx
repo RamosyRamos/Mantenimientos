@@ -127,7 +127,7 @@ const DEFAULT_ITEMS = {
   ]},
   // Fuera del ASSYST — siempre al final del checklist principal
   "GLOW": { label:"Bujías de precalentamiento — Solo diesel", icon:"🌡️", outOfAssyst:true, tasks:[
-    "Extracción de bujías de precalentamiento",
+    "~Extracción de bujías de precalentamiento",
     "~Verificación eléctrica de cada bujía (resistencia con multímetro)",
     "~Inspección del controlador de bujías (glow plug relay/module)",
     "~Descarbonar los alojamientos antes de extraer (motor caliente)",
