@@ -35,7 +35,11 @@ const GUARD_CHUNK_MS = 60 * 1000             // no recargar dos veces en 60 s
 // ── Consulta ─────────────────────────────────────────────────────────────────
 export async function leerVersionPublicada() {
   try {
-    const res = await fetch(`/version.json?_=${Date.now()}`, { cache: 'no-store', credentials: 'omit' })
+    // credentials: 'same-origin' (NO 'omit'): las previews de Vercel exigen la cookie de
+    // Vercel Authentication; sin cookie /version.json responde 302 al SSO y el chequeo
+    // devolvía null en silencio (13/9: el banner nunca salió en la preview). En prod no
+    // hay cookie que mandar, así que no cambia nada.
+    const res = await fetch(`/version.json?_=${Date.now()}`, { cache: 'no-store', credentials: 'same-origin' })
     if (!res.ok) return null
     const ct = res.headers.get('content-type') || ''
     if (!ct.includes('json')) return null
