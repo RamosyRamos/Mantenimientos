@@ -11,7 +11,8 @@ import imageCompression from 'browser-image-compression';
 import FotoPicker from './FotoPicker.jsx';
 // Reglas de concurrencia/sellado compartidas con Taller — ver el encabezado del
 // archivo: es un GEMELO byte a byte de Taller/src/lib/servicioConcurrencia.js.
-import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad } from './servicioConcurrencia.js';
+import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad, itemTieneContenido } from './servicioConcurrencia.js';
+import { apiFetch, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const DEFAULT_ITEMS = {
@@ -1902,7 +1903,16 @@ function MainApp({ session, onLogout }) {
   const [vehAnio,       setVehAnio]       = useState("");
   const [vehVersion,    setVehVersion]    = useState("");
   const [ordenEnvioStatus, setOrdenEnvioStatus] = useState("idle"); // 'idle'|'sending'|'done'
-  const [autoSaveStatus, setAutoSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  // Autosave RUIDOSO (sep 2026): estado visible y persistente del guardado.
+  // { estado:'idle'|'saving'|'saved'|'error', at, desde, msg, intento, reintentoEn, sinReintento }
+  // El 'error' NO se va solo: solo un guardado exitoso lo reemplaza.
+  const [saveInfo, setSaveInfo] = useState({ estado: 'idle' });
+  const [tick, setTick]         = useState(0);      // re-render por segundo para "hace Xs"
+  const [draftLocal, setDraftLocal] = useState(null); // {key, draft} → modal Restaurar / Descartar
+  const retryTimer       = useRef(null);  // backoff 2 s / 5 s / 15 s
+  const dirtyRef         = useRef(false); // hay cambios sin guardar (beforeunload + draft local)
+  const errorDesdeRef    = useRef(null);  // primer fallo de la racha actual
+  const draftOfrecidoRef = useRef(null);  // clave de draft ya ofrecida (no re-preguntar)
   const [draftPrompt, setDraftPrompt]   = useState(false);
   const [pendingDrafts, setPendingDrafts] = useState([]);
   const [differentOrdenPrompt, setDifferentOrdenPrompt] = useState(null);
@@ -2071,7 +2081,13 @@ function MainApp({ session, onLogout }) {
     setAprobadoPor("");
     setModoRevision(false);
     setTab("check"); setStep(1); setEditingId(null);
-    setAutoSaveStatus(null);
+    // Autosave ruidoso: estado limpio, sin reintentos colgados ni draft ofrecido.
+    clearTimeout(retryTimer.current);
+    setSaveInfo({ estado: 'idle' });
+    setDraftLocal(null);
+    draftOfrecidoRef.current = null;
+    errorDesdeRef.current = null;
+    dirtyRef.current = false;
     // Servicio nuevo: sin fila previa que respetar ni sellos que conservar.
     baselineRef.current = null;
     itemStampsRef.current = {}; itemSnapRef.current = {};
@@ -2097,22 +2113,17 @@ function MainApp({ session, onLogout }) {
   };
 
   const descartarDraft = async (draft) => {
-    const SURL = import.meta.env.VITE_SUPABASE_URL;
-    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
     try {
-      const res = await fetch(`${SURL}/rest/v1/servicios?id=eq.${draft.id}`, {
+      await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${draft.id}`, {
         method: 'PATCH',
-        headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: 'descartado' }),
       });
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error('[descartarDraft] failed:', res.status, errText);
-        alert('⚠️ Error al descartar borrador. Reintentá.');
-        return;
-      }
       setPendingDrafts(prev => prev.filter(d => d.id !== draft.id));
-    } catch(e) { console.error('[descartarDraft]', e); alert('⚠️ Error al descartar borrador. Reintentá.'); }
+    } catch(e) {
+      console.error('[descartarDraft]', e);
+      alert(`⚠️ No se pudo descartar el borrador (${mensajeError(e)}). Reintentá.`);
+    }
   };
 
   const handleReset = async () => {
@@ -2120,18 +2131,23 @@ function MainApp({ session, onLogout }) {
       if (!window.confirm('Tenés un servicio en progreso sin firmar. ¿Seguro que querés empezar uno nuevo?')) return;
       const discard = window.confirm('¿Descartar el borrador? Presioná Cancelar para guardarlo y continuar más tarde.');
       if (discard) {
-        const SURL = import.meta.env.VITE_SUPABASE_URL;
-        const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+        // Si el descarte no llega a la base, NO se resetea: el borrador seguiría
+        // vivo en el servidor y la pantalla diría lo contrario.
         try {
-          const res = await fetch(`${SURL}/rest/v1/servicios?id=eq.${editingId}`, {
+          await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${editingId}`, {
             method: 'PATCH',
-            headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ estado: 'descartado' }),
           });
-          if (!res.ok) console.error('[handleReset discard] failed:', res.status, await res.text());
-        } catch(e) { console.error('[handleReset discard]', e); }
+        } catch(e) {
+          console.error('[handleReset discard]', e);
+          alert(`⚠️ No se pudo descartar el borrador (${mensajeError(e)}). No se cambió nada; reintentá.`);
+          return;
+        }
       }
     }
+    borrarDraft(draftKey(editingId, ordenId));
+    dirtyRef.current = false;
     resetAll();
   };
 
@@ -2331,130 +2347,228 @@ function MainApp({ session, onLogout }) {
     setSaveNonce(n => n + 1);
   };
 
-  // Auto-save: debounce 2 s whenever checklist state changes while in step 3
+  // ── Autosave RUIDOSO (sep 2026) ────────────────────────────────────────────
+  // Antes: fetch inline, error → texto de 9 px durante 5 s y nada más; el GET de
+  // la guarda que fallaba se ignoraba y se escribía igual. Ahora:
+  //   · escritor y guarda van por apiFetch (red / http tipificados);
+  //   · reintento automático 2 s / 5 s / 15 s ante red o 5xx, NUNCA ante 4xx;
+  //   · estado visible en el header del checklist; el ⚠ solo se va con un OK;
+  //   · draft local en localStorage mientras haya cambios sin guardar;
+  //   · si la guarda anti-pisado no puede releer, NO se escribe.
+
+  // ¿Aplica el autosave a lo que hay en pantalla? Las mismas salidas tempranas
+  // de siempre, compartidas por el guardado y por el draft local.
+  const autosaveAplica = (d) => {
+    if (d.sigDate) return false; // Already signed — don't overwrite estado to borrador
+    // CORTE POR ESTADO (auditoría 2907de9, hallazgo R1). El payload escribe la
+    // FILA ENTERA con `estado:'borrador', aprobado:false`, y reconstruye
+    // `revisiones` desde la receta de HOY. Sobre un servicio que NO se cargó
+    // como borrador eso significaba: desaprobarlo, sacarlo de la cola de
+    // aprobación, y tirar los ítems que la receta ya no tiene. Pasaba con solo
+    // abrirlo desde 📋 Servicios realizados, 🔍 VER TODOS o la campana 🔔 —
+    // `loadService` limpia `sigDate` y rearmaba este autosave. Caso real: la
+    // orden #2701 quedó con el link del informe del cliente muerto.
+    // ÚNICA excepción al corte: modo edición de jefe sobre un APROBADO — y en
+    // ese caso el payload OMITE estado/aprobado/slug (PATCH parcial: la fila
+    // jamás sale de 'aprobado' y el link público sigue vivo).
+    if (d.estadoOriginal && d.estadoOriginal !== 'borrador' && !(d.modoEdicionJefe && d.estadoOriginal === 'aprobado')) return false;
+    // Sin tareas no hay nada que guardar y sí mucho que perder: un checklist
+    // vacío (catálogo aún cargando) borraría el del mecánico.
+    if (!d.tasks?.length) return false;
+    return true;
+  };
+
+  // Revisiones crudas (sin sellar) desde el estado actual.
+  const armarCrudo = (d) => {
+    const crudo = {};
+    d.tasks.forEach(t => {
+      if (!crudo[t.grp]) crudo[t.grp] = [];
+      const hasDetail = !!d.taskIssue[t.id];
+      const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
+      crudo[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null });
+    });
+    return crudo;
+  };
+
+  const claveDraftActual = () => draftKey(editingIdRef.current, autoSaveRef.current.ordenId);
+
+  // El guardado en sí. `intento` = reintentos ya hechos (0 en el primero). Vive
+  // en un ref para que el debounce, el backoff y el botón Reintentar llamen
+  // SIEMPRE a la versión con el estado más reciente (autoSaveRef se refresca
+  // en cada render).
+  const guardarAhoraRef = useRef(null);
+  guardarAhoraRef.current = async (intento = 0) => {
+    const d = autoSaveRef.current;
+    if (!autosaveAplica(d)) return;
+    if (conflictoRef.current) return; // Conflicto sin resolver: nadie pisa nada
+    const id = editingIdRef.current;
+    setSaveInfo(s => ({ ...s, estado: 'saving', intento }));
+    try {
+      const crudo = armarCrudo(d);
+      // Trazabilidad: regla compartida con Taller (servicioConcurrencia.js) —
+      // lo que cambió se sella con quien está logueado, lo demás conserva su autor.
+      const byGrpMap = sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || d.mechName || null, new Date().toISOString());
+
+      // Abrir un servicio ya no lo re-escribe: si el contenido es idéntico al
+      // que trajimos del servidor no hay nada que guardar. Esto evita que dos
+      // pestañas abiertas se peleen sin que nadie haya tocado nada.
+      const huellaLocal = huellaServicio({ revisiones: byGrpMap, observaciones: d.notes, fotos: d.taskPhotos });
+      if (id && huellaLocal === baselineRef.current) {
+        dirtyRef.current = false;
+        borrarDraft(claveDraftActual());
+        errorDesdeRef.current = null;
+        setSaveInfo(s => s.estado === 'saving' ? (s.at ? { estado: 'saved', at: s.at } : { estado: 'idle' }) : s);
+        return;
+      }
+
+      // Guarda anti-pisado: si la fila cambió en el servidor desde lo último
+      // que vimos, alguien más (el mecánico, otro jefe) está editando el mismo
+      // servicio. Se aborta el guardado y se le pregunta a la persona.
+      // Si la relectura FALLA (red/5xx/4xx) NO se escribe: apiFetch lanza y cae
+      // al catch como error de guardado (antes se escribía igual).
+      if (id && baselineRef.current !== null) {
+        const chk = await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${id}&select=revisiones,observaciones,fotos,mecanico,created_at`);
+        const cur = (await chk.json())?.[0];
+        if (cur && huellaServicio(cur) !== baselineRef.current) {
+          const act = ultimaActividad(cur);
+          conflictoRef.current = true;
+          setConflicto({ quien: act.quien, at: act.at });
+          if (!errorDesdeRef.current) errorDesdeRef.current = new Date().toISOString();
+          setSaveInfo({ estado: 'error', desde: errorDesdeRef.current, msg: 'Conflicto: otra persona guardó', intento, reintentoEn: null, sinReintento: true });
+          return;
+        }
+      }
+
+      const draftSlug = id ? undefined : `draft-${(d.plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+      const payload = {
+        ...(draftSlug ? { slug: draftSlug } : {}),
+        placa: d.plate, modelo: d.model, motor: d.engine,
+        mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
+        km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
+        aceite_litros: (d.oilLiters > 0 && d.llevaAceite) ? d.oilLiters : null,
+        aceite_spec:   (d.oilLiters > 0 && d.llevaAceite) ? d.oilSpec  : null,
+        revisiones: byGrpMap, observaciones: d.notes,
+        pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
+        progreso: { completadas: d.doneN, total: d.total },
+        fotos: d.taskPhotos,
+        dictamen: d.esRC ? { recomendacion: d.dictamenRec, reparaciones: d.reparaciones, total_estimado: d.dictamenTotal } : null,
+        orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
+        anio: d.vehAnio || null, version: d.vehVersion || null,
+      };
+      if (d.modoEdicionJefe) {
+        // Modo edición: estado/aprobado/slug NO viajan — el PATCH parcial
+        // preserva estado:'aprobado', aprobado, aprobado_por, slug y
+        // rechazado_*. Solo se suma el sello de edición (convención
+        // primer-editor de Taller: editado_por no se pisa si ya existe).
+        payload.editado_at = new Date().toISOString();
+        if (!editadoPorRef.current) payload.editado_por = session?.nombre || null;
+      } else {
+        // Flujo de siempre: el autosave de un borrador escribe borrador.
+        payload.estado = "borrador";
+        payload.aprobado = false;
+      }
+      const res = await apiFetch(
+        id ? `${API_URL}/rest/v1/servicios?id=eq.${id}` : `${API_URL}/rest/v1/servicios`,
+        { method: id ? "PATCH" : "POST", headers: { "Content-Type": "application/json", "Prefer": "return=representation" }, body: JSON.stringify(payload) }
+      );
+      const saved = await res.json();
+      const savedId = saved?.[0]?.id;
+      if (!id && savedId) { setEditingId(savedId); editingIdRef.current = savedId; }
+      // La huella y los sellos se recalculan sobre lo que DEVOLVIÓ el servidor
+      // (jsonb reordena claves: comparar contra el payload local daría falsos
+      // conflictos en el guardado siguiente).
+      if (saved?.[0]) registrarFilaVista(saved[0]);
+      if (saved?.[0]?.editado_por) editadoPorRef.current = saved[0].editado_por;
+      // Modo edición: el informe del cliente en la orden se regenera en cada
+      // guardado exitoso. Si falla (red), no bloquea el autosave — el próximo
+      // guardado lo reintenta.
+      if (d.modoEdicionJefe && d.ordenId) regenerarInformeOrden({ correccion: true });
+      // Guardado OK: se borra la red de seguridad local (la clave por orden y la
+      // clave por servicio, porque un POST recién estrenó el id).
+      dirtyRef.current = false;
+      borrarDraft(draftKey(savedId || id, d.ordenId));
+      borrarDraft(draftKey(null, d.ordenId));
+      errorDesdeRef.current = null;
+      setSaveInfo({ estado: 'saved', at: new Date().toISOString() });
+    } catch(e) {
+      console.warn("[autoSave] falló:", e);
+      if (!errorDesdeRef.current) errorDesdeRef.current = new Date().toISOString();
+      const { reintentar, esperaMs } = siguienteReintento(e, intento);
+      setSaveInfo({ estado: 'error', desde: errorDesdeRef.current, msg: mensajeError(e), intento, reintentoEn: reintentar ? Date.now() + esperaMs : null, sinReintento: !reintentar });
+      clearTimeout(retryTimer.current);
+      if (reintentar) retryTimer.current = setTimeout(() => guardarAhoraRef.current(intento + 1), esperaMs);
+    }
+  };
+
+  // Botón "Reintentar": corta debounce y backoff pendientes y guarda YA.
+  const reintentarGuardado = () => {
+    clearTimeout(retryTimer.current);
+    clearTimeout(autoSaveTimer.current);
+    guardarAhoraRef.current(0);
+  };
+
+  // Auto-save: debounce 2 s whenever checklist state changes while in step 3.
+  // Además, en el MISMO cambio (sin esperar el debounce) el estado va al draft
+  // local si difiere de lo que trajimos del servidor.
   useEffect(() => {
     if (step !== 3) return;
-    clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      const d  = autoSaveRef.current;
-      if (d.sigDate) return; // Already signed — don't overwrite estado to borrador
-      // CORTE POR ESTADO (auditoría 2907de9, hallazgo R1). El payload de abajo
-      // escribe la FILA ENTERA con `estado:'borrador', aprobado:false`, y
-      // reconstruye `revisiones` desde la receta de HOY. Sobre un servicio que
-      // NO se cargó como borrador eso significaba: desaprobarlo, sacarlo de la
-      // cola de aprobación, y tirar los ítems que la receta ya no tiene. Pasaba
-      // con solo abrirlo desde 📋 Servicios realizados, 🔍 VER TODOS o la
-      // campana 🔔 — `loadService` limpia `sigDate` y rearmaba este autosave.
-      // Caso real: la orden #2701 quedó con el link del informe del cliente
-      // muerto. El no-op de la huella tapaba la mitad de los casos (26 de 66),
-      // no los que traían deriva de receta.
-      // ÚNICA excepción al corte: modo edición de jefe sobre un APROBADO — y en
-      // ese caso el payload de abajo OMITE estado/aprobado/slug (PATCH parcial:
-      // la fila jamás sale de 'aprobado' y el link público sigue vivo).
-      if (d.estadoOriginal && d.estadoOriginal !== 'borrador' && !(d.modoEdicionJefe && d.estadoOriginal === 'aprobado')) return;
-      if (conflictoRef.current) return; // Conflicto sin resolver: nadie pisa nada
-      // Sin tareas no hay nada que guardar y sí mucho que perder: un checklist
-      // vacío (catálogo aún cargando) borraría el del mecánico.
-      if (!d.tasks?.length) return;
-      const id = editingIdRef.current;
-      const SURL = import.meta.env.VITE_SUPABASE_URL;
-      const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-      setAutoSaveStatus("saving");
-      try {
-        const crudo = {};
-        d.tasks.forEach(t => {
-          if (!crudo[t.grp]) crudo[t.grp] = [];
-          const hasDetail = !!d.taskIssue[t.id];
-          const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
-          crudo[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null });
-        });
-        // Trazabilidad: regla compartida con Taller (servicioConcurrencia.js) —
-        // lo que cambió se sella con quien está logueado, lo demás conserva su autor.
-        const byGrpMap = sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || d.mechName || null, new Date().toISOString());
-
-        // Abrir un servicio ya no lo re-escribe: si el contenido es idéntico al
-        // que trajimos del servidor no hay nada que guardar. Esto evita que dos
-        // pestañas abiertas se peleen sin que nadie haya tocado nada.
-        const huellaLocal = huellaServicio({ revisiones: byGrpMap, observaciones: d.notes, fotos: d.taskPhotos });
-        if (id && huellaLocal === baselineRef.current) { setAutoSaveStatus(null); return; }
-
-        // Guarda anti-pisado: si la fila cambió en el servidor desde lo último
-        // que vimos, alguien más (el mecánico, otro jefe) está editando el mismo
-        // servicio. Se aborta el guardado y se le pregunta a la persona.
-        if (id && baselineRef.current !== null) {
-          const chk = await fetch(`${SURL}/rest/v1/servicios?id=eq.${id}&select=revisiones,observaciones,fotos,mecanico,created_at`, {
-            headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` },
-          });
-          if (chk.ok) {
-            const cur = (await chk.json())?.[0];
-            if (cur && huellaServicio(cur) !== baselineRef.current) {
-              const act = ultimaActividad(cur);
-              conflictoRef.current = true;
-              setConflicto({ quien: act.quien, at: act.at });
-              setAutoSaveStatus(null);
-              return;
-            }
-          }
-        }
-
-        const draftSlug = id ? undefined : `draft-${(d.plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-        const payload = {
-          ...(draftSlug ? { slug: draftSlug } : {}),
-          placa: d.plate, modelo: d.model, motor: d.engine,
-          mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
-          km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
-          aceite_litros: (d.oilLiters > 0 && d.llevaAceite) ? d.oilLiters : null,
-          aceite_spec:   (d.oilLiters > 0 && d.llevaAceite) ? d.oilSpec  : null,
-          revisiones: byGrpMap, observaciones: d.notes,
-          pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
-          progreso: { completadas: d.doneN, total: d.total },
-          fotos: d.taskPhotos,
-          dictamen: d.esRC ? { recomendacion: d.dictamenRec, reparaciones: d.reparaciones, total_estimado: d.dictamenTotal } : null,
-          orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
-          anio: d.vehAnio || null, version: d.vehVersion || null,
-        };
-        if (d.modoEdicionJefe) {
-          // Modo edición: estado/aprobado/slug NO viajan — el PATCH parcial
-          // preserva estado:'aprobado', aprobado, aprobado_por, slug y
-          // rechazado_*. Solo se suma el sello de edición (convención
-          // primer-editor de Taller: editado_por no se pisa si ya existe).
-          payload.editado_at = new Date().toISOString();
-          if (!editadoPorRef.current) payload.editado_por = session?.nombre || null;
-        } else {
-          // Flujo de siempre: el autosave de un borrador escribe borrador.
-          payload.estado = "borrador";
-          payload.aprobado = false;
-        }
-        const res = await fetch(
-          id ? `${SURL}/rest/v1/servicios?id=eq.${id}` : `${SURL}/rest/v1/servicios`,
-          { method: id ? "PATCH" : "POST", headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}`, "Content-Type": "application/json", "Prefer": "return=representation" }, body: JSON.stringify(payload) }
-        );
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error("[autoSave] Supabase error", res.status, errText.slice(0, 200));
-          throw new Error(`autoSave ${res.status}`);
-        }
-        const saved = await res.json();
-        if (!id) { const newId = saved?.[0]?.id; if (newId) setEditingId(newId); }
-        // La huella y los sellos se recalculan sobre lo que DEVOLVIÓ el servidor
-        // (jsonb reordena claves: comparar contra el payload local daría falsos
-        // conflictos en el guardado siguiente).
-        if (saved?.[0]) registrarFilaVista(saved[0]);
-        if (saved?.[0]?.editado_por) editadoPorRef.current = saved[0].editado_por;
-        // Modo edición: el informe del cliente en la orden se regenera en cada
-        // guardado exitoso. Si falla (red), no bloquea el autosave — el próximo
-        // guardado lo reintenta.
-        if (d.modoEdicionJefe && d.ordenId) regenerarInformeOrden({ correccion: true });
-        setAutoSaveStatus("saved");
-        setTimeout(() => setAutoSaveStatus(s => s === "saved" ? null : s), 3000);
-      } catch(e) {
-        console.warn("Auto-save failed:", e);
-        setAutoSaveStatus("error");
-        setTimeout(() => setAutoSaveStatus(s => s === "error" ? null : s), 5000);
+    const d = autoSaveRef.current;
+    if (autosaveAplica(d)) {
+      const crudo = armarCrudo(d);
+      const huella = huellaServicio({ revisiones: crudo, observaciones: d.notes, fotos: d.taskPhotos });
+      const hayContenido = Object.values(crudo).flat().some(itemTieneContenido) || !!d.notes;
+      if (huella !== baselineRef.current && hayContenido) {
+        dirtyRef.current = true;
+        guardarDraft(claveDraftActual(), { revisiones: crudo, observaciones: d.notes, km: d.km }, huella);
       }
-    }, 2000);
+    }
+    clearTimeout(autoSaveTimer.current);
+    clearTimeout(retryTimer.current); // un cambio nuevo reemplaza el reintento pendiente: el debounce guarda
+    autoSaveTimer.current = setTimeout(() => guardarAhoraRef.current(0), 2000);
     return () => clearTimeout(autoSaveTimer.current);
   }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "hace Xs" vivo mientras haya algo que mostrar.
+  useEffect(() => {
+    if (saveInfo.estado !== 'saved' && saveInfo.estado !== 'error') return;
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [saveInfo.estado]);
+
+  // Cerrar la pestaña con cambios sin guardar: el navegador pregunta.
+  useEffect(() => {
+    const h = (e) => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, []);
+
+  // Al entrar a un servicio (existente o nuevo por link de orden): si quedó un
+  // draft local más nuevo que la base, se ofrece restaurarlo. Una vez por clave.
+  useEffect(() => {
+    if (step !== 3 || !tasks.length) return;
+    const key = draftKey(editingId, ordenId);
+    if (!key || draftOfrecidoRef.current === key) return;
+    draftOfrecidoRef.current = key;
+    const dr = leerDraft(key);
+    if (draftRestaurable(dr, baselineRef.current)) setDraftLocal({ key, draft: dr });
+    else if (dr) borrarDraft(key); // igual a la base: ya estaba guardado
+  }, [step, editingId, ordenId, tasks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const restaurarDraftLocal = () => {
+    const c = draftLocal?.draft?.contenido;
+    if (c) {
+      if (c.revisiones) aplicarRevisiones(c.revisiones, null);
+      if (c.observaciones != null) setNotes(c.observaciones);
+      if (c.km != null && c.km !== "") setKm(c.km);
+    }
+    setDraftLocal(null);
+    setSaveNonce(n => n + 1); // dispara el guardado con lo restaurado
+  };
+  const descartarDraftLocal = () => {
+    borrarDraft(draftLocal?.key);
+    dirtyRef.current = false;
+    setDraftLocal(null);
+  };
 
   const setStatus = (id, status, text, taskText) => {
     setTaskStatus(p => ({ ...p, [id]: status }));
@@ -2497,17 +2611,21 @@ function MainApp({ session, onLogout }) {
       fileType: 'image/jpeg',
     });
     const path = `servicios/${id}/${crypto.randomUUID()}.jpg`;
-    const SURL = import.meta.env.VITE_SUPABASE_URL;
-    const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    const res = await fetch(
-      `${SURL}/storage/v1/object/fotos-servicios/${path}`,
-      { method: 'POST',
-        headers: { apikey: SKEY, Authorization: 'Bearer ' + SKEY,
-                   'Content-Type': 'image/jpeg', 'x-upsert': 'false' },
-        body: comprimida }
-    );
-    if (!res.ok) { alert('Error al subir la imagen. Intentá de nuevo.'); return; }
-    const url = `${SURL}/storage/v1/object/public/fotos-servicios/${path}`;
+    // Red o HTTP: se avisa y la foto NO se agrega a la lista (antes un fallo de
+    // red quedaba como promesa rechazada sin manejar).
+    try {
+      await apiFetch(
+        `${API_URL}/storage/v1/object/fotos-servicios/${path}`,
+        { method: 'POST',
+          headers: { 'Content-Type': 'image/jpeg', 'x-upsert': 'false' },
+          body: comprimida }
+      );
+    } catch (e) {
+      console.error('[subirFotoTarea]', e);
+      alert(`⚠️ No se pudo subir la imagen (${mensajeError(e)}). Intentá de nuevo.`);
+      return;
+    }
+    const url = `${API_URL}/storage/v1/object/public/fotos-servicios/${path}`;
     setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
   };
 
@@ -2524,6 +2642,40 @@ function MainApp({ session, onLogout }) {
         body: JSON.stringify({ to_user_nombres: userNombres, title, body }),
       });
     } catch(e) { console.warn('notifyPush failed:', e); }
+  };
+
+  // Vuelca `revisiones` (jsonb de la fila o del draft local) al estado del
+  // checklist. `colFotos` = columna `fotos` de la fila ({taskId: [urls]}), más
+  // completa que las fotos por ítem; null cuando viene del draft (sin fotos).
+  const aplicarRevisiones = (revisiones, colFotos) => {
+    const newStatus  = {};
+    const newIssue   = {};
+    const newChecked = {};
+    const textToId   = {};
+    // Claves SIN el prefijo ~ (interno): los snapshots de servicios siempre
+    // guardan el texto limpio (buildTasks stripea), y los borradores previos
+    // al marcado tampoco lo tienen — matcheo consistente en ambos casos.
+    Object.keys(activeItems).forEach(k => {
+      activeItems[k].tasks.forEach((t, i) => { textToId[stripInterna(t)] = `${k}_${i}`; });
+    });
+    const newPhotos = {};
+    Object.values(revisiones).flat().forEach(item => {
+      const taskId = item.id || textToId[stripInterna(item.text)] || null;
+      if (taskId && item.status && item.status !== "pending") {
+        newStatus[taskId]  = item.status;
+        newChecked[taskId] = true;
+        if (item.detail) newIssue[taskId] = item.detail;
+        if (item.fotos?.length) newPhotos[taskId] = item.fotos;
+      }
+    });
+    setTaskStatus(newStatus);
+    setTaskIssue(newIssue);
+    // La columna fotos ({taskId: [urls]}) es más completa que las fotos por
+    // ítem de revisiones (los ítems "pending" con foto no llegan a newPhotos).
+    const base = (colFotos && typeof colFotos === "object" && !Array.isArray(colFotos)) ? colFotos : {};
+    if (colFotos !== null) setTaskPhotos({ ...base, ...newPhotos });
+    else setTaskPhotos(p => ({ ...p, ...newPhotos })); // draft: conserva las fotos ya cargadas
+    setChk(newChecked);
   };
 
   const loadService = (s) => {
@@ -2568,35 +2720,7 @@ function MainApp({ session, onLogout }) {
     setDictamenRec(s.dictamen?.recomendacion || "");
     setReparaciones(Array.isArray(s.dictamen?.reparaciones) ? s.dictamen.reparaciones : []);
 
-    if (revisiones) {
-      const newStatus  = {};
-      const newIssue   = {};
-      const newChecked = {};
-      const textToId   = {};
-      // Claves SIN el prefijo ~ (interno): los snapshots de servicios siempre
-      // guardan el texto limpio (buildTasks stripea), y los borradores previos
-      // al marcado tampoco lo tienen — matcheo consistente en ambos casos.
-      Object.keys(activeItems).forEach(k => {
-        activeItems[k].tasks.forEach((t, i) => { textToId[stripInterna(t)] = `${k}_${i}`; });
-      });
-      const newPhotos = {};
-      Object.values(revisiones).flat().forEach(item => {
-        const taskId = item.id || textToId[stripInterna(item.text)] || null;
-        if (taskId && item.status && item.status !== "pending") {
-          newStatus[taskId]  = item.status;
-          newChecked[taskId] = true;
-          if (item.detail) newIssue[taskId] = item.detail;
-          if (item.fotos?.length) newPhotos[taskId] = item.fotos;
-        }
-      });
-      setTaskStatus(newStatus);
-      setTaskIssue(newIssue);
-      // La columna fotos ({taskId: [urls]}) es más completa que las fotos por
-      // ítem de revisiones (los ítems "pending" con foto no llegan a newPhotos).
-      const colFotos = (s.fotos && typeof s.fotos === "object" && !Array.isArray(s.fotos)) ? s.fotos : {};
-      setTaskPhotos({ ...colFotos, ...newPhotos });
-      setChk(newChecked);
-    }
+    if (revisiones) aplicarRevisiones(revisiones, s.fotos || {});
 
     const existingSlug = s.slug || "";
     setSigDate("");
@@ -2943,12 +3067,14 @@ function MainApp({ session, onLogout }) {
                 Cancelar
               </button>
               <button onClick={async () => {
-                const SURL = import.meta.env.VITE_SUPABASE_URL;
-                const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-                await fetch(`${SURL}/rest/v1/servicios?id=eq.${confirmDelete.id}`, {
-                  method: 'DELETE',
-                  headers: { "apikey": SKEY, "Authorization": `Bearer ${SKEY}` }
-                });
+                // Solo se saca de la lista si el DELETE llegó (antes se daba por hecho).
+                try {
+                  await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${confirmDelete.id}`, { method: 'DELETE' });
+                } catch (e) {
+                  console.error('[eliminar borrador]', e);
+                  alert(`⚠️ No se pudo eliminar el borrador (${mensajeError(e)}). Sigue en la base; reintentá.`);
+                  return;
+                }
                 setAdminDrafts(prev => prev.filter(d => d.id !== confirmDelete.id));
                 setConfirmDelete(null);
               }}
@@ -2978,7 +3104,9 @@ function MainApp({ session, onLogout }) {
 
   // El autosave escribe la fila completa: si alguien más guardó desde que
   // abrimos, se frena ANTES de pisar y decide la persona. Sin merge ni realtime.
-  const conflictoModal = conflicto ? (
+  // (`conflictoModal` se renderiza en las tres pantallas; el modal del draft
+  // local viaja adentro para no tocar los tres puntos de montaje.)
+  const conflictoModalBase = conflicto ? (
     <div style={{ position:"fixed", inset:0, zIndex:600, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
       <div style={{ background:"#16181c", border:"1px solid #f8717160", borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:"monospace" }}>
         <div style={{ fontSize:13, color:"#f87171", fontWeight:"bold", marginBottom:10 }}>⚠️ Servicio modificado</div>
@@ -2999,6 +3127,33 @@ function MainApp({ session, onLogout }) {
           <button onClick={forzarGuardado}
             style={{ padding:"10px", borderRadius:6, border:"1px solid #f8717150", background:"#f8717115", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
             ⤒ Guardar lo mío de todas formas
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+  const conflictoModal = (conflictoModalBase || draftLocalModal) ? <>{conflictoModalBase}{draftLocalModal}</> : null;
+
+  // Draft local (autosave ruidoso): quedaron cambios en este dispositivo que
+  // no llegaron a la base. Se ofrece una vez por servicio, al abrirlo.
+  const draftLocalModal = draftLocal ? (
+    <div style={{ position:"fixed", inset:0, zIndex:600, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:"#16181c", border:"1px solid #C8A96E60", borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:"monospace" }}>
+        <div style={{ fontSize:13, color:"#C8A96E", fontWeight:"bold", marginBottom:10 }}>💾 Cambios sin guardar</div>
+        <div style={{ fontSize:11, color:"#ccc", lineHeight:1.7, marginBottom:6 }}>
+          Tenés cambios sin guardar de <strong style={{ color:"#C8A96E" }}>{hace(draftLocal.draft.at)}</strong>: quedaron en este dispositivo porque el guardado no llegó a la base.
+        </div>
+        <div style={{ fontSize:10, color:"#777", lineHeight:1.6, marginBottom:14 }}>
+          Restaurar pone esos cambios sobre lo que hay en pantalla y los guarda. Descartar los borra de este dispositivo.
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          <button onClick={restaurarDraftLocal}
+            style={{ padding:"10px", borderRadius:6, border:"1px solid #4ade8050", background:"#4ade8015", color:"#4ade80", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+            ↩ Restaurar
+          </button>
+          <button onClick={descartarDraftLocal}
+            style={{ padding:"10px", borderRadius:6, border:"1px solid #f8717150", background:"#f8717115", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer" }}>
+            🗑 Descartar
           </button>
         </div>
       </div>
@@ -3360,52 +3515,43 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         const plateClean = (plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase();
         slug = `${plateClean}-${sel}-${dd}${mm}${yyyy}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
       }
-      try {
-        const svcData = buildServiceData();
-        const sbRes = await fetch(
-          editingId ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}` : `${SUPABASE_URL}/rest/v1/servicios`,
-          { method: editingId ? "PATCH" : "POST",
-            headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", "Prefer": "return=representation" },
-            body: JSON.stringify({
-              slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
-              mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
-              servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD",
-              aceite_litros: svcData.aceite?.litros || null, aceite_spec: svcData.aceite?.especificacion || null,
-              revisiones: svcData.revisiones, observaciones: svcData.observaciones,
-              pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: taskPhotos,
-              orden_id: ordenId || null, orden_numero: ordenNumero || null,
-            }),
-          }
-        );
-        if (sbRes.ok) {
-          const sbData = await sbRes.json();
-          const savedId = sbData?.[0]?.id;
-          finalClientUrl = `${APP_URL}/servicio/${slug}`;
-          setClientUrl(finalClientUrl);
-          if (!editingId && savedId) setEditingId(savedId);
-          setEstadoOriginal('aprobado');   // idem confirmSig: fila fuera de borrador
-        } else {
-          console.error("[enviarAOrden] servicios save failed:", await sbRes.text());
+      // Si el guardado a servicios falla se ABORTA acá: antes seguía y escribía
+      // el informe en la orden con un servicio que no quedó aprobado.
+      const svcData = buildServiceData();
+      const sbRes = await apiFetch(
+        editingId ? `${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}` : `${SUPABASE_URL}/rest/v1/servicios`,
+        { method: editingId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json", "Prefer": "return=representation" },
+          body: JSON.stringify({
+            slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
+            mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
+            servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD",
+            aceite_litros: svcData.aceite?.litros || null, aceite_spec: svcData.aceite?.especificacion || null,
+            revisiones: svcData.revisiones, observaciones: svcData.observaciones,
+            pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: taskPhotos,
+            orden_id: ordenId || null, orden_numero: ordenNumero || null,
+          }),
         }
-      } catch(e) { console.error("[enviarAOrden] servicios save exception:", e.message); }
+      );
+      const sbData = await sbRes.json();
+      const savedId = sbData?.[0]?.id;
+      finalClientUrl = `${APP_URL}/servicio/${slug}`;
+      setClientUrl(finalClientUrl);
+      if (!editingId && savedId) setEditingId(savedId);
+      setEstadoOriginal('aprobado');   // idem confirmSig: fila fuera de borrador
 
       // 3. PATCH ordenes.informe_mantenimiento
       const markdown = buildInformeMarkdown();
-      const ordenRes = await fetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
+      await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ informe_mantenimiento: markdown }),
       });
-      if (!ordenRes.ok) {
-        const errText = await ordenRes.text();
-        console.error("[enviarAOrden] ordenes patch failed:", ordenRes.status, errText);
-        throw new Error(`ordenes patch ${ordenRes.status}`);
-      }
 
       setOrdenEnvioStatus("done");
     } catch(e) {
       console.error("[enviarAOrden]", e);
-      alert("Error al enviar el informe a la orden. Intentá de nuevo.");
+      alert(`⚠️ No se pudo enviar el informe a la orden (${mensajeError(e)}). Intentá de nuevo.`);
       setOrdenEnvioStatus("idle");
     }
   };
@@ -3418,6 +3564,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       return;
     }
     clearTimeout(autoSaveTimer.current);
+    clearTimeout(retryTimer.current);
     autoSaveTimer.current = null;
     const now = new Date();
     const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
@@ -3487,22 +3634,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const url = editingId
         ? `${SURL}/rest/v1/servicios?id=eq.${editingId}`
         : `${SURL}/rest/v1/servicios`;
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: editingId ? "PATCH" : "POST",
-        headers: {
-          "apikey": SKEY,
-          "Authorization": `Bearer ${SKEY}`,
-          "Content-Type": "application/json",
-          "Prefer": "return=representation",
-        },
+        headers: { "Content-Type": "application/json", "Prefer": "return=representation" },
         body: JSON.stringify(payload),
       });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        console.error("[confirmSig] Supabase error", res.status, errText);
-        throw new Error(`Supabase ${res.status}: ${errText}`);
-      }
 
       const data = await res.json();
       console.log("[confirmSig] saved:", data?.[0]?.id);
@@ -3518,10 +3654,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         esRC ? `${revisionLabel} pendiente de aprobación` : "Servicio pendiente de aprobación",
         `${mechName} — ${plate} (${model})`
       );
+      // Firmado y guardado: la red de seguridad local ya no hace falta.
+      borrarDraft(draftKey(savedId || editingId, ordenId));
+      borrarDraft(draftKey(null, ordenId));
+      dirtyRef.current = false;
       setSigDate(fecha);
     } catch(e) {
-      console.error("[confirmSig] save failed:", e.message);
-      alert(`⚠️ ERROR al guardar el informe:\n\n${e.message}\n\nPor favor reintentá. Si persiste, contactá soporte. NO cierres la app.`);
+      console.error("[confirmSig] save failed:", e);
+      alert(`⚠️ ERROR al guardar el informe: ${mensajeError(e)}.\n\nNo se firmó. Por favor reintentá. Si persiste, contactá soporte. NO cierres la app (los cambios quedan en este dispositivo).`);
     }
   };
 
@@ -4325,12 +4465,28 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         </div>
       </div>
 
-      {/* Auto-save indicator */}
-      {autoSaveStatus && (
-        <div style={{ padding:"3px 16px", textAlign:"right", fontSize:9, letterSpacing:1, color: autoSaveStatus === "saved" ? "#4ade80" : autoSaveStatus === "error" ? "#f87171" : "#888" }}>
-          {autoSaveStatus === "saving" ? "⏳ Guardando..." : autoSaveStatus === "saved" ? "💾 Guardado" : "⚠️ Error al guardar"}
-        </div>
-      )}
+      {/* Estado del guardado — persistente. El ⚠ solo se va con un guardado OK. */}
+      {saveInfo.estado !== 'idle' && (() => {
+        const esErr = saveInfo.estado === 'error';
+        const segs = saveInfo.reintentoEn ? Math.max(0, Math.ceil((saveInfo.reintentoEn - Date.now()) / 1000)) : null;
+        const texto = saveInfo.estado === 'saving' ? '⏳ Guardando…'
+          : saveInfo.estado === 'saved' ? `✓ Guardado ${haceCorto(saveInfo.at)}`
+          : `⚠ Sin guardar desde ${haceCorto(saveInfo.desde)} — ${saveInfo.msg}${segs != null ? ` · reintenta en ${segs} s` : ''}`;
+        return (
+          <div data-tick={tick} style={{ margin:"0 16px 8px", padding:"7px 10px", borderRadius:6, fontFamily:"monospace", fontSize:11, lineHeight:1.5,
+            display:"flex", alignItems:"center", justifyContent:"space-between", gap:10,
+            border:`1px solid ${esErr ? '#f8717170' : line}`, background: esErr ? '#1a0808' : 'transparent',
+            color: saveInfo.estado === 'saved' ? '#4ade80' : esErr ? '#f87171' : '#888' }}>
+            <span style={{ flex:1 }}>{texto}</span>
+            {esErr && (
+              <button onClick={reintentarGuardado}
+                style={{ padding:"6px 10px", borderRadius:4, border:"1px solid #f8717170", background:"#f8717120", color:"#f87171", fontFamily:"monospace", fontSize:11, fontWeight:"bold", cursor:"pointer", whiteSpace:"nowrap" }}>
+                Reintentar
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* TABS */}
       <div style={{ display:"flex", borderBottom:`1px solid ${line}`, padding:"0 16px" }}>
@@ -4648,16 +4804,21 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                       <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                         {["Otto Ramos","Gustavo Ramos","Arturo Ramos"].map(nombre => (
                           <button key={nombre} onClick={async () => {
+                            // Solo se marca aprobado en pantalla si el PATCH llegó (antes se marcaba igual).
                             try {
-                              await fetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`, {
+                              await apiFetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`, {
                                 method: "PATCH",
-                                headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json" },
+                                headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({ aprobado: true, aprobado_por: nombre }),
                               });
-                              setAprobado(true);
-                              setAprobadoPor(nombre);
-                              if (mechName) notifyPush([mechName], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
-                            } catch(e) { console.error(e); }
+                            } catch(e) {
+                              console.error('[aprobar]', e);
+                              alert(`⚠️ No se pudo registrar la aprobación (${mensajeError(e)}). El servicio sigue sin aprobar; reintentá.`);
+                              return;
+                            }
+                            setAprobado(true);
+                            setAprobadoPor(nombre);
+                            if (mechName) notifyPush([mechName], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
                           }}
                             style={{ width:"100%", padding:"10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8010", color:"#4ade80", fontFamily:"monospace", fontSize:11, cursor:"pointer", letterSpacing:1, textAlign:"center" }}>
                             ✅ Revisión de aprobación — {nombre}
