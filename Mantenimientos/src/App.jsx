@@ -3156,8 +3156,6 @@ function MainApp({ session, onLogout }) {
       </div>
     </div>
   ) : null;
-  const conflictoModal = (conflictoModalBase || draftLocalModal) ? <>{conflictoModalBase}{draftLocalModal}</> : null;
-
   // Draft local (autosave ruidoso): quedaron cambios en este dispositivo que
   // no llegaron a la base. Se ofrece una vez por servicio, al abrirlo.
   const draftLocalModal = draftLocal ? (
@@ -3183,6 +3181,11 @@ function MainApp({ session, onLogout }) {
       </div>
     </div>
   ) : null;
+
+  // conflictoModal se arma DESPUÉS de draftLocalModal: son `const` del render y leer
+  // draftLocalModal antes de su declaración era un ReferenceError (TDZ) que tiraba MainApp
+  // entero (pantalla negra del 13/9). El orden de declaración importa dentro de la función.
+  const conflictoModal = (conflictoModalBase || draftLocalModal) ? <>{conflictoModalBase}{draftLocalModal}</> : null;
 
   const centroMandoPanel = showCentroMando ? (
     <div style={{ position:"fixed", inset:0, zIndex:200, background:"#000a" }} onClick={() => setShowCentroMando(false)}>
