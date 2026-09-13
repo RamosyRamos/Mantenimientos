@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import ClientReport from './ClientReport.jsx'
 import ClientHistory from './ClientHistory.jsx'
+import ActualizacionBanner from './ActualizacionBanner.jsx'
+import { instalarRecargaPorChunkPerdido } from './lib/version.js'
 
 function Router() {
   const path = window.location.pathname;
@@ -13,9 +15,15 @@ function Router() {
 }
 
 const rootEl = document.getElementById('root');
+// Staleness de PWA (#2977): chunk con hash viejo tras un deploy → una recarga
+// (guard en sessionStorage). Ver src/lib/version.js.
+instalarRecargaPorChunkPerdido();
+
 createRoot(rootEl).render(
   <StrictMode>
     <Router />
+    {/* Banner de versión nueva + recarga segura al volver de horas oculta */}
+    <ActualizacionBanner />
   </StrictMode>
 );
 

@@ -48,6 +48,13 @@ App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL
 - `fetchBorradores` pedía `updated_at`, que **no existe**: PostgREST devolvía 42703 y el panel salía SIEMPRE vacío. Además el select parcial dejaba fuera `observaciones`/`fotos`/`anio`/`version`, así que abrir un borrador desde ahí y tocarlo los **borraba**. Ahora es `select=*` y la fecha sale de `ultimaActividad`.
 - Ojo: el botón 🗂 de esa bandeja está gateado a `esTavo` (solo Gustavo). Otto/Arturo llegan al borrador **solo** por el deep link desde Taller.
 
+## Staleness de PWA (sep 2026, #2977, rama `fix/pwa-staleness`)
+- La app queda abierta días con un bundle viejo; con la Sesión E (F6 cierra la vía compat) un bundle viejo pierde identidad y lee [] en silencio. Mismo patrón que Taller (`vite.config.js` + `src/lib/version.js`, no gemelo byte a byte: el criterio de vista segura es propio).
+- **Build**: plugin `ryr-version` en `vite.config.js` define `__BUILD_ID__` (= `VERCEL_GIT_COMMIT_SHA` corto, o `git rev-parse`, o timestamp) y emite `dist/version.json` con el mismo id.
+- **Runtime** (`src/lib/version.js`, arrancado por `src/ActualizacionBanner.jsx` montado en `main.jsx` fuera del Router): fetch de `/version.json` con `cache: 'no-store'` cada 10 min, al volver a visible y al recuperar red; si difiere → banner "Hay una versión nueva — Actualizar" (no recarga sola). **Recarga automática** solo al volver de ≥ 4 h oculta, con versión nueva confirmada y vista segura: `document.documentElement.dataset.vistaSegura === '1'` (lo escribe `MainApp`: `step === 1 && !editingId`; checklist/resumen abiertos → '0') o vista de cliente (/servicio, /historial), sin overlay `position: fixed; inset: 0` montado y sin input con foco. Chunk con hash viejo (Vercel lo rewritea a index.html 200) → `vite:preloadError` → una recarga con guard en `sessionStorage` (60 s).
+- Vercel: `vercel.json` declara `immutable` para `/assets/*` pero el header catch-all `/(.*)` gana y todo sale `no-cache, no-store` (visto en vivo el 13/9); no se tocó. Sin SW ni manifest: la app no cachea assets.
+- Probar en preview: deployar dos veces; la pestaña del primer deploy muestra el banner a los ≤ 10 min (o al cambiar de pestaña y volver). En dev (`BUILD_ID === 'dev'`) el detector está apagado.
+
 ## Convenciones
 
 - Identidad git: `RamosyRamos` / `contacto@ramosyramoscr.com`. Branch `main`. Commits en español.
