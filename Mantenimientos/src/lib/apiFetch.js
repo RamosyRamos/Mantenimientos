@@ -1,7 +1,8 @@
 // ── apiFetch: helper ÚNICO para las ESCRITURAS a Supabase (sep 2026) ─────────
 //
-// Regla: cualquier escritor nuevo (PATCH/POST/DELETE a rest/v1 o storage/v1) va
-// por acá. Las lecturas de catálogo siguen con fetch() crudo — no se tocaron.
+// Regla: TODO request a Supabase desde App.jsx va por acá (F4: también las
+// lecturas, notifyPush y storage — así llevan el JWT). Excepción: ClientReport.jsx
+// y ClientHistory.jsx son vistas públicas sin sesión y siguen con fetch() + anon.
 //
 // Qué hace:
 //   · mete los headers de siempre (apikey + Authorization Bearer <anon>), los
@@ -15,16 +16,41 @@
 //
 // NO agrega supabase-js ni toca sesión/auth: independiente de la migración a Auth.
 
+import { supabase } from './supabase.js';
+
 export const SURL = import.meta.env.VITE_SUPABASE_URL;
 export const SKEY = import.meta.env.VITE_SUPABASE_KEY;
+const SESSION_KEY = 'ryr_session';
 
-export const authHeaders = () => ({ apikey: SKEY, Authorization: `Bearer ${SKEY}` });
+// usuarios.id de la sesión de la app (misma clave que App.jsx). Viaja como
+// x-session-id para send-push (compat hasta F5: la function todavía autoriza
+// por ese header, no por el JWT).
+export const sessionIdActual = () => {
+  try { const raw = localStorage.getItem(SESSION_KEY); return raw ? (JSON.parse(raw)?.id || null) : null; }
+  catch { return null; }
+};
+
+// F4 Sesión E: con sesión de Supabase Auth, Authorization lleva el JWT (PostgREST
+// corre como `authenticated`, sesion_actual_id() resuelve auth.uid()) + x-session-id;
+// sin sesión (login, vistas públicas) queda el Bearer anon de siempre. apikey siempre anon.
+export async function authHeaders() {
+  const h = { apikey: SKEY, Authorization: `Bearer ${SKEY}` };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      h.Authorization = `Bearer ${session.access_token}`;
+      const sid = sessionIdActual();
+      if (sid) h['x-session-id'] = String(sid);
+    }
+  } catch { /* sin auth: anon */ }
+  return h;
+}
 
 export async function apiFetch(url, opts = {}) {
   const { headers = {}, ...rest } = opts;
   let res;
   try {
-    res = await fetch(url, { ...rest, headers: { ...authHeaders(), ...headers } });
+    res = await fetch(url, { ...rest, headers: { ...(await authHeaders()), ...headers } });
   } catch (causa) {
     throw { tipo: 'red', causa };
   }
