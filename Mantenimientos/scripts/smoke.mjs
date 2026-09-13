@@ -42,9 +42,12 @@ function sembrarSesion() {
   };
 }
 
-async function escenario(browser, baseUrl, { nombre, conSesion }) {
-  const page = await browser.newPage();
+async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = false }) {
+  // Contexto aislado por escenario: el localStorage sembrado en uno no debe filtrarse al siguiente.
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
   const errores = [];
+  let publicarVersionNueva = false;   // se prende DESPUÉS de cargar: /version.json pasa a devolver otro build
   page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}\n    ${String(e.stack || '').split('\n').slice(1, 3).join('\n    ')}`));
   page.on('console', (m) => {
     if (!['error', 'warning'].includes(m.type())) return;
@@ -61,6 +64,9 @@ async function escenario(browser, baseUrl, { nombre, conSesion }) {
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const u = req.url();
+    if (publicarVersionNueva && u.startsWith(baseUrl + 'version.json')) {
+      return req.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ build: 'smoke-build-nuevo', at: new Date().toISOString() }) });
+    }
     if (u.startsWith(baseUrl)) return req.continue();
     if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
     if (SUPA && u.startsWith(SUPA)) {
@@ -90,7 +96,29 @@ async function escenario(browser, baseUrl, { nombre, conSesion }) {
   if (conSesion && muestraLogin) errores.push('con sesión sembrada sigue en LoginScreen (mi_usuario mock no aplicó o la sesión se descartó)');
   if (!conSesion && !muestraLogin) errores.push(`sin sesión no muestra LoginScreen: "${estado.texto.slice(0, 120)}"`);
 
-  await page.close();
+  // Staleness de PWA (#2977): con la página ya cargada, /version.json pasa a publicar otro
+  // build; al volver de "oculta" (visibilitychange) el detector de lib/version.js tiene que
+  // mostrar el banner "Hay una versión nueva". Cubre: id embebido vs publicado, el parseo de
+  // la respuesta, el listener de visibilidad y el montaje del banner fuera del Router.
+  if (versionNueva) {
+    publicarVersionNueva = true;
+    const conBanner = await page.evaluate(async () => {
+      const hidden = (v) => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => v });
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'hidden' : 'visible') });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      hidden(true); hidden(false);
+      for (let i = 0; i < 40; i++) {           // hasta 4 s: fetch + setState + render
+        if (document.body.innerText.includes('Hay una versión nueva')) return true;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return false;
+    }).catch((e) => { errores.push(`evaluate banner falló: ${e.message}`); return false; });
+    if (!conBanner) errores.push('version.json publicó otro build y tras visibilitychange NO apareció el banner "Hay una versión nueva"');
+  }
+
+  await context.close();
   const ok = errores.length === 0;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (#root ${estado.rootLen} chars)`);
   for (const e of errores) console.log(`  - ${e}`);
@@ -107,8 +135,9 @@ try {
   browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
   const r1 = await escenario(browser, baseUrl, { nombre: 'sin sesión → LoginScreen', conSesion: false });
   const r2 = await escenario(browser, baseUrl, { nombre: 'con sesión sembrada → MainApp', conSesion: true });
-  code = r1 && r2 ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los dos escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+  const r3 = await escenario(browser, baseUrl, { nombre: 'version.json con otro build → banner "Hay una versión nueva"', conSesion: false, versionNueva: true });
+  code = r1 && r2 && r3 ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los tres escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;

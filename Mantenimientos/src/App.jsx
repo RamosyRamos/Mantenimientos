@@ -1942,6 +1942,14 @@ function MainApp({ session, onLogout }) {
   const [verTodosSearch, setVerTodosSearch] = useState("");
   const [verTodosPage, setVerTodosPage] = useState(0);
   const [editingId, setEditingId] = useState(null); // ID del servicio en edición
+
+  // Staleness de PWA (#2977): lib/version.js recarga sola SOLO si esto es '1'
+  // (paso 1 = elegir vehículo, sin servicio en edición). Checklist o resumen
+  // abiertos → '0': un mecánico a mitad de checklist no pierde estado.
+  useEffect(() => {
+    try { document.documentElement.dataset.vistaSegura = (step === 1 && !editingId) ? '1' : '0'; } catch { /* nada */ }
+    return () => { try { delete document.documentElement.dataset.vistaSegura; } catch { /* nada */ } };
+  }, [step, editingId]);
   const [editingTrelloCardId, setEditingTrelloCardId] = useState(null); // ID de la tarjeta Trello
   const [aprobado, setAprobado] = useState(false);
   const [aprobadoPor, setAprobadoPor] = useState("");
