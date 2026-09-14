@@ -1,8 +1,10 @@
 // scripts/smoke.mjs — "build OK no significa carga OK".
 //
 // Buildea la app, la sirve con `vite preview` y la carga en Chrome headless (puppeteer)
-// en dos escenarios: SIN sesión (debe renderizar LoginScreen) y CON sesión sembrada en
-// localStorage (debe renderizar MainApp). Falla ante cualquier error de JS de la página
+// en cuatro escenarios: SIN sesión (debe renderizar LoginScreen), CON sesión sembrada en
+// localStorage (debe renderizar MainApp), version.json con otro build (banner) y login
+// con la pestaña Correo recordada (pide correo, manda el código por email, paso 2,
+// "Cambiar correo" y vuelta a Teléfono). Falla ante cualquier error de JS de la página
 // (pageerror), cualquier console.error/console.warn que no sea ruido de red, cualquier
 // alert() y ante un #root vacío.
 //
@@ -29,6 +31,9 @@ const USUARIO = { id: UID, username: 'smoke', nombre: 'Smoke Test', rol: 'mecani
 // de JS (pageerror) nunca se ignoran.
 const IGNORAR = [/Failed to load resource/i];
 const TEXTO_LOGIN = 'Ingresá tu número';
+const TEXTO_LOGIN_CORREO = 'Ingresá tu correo';
+const CLAVE_CANAL_LOGIN = 'ryr_login_canal';   // = authOtp.CLAVE_CANAL_LOGIN
+const EMAIL_PRUEBA = 'Smoke.Test@RamosyRamosCR.com';
 
 function sembrarSesion() {
   return (REF, UID, USUARIO) => {
@@ -42,11 +47,12 @@ function sembrarSesion() {
   };
 }
 
-async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = false }) {
+async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = false, pestanaCorreo = false }) {
   // Contexto aislado por escenario: el localStorage sembrado en uno no debe filtrarse al siguiente.
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const errores = [];
+  const authBodies = {};              // cuerpo del último POST a /auth/v1/otp y /auth/v1/verify
   let publicarVersionNueva = false;   // se prende DESPUÉS de cargar: /version.json pasa a devolver otro build
   page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}\n    ${String(e.stack || '').split('\n').slice(1, 3).join('\n    ')}`));
   page.on('console', (m) => {
@@ -70,6 +76,8 @@ async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = f
     if (u.startsWith(baseUrl)) return req.continue();
     if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
     if (SUPA && u.startsWith(SUPA)) {
+      const auth = u.match(/\/auth\/v1\/(otp|verify)\b/);
+      if (auth) { try { authBodies[auth[1]] = JSON.parse(req.postData() || '{}'); } catch { authBodies[auth[1]] = {}; } }
       if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(JSON.stringify(USUARIO)));
       if (u.includes('/rest/v1/')) return req.respond(json('[]'));
       return req.respond(json('{}'));
@@ -78,6 +86,9 @@ async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = f
   });
 
   if (conSesion) await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, USUARIO);
+  if (pestanaCorreo) {
+    await page.evaluateOnNewDocument((k) => { if (!sessionStorage.getItem('smoke_sembrado')) { localStorage.setItem(k, 'email'); sessionStorage.setItem('smoke_sembrado', '1'); } }, CLAVE_CANAL_LOGIN);
+  }
 
   try {
     await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 30000 });
@@ -92,9 +103,48 @@ async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = f
   })).catch((e) => ({ rootLen: -1, texto: `evaluate falló: ${e.message}` }));
 
   if (estado.rootLen <= 0) errores.push(`#root vacío (${estado.rootLen}): la app no renderizó`);
-  const muestraLogin = estado.texto.includes(TEXTO_LOGIN);
+  const textoLogin = pestanaCorreo ? TEXTO_LOGIN_CORREO : TEXTO_LOGIN;
+  const muestraLogin = estado.texto.includes(textoLogin);
   if (conSesion && muestraLogin) errores.push('con sesión sembrada sigue en LoginScreen (mi_usuario mock no aplicó o la sesión se descartó)');
-  if (!conSesion && !muestraLogin) errores.push(`sin sesión no muestra LoginScreen: "${estado.texto.slice(0, 120)}"`);
+  if (!conSesion && !muestraLogin) errores.push(`sin sesión no muestra LoginScreen${pestanaCorreo ? ' en la pestaña Correo' : ''}: "${estado.texto.slice(0, 120)}"`);
+
+  // Login por correo (segundo canal): la pestaña recordada en localStorage abre en Correo;
+  // se tipea un correo con mayúsculas y espacios, el código se pide por email con
+  // shouldCreateUser:false (el mock de /auth/v1/otp responde {} = enviado), el paso 2
+  // muestra el correo normalizado y "Cambiar correo"; volver a Teléfono guarda 'sms'.
+  if (pestanaCorreo && muestraLogin) {
+    const esperarTexto = (t) => page.waitForFunction((x) => document.body.innerText.includes(x), { timeout: 5000 }, t).then(() => true, () => false);
+    try {
+      await page.type('input[type=email]', `  ${EMAIL_PRUEBA} `);
+      await page.click('form button[type=submit]');
+      if (!(await esperarTexto('Te enviamos un correo a'))) errores.push('correo: tras "ENVIARME CÓDIGO POR CORREO" no pasó al paso 2');
+      const otp = authBodies.otp || {};
+      if (otp.email !== EMAIL_PRUEBA.toLowerCase()) errores.push(`correo: /auth/v1/otp no recibió el correo normalizado (${JSON.stringify(otp.email)})`);
+      if (otp.create_user !== false) errores.push(`correo: /auth/v1/otp sin create_user:false (${JSON.stringify(otp.create_user)})`);
+      if (otp.phone) errores.push('correo: /auth/v1/otp mandó phone en la pestaña Correo');
+      const texto2 = await page.evaluate(() => document.body.innerText);
+      if (!texto2.includes(EMAIL_PRUEBA.toLowerCase())) errores.push('correo: el paso 2 no muestra el correo normalizado');
+      if (!texto2.includes('Cambiar correo')) errores.push('correo: el paso 2 no ofrece "Cambiar correo"');
+      if (!texto2.includes('Reenviar código (')) errores.push('correo: el paso 2 no arrancó el cooldown de reenvío');
+      await page.type('input[autocomplete=one-time-code]', '123456');
+      await page.click('form button[type=submit]');
+      await new Promise((r) => setTimeout(r, 1500));
+      const ver = authBodies.verify || {};
+      if (ver.type !== 'email' || ver.email !== EMAIL_PRUEBA.toLowerCase() || ver.token !== '123456') errores.push(`correo: /auth/v1/verify con cuerpo inesperado ${JSON.stringify({ type: ver.type, email: ver.email, token: ver.token })}`);
+      // Con el verify y mi_usuario mockeados entra a MainApp; se recarga la página (la
+      // sesión Auth mock no persiste) para volver al login y probar la vuelta a Teléfono.
+      await page.evaluate((k) => { localStorage.removeItem('ryr_session'); return localStorage.getItem(k); }, CLAVE_CANAL_LOGIN);
+      await page.reload({ waitUntil: 'networkidle0', timeout: 30000 });
+      if (!(await esperarTexto(TEXTO_LOGIN_CORREO))) errores.push('correo: al recargar no recordó la pestaña Correo');
+      const [tabTel] = await page.$$('button[role=tab]');
+      await tabTel.click();
+      if (!(await esperarTexto(TEXTO_LOGIN))) errores.push('correo: la pestaña Teléfono no muestra el input de número');
+      const guardado = await page.evaluate((k) => localStorage.getItem(k), CLAVE_CANAL_LOGIN);
+      if (guardado !== 'sms') errores.push(`correo: al elegir Teléfono no se guardó 'sms' (${guardado})`);
+    } catch (e) {
+      errores.push(`correo: el recorrido falló: ${e.message}`);
+    }
+  }
 
   // Staleness de PWA (#2977): con la página ya cargada, /version.json pasa a publicar otro
   // build; al volver de "oculta" (visibilitychange) el detector de lib/version.js tiene que
@@ -136,8 +186,9 @@ try {
   const r1 = await escenario(browser, baseUrl, { nombre: 'sin sesión → LoginScreen', conSesion: false });
   const r2 = await escenario(browser, baseUrl, { nombre: 'con sesión sembrada → MainApp', conSesion: true });
   const r3 = await escenario(browser, baseUrl, { nombre: 'version.json con otro build → banner "Hay una versión nueva"', conSesion: false, versionNueva: true });
-  code = r1 && r2 && r3 ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los tres escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+  const r4 = await escenario(browser, baseUrl, { nombre: 'login en pestaña Correo → código por email, paso 2, vuelta a Teléfono', conSesion: false, pestanaCorreo: true });
+  code = r1 && r2 && r3 && r4 ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los cuatro escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;

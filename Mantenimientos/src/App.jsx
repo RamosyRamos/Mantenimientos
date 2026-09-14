@@ -14,7 +14,7 @@ import FotoPicker from './FotoPicker.jsx';
 import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad, itemTieneContenido } from './servicioConcurrencia.js';
 import { apiFetch, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
 import { supabase } from './lib/supabase.js';
-import { formatearTel, telValido, telE164, soloDigitos, esErrorCanal, mapearErrorOtp, CANAL_OTP, CANAL_FALLBACK, TEXTOS_CANAL, MENSAJE_RECHAZO } from './lib/authOtp.js';
+import { formatearTel, telValido, telE164, soloDigitos, esErrorCanal, mapearErrorOtp, CANAL_OTP, CANAL_FALLBACK, TEXTOS_CANAL, MENSAJE_RECHAZO, emailValido, normalizarEmail, canalLoginGuardado, guardarCanalLogin, textoRechazo } from './lib/authOtp.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
 const DEFAULT_ITEMS = {
@@ -1643,9 +1643,16 @@ async function resolverSesionDesdeAuth() {
   return { session };
 }
 
+// Dos canales, sin contraseñas (igual que Taller): pestaña "Teléfono" (código
+// por SMS) y pestaña "Correo" (código de 6 dígitos por email:
+// signInWithOtp({ email }) + verifyOtp({ email, token, type: 'email' })). El
+// paso 2 es idéntico y después del verify nada cambia (mi_usuario → session).
+// La última pestaña usada se recuerda en localStorage (authOtp.CLAVE_CANAL_LOGIN).
 function LoginScreen({ onLogin, mensajeInicial = '' }) {
-  const [paso,     setPaso]     = useState(1);      // 1 = número · 2 = código
+  const [canal,    setCanal]    = useState(() => canalLoginGuardado());  // 'sms' | 'email'
+  const [paso,     setPaso]     = useState(1);      // 1 = número/correo · 2 = código
   const [tel,      setTel]      = useState('');     // 8 dígitos locales
+  const [email,    setEmail]    = useState('');
   const [codigo,   setCodigo]   = useState('');     // 6 dígitos
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(mensajeInicial || '');
@@ -1661,21 +1668,41 @@ function LoginScreen({ onLogin, mensajeInicial = '' }) {
   // Paso 1: pedir el código por CANAL_OTP (hoy 'sms'). Si el canal por defecto
   // fuera 'whatsapp' y el proveedor falla, reintento por CANAL_FALLBACK.
   // "Reenviar código" llama a esta misma función ⇒ mismo canal.
+  // Pestaña Correo: signInWithOtp({ email, options: { shouldCreateUser: false } })
+  // — un correo sin cuenta da error ("no está registrado"). Requiere en Supabase
+  // el proveedor Email activo, SMTP propio y la plantilla con {{ .Token }}.
   async function enviarCodigo(e) {
     e?.preventDefault();
-    if (!telValido(tel) || loading) return;
+    if (loading) return;
+    if (canal === 'email') {
+      if (!emailValido(email)) return;
+      setLoading(true); setError(''); setAviso('');
+      try {
+        const { error: err } = await supabase.auth.signInWithOtp({ email: normalizarEmail(email), options: { shouldCreateUser: false } });
+        if (err) { setError(mapearErrorOtp(err, 'email')); return; }
+        setCanalUsado('email');
+        setCodigo(''); setPaso(2); setCooldown(60);
+      } catch (err) {
+        console.error('[Auth] signInWithOtp (email):', err);
+        setError(mapearErrorOtp(err, 'email'));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    if (!telValido(tel)) return;
     setLoading(true); setError(''); setAviso('');
     const phone = telE164(tel);
     try {
-      let canal = CANAL_OTP;
+      let canalEnvio = CANAL_OTP;
       let { error: err } = await supabase.auth.signInWithOtp({ phone, options: { channel: CANAL_OTP } });
       if (err && CANAL_OTP !== CANAL_FALLBACK && esErrorCanal(err)) {
-        canal = CANAL_FALLBACK;
+        canalEnvio = CANAL_FALLBACK;
         ({ error: err } = await supabase.auth.signInWithOtp({ phone, options: { channel: CANAL_FALLBACK } }));
       }
       if (err) { setError(mapearErrorOtp(err)); return; }
-      setCanalUsado(canal);
-      if (canal !== CANAL_OTP) setAviso('Te lo mandamos por SMS.');
+      setCanalUsado(canalEnvio);
+      if (canalEnvio !== CANAL_OTP) setAviso('Te lo mandamos por SMS.');
       setCodigo(''); setPaso(2); setCooldown(60);
     } catch (err) {
       console.error('[Auth] signInWithOtp:', err);
@@ -1685,33 +1712,44 @@ function LoginScreen({ onLogin, mensajeInicial = '' }) {
     }
   }
 
-  // Paso 2: verificar. Para OTP por teléfono el `type` es 'sms' en ambos canales.
+  // Paso 2: verificar. Para OTP por teléfono el `type` es 'sms' en ambos canales;
+  // para correo, 'email'.
   async function verificar(e) {
     e?.preventDefault();
     if (codigo.length !== 6 || loading) return;
     setLoading(true); setError('');
+    const porEmail = canal === 'email';
     try {
-      const { error: err } = await supabase.auth.verifyOtp({ phone: telE164(tel), token: codigo, type: 'sms' });
-      if (err) { setError(mapearErrorOtp(err)); return; }
+      const { error: err } = porEmail
+        ? await supabase.auth.verifyOtp({ email: normalizarEmail(email), token: codigo, type: 'email' })
+        : await supabase.auth.verifyOtp({ phone: telE164(tel), token: codigo, type: 'sms' });
+      if (err) { setError(mapearErrorOtp(err, canal)); return; }
       const r = await resolverSesionDesdeAuth();
       if (r.error) { setError('Sesión iniciada pero no se pudo leer tu usuario. Revisá la red e intentá de nuevo.'); return; }
-      if (r.rechazo) { setError(r.mensaje); setPaso(1); setCodigo(''); return; }
+      if (r.rechazo) { setError(textoRechazo(r.rechazo, canal)); setPaso(1); setCodigo(''); return; }
       onLogin(r.session);
     } catch (err) {
       console.error('[Auth] verifyOtp:', err);
-      setError(mapearErrorOtp(err));
+      setError(mapearErrorOtp(err, canal));
     } finally {
       setLoading(false);
     }
   }
 
   const cambiarNumero = () => { setPaso(1); setCodigo(''); setError(''); setAviso(''); setCooldown(0); };
+  const elegirCanal = (c) => {
+    if (c === canal || loading) return;
+    guardarCanalLogin(c);
+    setCanal(c); setPaso(1); setCodigo(''); setError(''); setAviso(''); setCooldown(0);
+  };
 
   const fieldStyle = { background:"#121316", border:"1px solid #2f363b", color:"#e0d8cc", borderRadius:8, padding:"12px 14px", fontSize:13, fontFamily:"monospace", outline:"none", width:"100%", boxSizing:"border-box" };
   const btnStyle = (active) => ({ marginTop:4, padding:"13px", borderRadius:8, border:`1px solid ${active ? "#C8A96E60" : "#2f363b"}`, background: active ? "#C8A96E20" : "#121316", color: active ? "#C8A96E" : "#444", fontFamily:"monospace", fontSize:12, letterSpacing:2, fontWeight:"bold", cursor: active ? "pointer" : "default" });
   const linkStyle = { background:"none", border:"none", color:"#888", fontSize:11, cursor:"pointer", fontFamily:"monospace", padding:4, textDecoration:"underline" };
-  const puedeEnviar = !loading && telValido(tel);
+  const tabStyle = (activa) => ({ flex:1, padding:"9px 8px", borderRadius:7, border:`1px solid ${activa ? "#C8A96E60" : "transparent"}`, background: activa ? "#C8A96E20" : "transparent", color: activa ? "#C8A96E" : "#888", fontFamily:"monospace", fontSize:11, letterSpacing:1.5, fontWeight:"bold", cursor: activa ? "default" : "pointer" });
+  const puedeEnviar = !loading && (canal === 'email' ? emailValido(email) : telValido(tel));
   const puedeEntrar = !loading && codigo.length === 6;
+  const textos = canal === 'email' ? TEXTOS_CANAL.email : TEXTOS_CANAL[CANAL_OTP];
 
   return (
     <div style={{ minHeight:"100vh", background:"#0B0B0D", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:"monospace", padding:24 }}>
@@ -1720,23 +1758,38 @@ function LoginScreen({ onLogin, mensajeInicial = '' }) {
       <div style={{ fontSize:9, color:"#555", letterSpacing:3, marginBottom:36 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
       {paso === 1 ? (
         <form onSubmit={enviarCodigo} style={{ width:"100%", maxWidth:300, display:"flex", flexDirection:"column", gap:12 }}>
-          <div style={{ fontSize:11, color:"#888", textAlign:"center", letterSpacing:0.5 }}>{TEXTOS_CANAL[CANAL_OTP].pedir}</div>
-          <div style={{ display:"flex", gap:8 }}>
-            <div style={{ ...fieldStyle, width:"auto", flexShrink:0, color:"#888", userSelect:"none" }}>+506</div>
-            <input type="tel" inputMode="numeric" autoComplete="tel-national" value={formatearTel(tel)}
-              onChange={e => { setTel(soloDigitos(e.target.value).slice(0, 8)); setError(''); }}
-              placeholder="8888 8888" maxLength={9} autoFocus
-              style={{ ...fieldStyle, flex:1, letterSpacing:2, fontSize:16 }} />
+          <div role="tablist" aria-label="Cómo querés recibir el código" style={{ display:"flex", gap:4, padding:3, borderRadius:9, background:"#121316", border:"1px solid #2f363b", marginBottom:4 }}>
+            {['sms', 'email'].map(c => (
+              <button key={c} type="button" role="tab" aria-selected={canal === c} onClick={() => elegirCanal(c)} style={tabStyle(canal === c)}>
+                {c === 'email' ? '✉ ' : '📱 '}{TEXTOS_CANAL[c].pestana}
+              </button>
+            ))}
           </div>
+          <div style={{ fontSize:11, color:"#888", textAlign:"center", letterSpacing:0.5 }}>{textos.pedir}</div>
+          {canal === 'email' ? (
+            <input key="email" type="email" inputMode="email" autoComplete="email" autoCapitalize="off" spellCheck={false} value={email}
+              onChange={e => { setEmail(e.target.value); setError(''); }}
+              placeholder="nombre@correo.com" maxLength={254} autoFocus
+              style={{ ...fieldStyle, fontSize:15 }} />
+          ) : (
+            <div style={{ display:"flex", gap:8 }}>
+              <div style={{ ...fieldStyle, width:"auto", flexShrink:0, color:"#888", userSelect:"none" }}>+506</div>
+              <input key="tel" type="tel" inputMode="numeric" autoComplete="tel-national" value={formatearTel(tel)}
+                onChange={e => { setTel(soloDigitos(e.target.value).slice(0, 8)); setError(''); }}
+                placeholder="8888 8888" maxLength={9} autoFocus
+                style={{ ...fieldStyle, flex:1, letterSpacing:2, fontSize:16 }} />
+            </div>
+          )}
           {error && <div style={{ fontSize:11, color:"#ef4444", textAlign:"center", letterSpacing:0.5, lineHeight:1.5 }}>{error}</div>}
           <button type="submit" disabled={!puedeEnviar} style={btnStyle(puedeEnviar)}>
-            {loading ? "Enviando..." : TEXTOS_CANAL[CANAL_OTP].boton}
+            {loading ? "Enviando..." : textos.boton}
           </button>
         </form>
       ) : (
         <form onSubmit={verificar} style={{ width:"100%", maxWidth:300, display:"flex", flexDirection:"column", gap:12 }}>
           <div style={{ fontSize:11, color:"#888", textAlign:"center", letterSpacing:0.5, lineHeight:1.5 }}>
-            {TEXTOS_CANAL[canalUsado]?.enviado || TEXTOS_CANAL.sms.enviado} <span style={{ color:"#e0d8cc" }}>+506 {formatearTel(tel)}</span> con un código de 6 dígitos
+            {TEXTOS_CANAL[canalUsado]?.enviado || TEXTOS_CANAL.sms.enviado}{' '}
+            <span style={{ color:"#e0d8cc", wordBreak:"break-all" }}>{canalUsado === 'email' ? normalizarEmail(email) : `+506 ${formatearTel(tel)}`}</span> con un código de 6 dígitos
             {aviso && <div style={{ color:"#C8A96E", marginTop:4 }}>{aviso}</div>}
           </div>
           <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" value={codigo}
@@ -1748,7 +1801,7 @@ function LoginScreen({ onLogin, mensajeInicial = '' }) {
             {loading ? "Verificando..." : "ENTRAR"}
           </button>
           <div style={{ display:"flex", justifyContent:"space-between", marginTop:2 }}>
-            <button type="button" onClick={cambiarNumero} style={linkStyle}>Cambiar número</button>
+            <button type="button" onClick={cambiarNumero} style={linkStyle}>{TEXTOS_CANAL[canalUsado]?.cambiar || TEXTOS_CANAL.sms.cambiar}</button>
             <button type="button" onClick={enviarCodigo} disabled={cooldown > 0 || loading}
               style={{ ...linkStyle, color: cooldown > 0 ? "#555" : "#888", cursor: cooldown > 0 ? "default" : "pointer", textDecoration: cooldown > 0 ? "none" : "underline" }}>
               {cooldown > 0 ? `Reenviar código (${cooldown} s)` : 'Reenviar código'}
@@ -1831,7 +1884,7 @@ export default function App() {
         const r = await resolverSesionDesdeAuth();
         if (!vivo) return;
         if (r.session) { setSession(r.session); return; }
-        if (r.rechazo) { limpiarSesionLocal(); setLoginMsg(r.mensaje); return; }
+        if (r.rechazo) { limpiarSesionLocal(); setLoginMsg(textoRechazo(r.rechazo, canalLoginGuardado())); return; }
       } catch (e) {
         console.warn('[Auth] arranque:', e);
       } finally {

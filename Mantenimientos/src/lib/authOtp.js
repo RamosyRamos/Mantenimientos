@@ -1,16 +1,20 @@
 // ⚠ ARCHIVO GEMELO — vive DUPLICADO en los dos repos (como servicioConcurrencia.js):
 //     Taller          → src/lib/authOtp.js
 //     Mantenimientos  → Mantenimientos/src/lib/authOtp.js
-//   Mismo login por teléfono + OTP en las dos apps; todo cambio se copia al otro
-//   repo en el mismo movimiento. La REGLA DE APP difiere y por eso NO vive acá:
-//   Taller usa APPS_TALLER (motivoRechazo); Mantenimientos acepta cualquier app
-//   (la decisión está en App.jsx de cada repo).
+//   Mismo login (teléfono o correo + código) en las dos apps; todo cambio se copia
+//   al otro repo en el mismo movimiento y los dos archivos deben dar el MISMO
+//   sha256 (anotado en el CLAUDE.md de cada repo). La REGLA DE APP difiere y por
+//   eso NO vive acá: Taller usa APPS_TALLER (motivoRechazo); Mantenimientos acepta
+//   cualquier app (la decisión está en App.jsx de cada repo).
 
-// ── Login por teléfono + OTP (Supabase Auth) — helpers puros (F3 Sesión E) ───
+// ── Login por teléfono o correo + OTP (Supabase Auth) — helpers puros ────────
 //
 // Sin dependencias: lo importa LoginScreen (App.jsx) y lo cubre authOtp.test.js.
 // El objeto `session` que consume toda la app NO cambia de forma: lo arma
 // `sesionDesdeUsuario` desde la fila que devuelve el RPC mi_usuario().
+// Dos canales de login, sin contraseñas: 'sms' (F3) y 'email' (código de 6
+// dígitos por correo: signInWithOtp({ email }) + verifyOtp({ email, token,
+// type: 'email' })). Después del verify todo es igual: mi_usuario() por auth_id.
 
 export const PREFIJO_CR = '506'
 
@@ -24,8 +28,40 @@ export const CANAL_OTP = 'sms'
 export const CANAL_FALLBACK = 'sms'
 
 export const TEXTOS_CANAL = {
-  sms:      { pedir: 'Ingresá tu número de teléfono', boton: 'ENVIARME CÓDIGO POR SMS',      enviado: 'Te enviamos un SMS a' },
-  whatsapp: { pedir: 'Ingresá tu número de WhatsApp',  boton: 'ENVIARME CÓDIGO POR WHATSAPP', enviado: 'Te enviamos un WhatsApp a' },
+  sms:      { pestana: 'Teléfono', pedir: 'Ingresá tu número de teléfono', boton: 'ENVIARME CÓDIGO POR SMS',      enviado: 'Te enviamos un SMS a',      cambiar: 'Cambiar número' },
+  whatsapp: { pestana: 'Teléfono', pedir: 'Ingresá tu número de WhatsApp',  boton: 'ENVIARME CÓDIGO POR WHATSAPP', enviado: 'Te enviamos un WhatsApp a', cambiar: 'Cambiar número' },
+  email:    { pestana: 'Correo',   pedir: 'Ingresá tu correo',              boton: 'ENVIARME CÓDIGO POR CORREO',   enviado: 'Te enviamos un correo a',   cambiar: 'Cambiar correo' },
+}
+
+// ── Pestañas del login: 'sms' (teléfono) | 'email' (correo) ──
+// La última usada se recuerda en localStorage para la próxima vez. `storage` se
+// inyecta en los tests; en la app es localStorage (y si no está disponible, nada).
+export const CANALES_LOGIN = ['sms', 'email']
+export const CLAVE_CANAL_LOGIN = 'ryr_login_canal'
+
+export const canalLoginGuardado = (storage = globalThis.localStorage) => {
+  try {
+    const v = storage?.getItem(CLAVE_CANAL_LOGIN)
+    return CANALES_LOGIN.includes(v) ? v : 'sms'
+  } catch { return 'sms' }
+}
+
+export const guardarCanalLogin = (canal, storage = globalThis.localStorage) => {
+  if (!CANALES_LOGIN.includes(canal)) return
+  try { storage?.setItem(CLAVE_CANAL_LOGIN, canal) } catch { /* modo privado / sin storage */ }
+}
+
+// ── Correo ──
+// Supabase Auth compara el email sin distinguir mayúsculas; se manda recortado y
+// en minúsculas para que el paso 2 (verifyOtp) use exactamente el mismo valor.
+export const normalizarEmail = (s) => String(s || '').trim().toLowerCase()
+
+// Validación de forma (no de existencia): algo@dominio.tld, sin espacios, sin
+// puntos seguidos ni en los bordes del dominio, TLD de 2+ letras, largo ≤ 254.
+export const emailValido = (s) => {
+  const e = normalizarEmail(s)
+  if (!e || e.length > 254 || e.includes('..')) return false
+  return /^[^\s@.][^\s@]*@([a-z0-9-]+\.)+[a-z]{2,}$/.test(e)
 }
 
 // Apps que admite el login de Taller — la MISMA regla que login_usuario en prod:
@@ -71,6 +107,11 @@ export const MENSAJE_RECHAZO = {
   solo_mantenimientos: 'Esta cuenta es solo de Mantenimientos.',
   sin_acceso:          'Esta cuenta no tiene acceso al sistema Taller. Hablá con Gustavo.',
 }
+export const MENSAJE_SIN_ENLACE_EMAIL = 'Este correo no está registrado en el sistema. Hablá con Gustavo.'
+
+// Texto del rechazo según el canal con el que se intentó entrar.
+export const textoRechazo = (motivo, canal = 'sms') =>
+  (motivo === 'sin_enlace' && canal === 'email') ? MENSAJE_SIN_ENLACE_EMAIL : (MENSAJE_RECHAZO[motivo] || MENSAJE_RECHAZO.sin_enlace)
 
 // ¿El error de signInWithOtp es del CANAL (WhatsApp no disponible para ese
 // número / proveedor)? Entonces se reintenta por SMS.
@@ -82,25 +123,44 @@ export const esErrorCanal = (err) => {
 }
 
 // Texto en español para la persona (nunca el mensaje crudo del proveedor).
-export const mapearErrorOtp = (err) => {
+// `canal` = 'sms' | 'whatsapp' | 'email' (por defecto 'sms', como antes).
+export const mapearErrorOtp = (err, canal = 'sms') => {
   if (!err) return 'Error inesperado. Intentá de nuevo.'
   const code = String(err.code || '').toLowerCase()
   const msg  = String(err.message || '').toLowerCase()
   const status = Number(err.status) || 0
+  const esEmail = canal === 'email'
   if (err.name === 'AuthRetryableFetchError' || msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed')) {
     return 'Sin conexión. Revisá la red e intentá de nuevo.'
   }
-  if (status === 429 || code.includes('rate_limit') || msg.includes('rate limit') || msg.includes('too many')) {
-    return 'Demasiados intentos. Esperá unos minutos antes de pedir otro código.'
+  if (status === 429 || code.includes('rate_limit') || msg.includes('rate limit') || msg.includes('too many') || msg.includes('only request this after')) {
+    return esEmail
+      ? 'Demasiados correos pedidos. Esperá unos minutos antes de pedir otro código.'
+      : 'Demasiados intentos. Esperá unos minutos antes de pedir otro código.'
+  }
+  // Correo: proveedor Email apagado, SMTP que no deja enviar a ese destinatario, formato inválido.
+  if (code === 'email_provider_disabled' || (esEmail && (msg.includes('email logins are disabled') || code === 'provider_disabled'))) {
+    return 'El ingreso por correo no está activado todavía. Entrá con tu teléfono.'
+  }
+  if (code === 'email_address_not_authorized') {
+    return 'No se pudo enviar el correo a esa dirección. Hablá con Gustavo.'
+  }
+  if (code === 'email_address_invalid' || (msg.includes('email') && (msg.includes('invalid') || msg.includes('format')) && !msg.includes('token'))) {
+    return 'El correo no es válido. Revisalo.'
+  }
+  // Sin cuenta ⇒ el número/correo no está registrado. Va ANTES que el de código
+  // vencido: con shouldCreateUser:false Supabase responde 422 code 'otp_disabled'
+  // + "Signups not allowed for otp" (verificado por REST el 14/9 con un correo
+  // inexistente); con signups cerrados, 'signup_disabled' + "Signups not allowed
+  // for this instance".
+  if (code === 'signup_disabled' || code === 'user_not_found' || msg.includes('signups not allowed')) {
+    return esEmail ? MENSAJE_SIN_ENLACE_EMAIL : MENSAJE_RECHAZO.sin_enlace
   }
   if (code === 'otp_expired' || code === 'otp_disabled' || msg.includes('expired') || msg.includes('invalid') && msg.includes('token')) {
     return 'Código incorrecto o vencido. Pedí uno nuevo.'
   }
   if (status === 403 || status === 401) return 'Código incorrecto o vencido. Pedí uno nuevo.'
-  if (code === 'signup_disabled' || msg.includes('signups not allowed')) {
-    return MENSAJE_RECHAZO.sin_enlace
-  }
-  if (msg.includes('phone') && (msg.includes('invalid') || msg.includes('format'))) {
+  if (!esEmail && msg.includes('phone') && (msg.includes('invalid') || msg.includes('format'))) {
     return 'El número no es válido. Son los 8 dígitos, sin el 506.'
   }
   return 'No se pudo completar. Intentá de nuevo.'
