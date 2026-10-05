@@ -14,6 +14,8 @@ import FotoPicker from './FotoPicker.jsx';
 import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad, itemTieneContenido } from './servicioConcurrencia.js';
 import { apiFetch, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
 import { supabase } from './lib/supabase.js';
+import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
+const ACEITE_VACIO = { litros: null, spec: null };
 import { formatearTel, telValido, telE164, soloDigitos, esErrorCanal, mapearErrorOtp, CANAL_OTP, CANAL_FALLBACK, TEXTOS_CANAL, MENSAJE_RECHAZO, emailValido, normalizarEmail, canalLoginGuardado, guardarCanalLogin, textoRechazo } from './lib/authOtp.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
@@ -2061,6 +2063,9 @@ function MainApp({ session, onLogout }) {
   // tuviera que preguntarle al servidor, la ventana entre la lectura y el PATCH
   // volvería a dejar pasar la escritura). Un servicio nuevo nace 'borrador'.
   const [estadoOriginal, setEstadoOriginal] = useState('borrador');
+  // Aceite que la fila de servicios ya tiene guardado. El cálculo de hoy nunca
+  // lo reemplaza por null, y en un aprobado manda él (lib/aceiteServicio.js).
+  const [aceiteFila, setAceiteFila] = useState(ACEITE_VACIO);
   // Modo edición (jefe): editar un servicio APROBADO preservando aprobación y
   // link público, regenerando el informe de la orden en cada guardado. Solo
   // activable con esJefeReal && editingId && estadoOriginal === 'aprobado'.
@@ -2154,6 +2159,13 @@ function MainApp({ session, onLogout }) {
   const oilLiters = engineInfo ? engineInfo.oil : null;
   const oilSpec   = engineInfo ? engineInfo.spec : null;
   const isEV      = engineInfo ? engineInfo.fuel === "electrico" : false;
+  // Lo que se muestra y se guarda: el cálculo de hoy o, si da vacío (categoría
+  // renombrada o desactivada en el selector), lo guardado en el servicio. En un
+  // aprobado, siempre lo guardado.
+  const aceite = aceiteDelServicio({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) });
+  const etiquetaAceite = aceite.etiqueta
+    ? <span data-aceite-guardado style={{ fontSize:9, color:"#888", border:"1px solid #44444488", borderRadius:4, padding:"0 5px", marginLeft:6 }}>{aceite.etiqueta}</span>
+    : null;
 
   // Auto-set fuel when engine selected
   const resetCorreccionAceite = () => {
@@ -2194,7 +2206,7 @@ function MainApp({ session, onLogout }) {
   const normalizar = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe, aceiteFila };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2230,6 +2242,7 @@ function MainApp({ session, onLogout }) {
     conflictoRef.current = false;
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
     setEstadoOriginal('borrador');   // arranca de cero: es un borrador nuevo
+    setAceiteFila(ACEITE_VACIO);
     setModoEdicionJefe(false);
     editadoPorRef.current = null;
     fechaFilaRef.current  = "";
@@ -2242,6 +2255,7 @@ function MainApp({ session, onLogout }) {
     setFuel("gasolina"); setIs4m(false);
     setVehAnio(""); setVehVersion("");
     setOrdenId(""); setOrdenNumero(""); setOrdenFalla("");
+    setAceiteFila(ACEITE_VACIO);
   };
   const continuarDraft = (draft) => {
     loadService(draft);
@@ -2569,8 +2583,8 @@ function MainApp({ session, onLogout }) {
         placa: d.plate, modelo: d.model, motor: d.engine,
         mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
         km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
-        aceite_litros: (d.oilLiters > 0 && d.llevaAceite) ? d.oilLiters : null,
-        aceite_spec:   (d.oilLiters > 0 && d.llevaAceite) ? d.oilSpec  : null,
+        // Nunca null encima de lo guardado; en modo edición (aprobado) no viaja.
+        ...camposAceite({ litros: d.oilLiters, spec: d.oilSpec, llevaAceite: d.llevaAceite, guardado: d.aceiteFila, congelado: aceiteCongelado(d.estadoOriginal) }),
         revisiones: byGrpMap, observaciones: d.notes,
         pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
         progreso: { completadas: d.doneN, total: d.total },
@@ -2602,6 +2616,7 @@ function MainApp({ session, onLogout }) {
       // (jsonb reordena claves: comparar contra el payload local daría falsos
       // conflictos en el guardado siguiente).
       if (saved?.[0]) registrarFilaVista(saved[0]);
+      if (saved?.[0]) setAceiteFila(aceiteGuardado(saved[0]));
       if (saved?.[0]?.editado_por) editadoPorRef.current = saved[0].editado_por;
       // Modo edición: el informe del cliente en la orden se regenera en cada
       // guardado exitoso. Si falla (red), no bloquea el autosave — el próximo
@@ -2814,6 +2829,8 @@ function MainApp({ session, onLogout }) {
     // Y del corte por estado: lo que NO nació borrador se abre en solo lectura.
     // Sin `estado` en la fila (selects viejos) se asume el caso seguro.
     setEstadoOriginal(s.estado || 'desconocido');
+    // El aceite guardado: si el cálculo de hoy da vacío, se conserva este.
+    setAceiteFila(aceiteGuardado(s));
     // El modo edición de jefe jamás sobrevive un cambio de servicio: se
     // re-activa a mano, con su confirm, sobre la fila nueva.
     setModoEdicionJefe(false);
@@ -3475,7 +3492,7 @@ function MainApp({ session, onLogout }) {
       taller: "Ramos y Ramos", fecha: sigDate, mecanico: mechName,
       servicio: { codigo: sel, descripcion: svc.desc },
       vehiculo: { modelo: model, motor: engine, placa: plate, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD" },
-      aceite: (oilLiters > 0 && llevaAceite) ? { litros: oilLiters, especificacion: oilSpec } : null,
+      aceite: aceite.litros ? { litros: aceite.litros, especificacion: aceite.spec } : null,
       revisiones: byGrpMap,
       observaciones: notes,
       pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
@@ -3504,7 +3521,7 @@ function MainApp({ session, onLogout }) {
 | **Motor** | ${engine || "—"} |
 | **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
 | **Combustible** | ${fuelLabel(fuel)}${is4m?" · ⚙️ 4MATIC":""} |
-${(oilLiters > 0 && llevaAceite) ? `| **Aceite** | 🛢️ ${oilLiters} L — ${oilSpec} |` : ""}
+${aceite.litros ? `| **Aceite** | 🛢️ ${aceite.litros} L — ${aceite.spec || ""} |` : ""}
 | **Mecánico** | ${mechName} |
 | **Fecha** | ${sigDate} |
 
@@ -3613,7 +3630,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
             mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
             servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD",
-            aceite_litros: svcData.aceite?.litros || null, aceite_spec: svcData.aceite?.especificacion || null,
+            // Nunca null encima de lo guardado; un aprobado no se recalcula.
+            ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
             revisiones: svcData.revisiones, observaciones: svcData.observaciones,
             pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: taskPhotos,
             orden_id: ordenId || null, orden_numero: ordenNumero || null,
@@ -3621,6 +3639,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         }
       );
       const sbData = await sbRes.json();
+      if (sbData?.[0]) setAceiteFila(aceiteGuardado(sbData[0]));
       const savedId = sbData?.[0]?.id;
       finalClientUrl = `${APP_URL}/servicio/${slug}`;
       setClientUrl(finalClientUrl);
@@ -3700,8 +3719,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         km,
         combustible:     fuel,
         traccion:        is4m ? "4MATIC" : "RWD",
-        aceite_litros:   (oilLiters > 0 && llevaAceite) ? oilLiters : null,
-        aceite_spec:     (oilLiters > 0 && llevaAceite) ? oilSpec : null,
+        // Nunca null encima de lo guardado; un aprobado no se recalcula.
+        ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
         revisiones:      byGrpMap,
         observaciones:   notes,
         pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
@@ -3729,6 +3748,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       const data = await res.json();
       console.log("[confirmSig] saved:", data?.[0]?.id);
       const savedId = data?.[0]?.id;
+      if (data?.[0]) setAceiteFila(aceiteGuardado(data[0]));
       const clientUrlVal = `${import.meta.env.VITE_APP_URL || window.location.origin}/servicio/${slug}`;
       setClientUrl(clientUrlVal);
       if (!editingId && savedId) setEditingId(savedId);
@@ -4005,17 +4025,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         )}
 
         {/* Badge de aceite — aparece al seleccionar motor */}
-        {oilLiters > 0 && (
+        {(oilLiters > 0 || aceite.etiqueta) && (
           <div style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:"#C8A96E12", border:"1px solid #C8A96E40" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <span style={{ fontSize:22 }}>🛢️</span>
               <div>
-                <div style={{ fontSize:11, color:"#888", letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE</div>
-                <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{oilLiters} L</div>
-                <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{oilSpec}</div>
+                <div style={{ fontSize:11, color:"#888", letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE{etiquetaAceite}</div>
+                <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{aceite.etiqueta ? (aceite.litros ?? "—") : oilLiters} L</div>
+                <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{aceite.etiqueta ? aceite.spec : oilSpec}</div>
               </div>
             </div>
-            {corrEnviada ? (
+            {aceite.etiqueta ? null : corrEnviada ? (
               <div style={{ marginTop:8, fontSize:10, color:"#C8A96E" }}>⏳ corrección propuesta</div>
             ) : !corrOpen ? (
               <button onClick={() => { setCorrOpen(true); setCorrLitros(""); setCorrComentario(""); setCorrError(""); }}
@@ -4459,11 +4479,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
         </div>
-        {oilLiters > 0 && llevaAceite && (
+        {aceite.litros > 0 && (
           <div style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>
             <span style={{ fontSize:14 }}>🛢️</span>
-            <span style={{ fontSize:12, fontWeight:"bold", color:"#C8A96E" }}>{oilLiters} L</span>
-            <span style={{ fontSize:10, color:"#888" }}>{oilSpec}</span>
+            <span style={{ fontSize:12, fontWeight:"bold", color:"#C8A96E" }}>{aceite.litros} L</span>
+            <span style={{ fontSize:10, color:"#888" }}>{aceite.spec}</span>{etiquetaAceite}
           </div>
         )}
       </div>
@@ -4743,7 +4763,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 <div>🔧 <span style={{ color:G, fontWeight:"bold" }}>{servicioTitulo}</span></div>
                 {model && <div>🚗 {model}</div>}
                 {engine && <div>⚙️ {engine}</div>}
-                {oilLiters > 0 && llevaAceite && <div>🛢️ Aceite: <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{oilLiters} L</span> · {oilSpec}</div>}
+                {aceite.litros > 0 && <div>🛢️ Aceite: <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{aceite.litros} L</span> · {aceite.spec}{etiquetaAceite}</div>}
                 {plate && <div>📋 <span style={{ letterSpacing:2 }}>{plate}</span></div>}
                 {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
                 <div>{fuelLabel(fuel)} {is4m?"· ⚙️ 4MATIC":""}</div>
