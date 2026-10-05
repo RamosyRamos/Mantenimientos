@@ -175,6 +175,70 @@ async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = f
   return ok;
 }
 
+// Aceite de un servicio abierto por ?servicio= (fix/aceite-no-se-pierde, 5/10):
+// la fila del mock se abre en la app real, el autosave escribe a los 2 s (las
+// revisiones vienen en null, así que la huella difiere) y se mira el PATCH.
+//  - huérfano: la categoría ya no está en el selector → el cálculo da vacío →
+//    se ve "guardado en el servicio" y el PATCH conserva los litros guardados.
+//  - control: categoría y motor en el selector → gana el cálculo, como siempre.
+const SVC_ID = '00000000-0000-4000-8000-0000000000a1';
+const FILA_SELECTOR = { id: '00000000-0000-4000-8000-0000000000b1', clase: 'C', categoria: 'C-Class (W204) 2007-2014', nombre: 'C 200 (M271 1.8T)', combustible: 'gasolina', aceite_lt: 6.5, especif_mb: 'MB 229.5', orden: 1 };
+async function escenarioAceite(browser, baseUrl, { nombre, fila, esperado, etiqueta }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  const errores = [];
+  const patches = [];
+  page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (!['error', 'warning'].includes(m.type())) return;
+    const txt = m.text();
+    if (IGNORAR.some((re) => re.test(txt)) || /keeping defaults/.test(txt)) return;
+    errores.push(`console.${m.type()}: ${txt.slice(0, 300)}`);
+  });
+  page.on('dialog', (d) => { errores.push(`dialog: ${d.message().slice(0, 200)}`); d.dismiss().catch(() => {}); });
+  const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+  const json = (body) => ({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(body) });
+  const row = { id: SVC_ID, estado: 'borrador', aprobado: false, servicio_codigo: 'A', placa: 'SMK001', mecanico: USUARIO.nombre, revisiones: null, observaciones: '', fotos: {}, created_at: new Date().toISOString(), ...fila };
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const u = req.url();
+    if (u.startsWith(baseUrl)) return req.continue();
+    if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
+    if (SUPA && u.startsWith(SUPA)) {
+      if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(USUARIO));
+      if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR]));
+      if (u.includes(`/rest/v1/servicios?id=eq.${SVC_ID}`)) {
+        if (req.method() === 'PATCH') {
+          const body = JSON.parse(req.postData() || '{}');
+          patches.push(body);
+          return req.respond(json([{ ...row, ...body }]));
+        }
+        return req.respond(json([row]));
+      }
+      if (u.includes('/rest/v1/')) return req.respond(json([]));
+      return req.respond(json({}));
+    }
+    return req.respond({ status: 204, headers: CORS, body: '' });
+  });
+  await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, USUARIO);
+  try {
+    await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
+  } catch (e) { errores.push(`goto: ${e.message}`); }
+  for (let i = 0; i < 60 && patches.length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+  const texto = await page.evaluate(() => document.body.innerText).catch(() => '');
+  if (!patches.length) errores.push('el autosave no escribió (no hubo PATCH a servicios)');
+  const p = patches[0] || {};
+  if (p.aceite_litros !== esperado.litros) errores.push(`PATCH aceite_litros = ${JSON.stringify(p.aceite_litros)}, esperado ${esperado.litros}`);
+  if (p.aceite_spec !== esperado.spec) errores.push(`PATCH aceite_spec = ${JSON.stringify(p.aceite_spec)}, esperado ${JSON.stringify(esperado.spec)}`);
+  if (!texto.includes(`${esperado.litros} L`)) errores.push(`la pantalla no muestra "${esperado.litros} L"`);
+  if (etiqueta !== texto.includes('guardado en el servicio')) errores.push(etiqueta ? 'falta la etiqueta "guardado en el servicio"' : 'muestra la etiqueta "guardado en el servicio" sin motivo');
+  await context.close();
+  const ok = errores.length === 0;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (PATCH: ${JSON.stringify({ aceite_litros: p.aceite_litros, aceite_spec: p.aceite_spec })})`);
+  for (const e of errores) console.log(`  - ${e}`);
+  return ok;
+}
+
 let server, browser, code = 1;
 try {
   console.log('smoke: vite build…');
@@ -187,8 +251,18 @@ try {
   const r2 = await escenario(browser, baseUrl, { nombre: 'con sesión sembrada → MainApp', conSesion: true });
   const r3 = await escenario(browser, baseUrl, { nombre: 'version.json con otro build → banner "Hay una versión nueva"', conSesion: false, versionNueva: true });
   const r4 = await escenario(browser, baseUrl, { nombre: 'login en pestaña Correo → código por email, paso 2, vuelta a Teléfono', conSesion: false, pestanaCorreo: true });
-  code = r1 && r2 && r3 && r4 ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los cuatro escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+  const r5 = await escenarioAceite(browser, baseUrl, {
+    nombre: 'borrador con categoría inexistente → conserva el aceite guardado',
+    fila: { modelo: 'GLE (W166) 2015-2019', motor: 'OM642 3.0D V6', aceite_litros: 8.5, aceite_spec: 'MB 229.51' },
+    esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true,
+  });
+  const r6 = await escenarioAceite(browser, baseUrl, {
+    nombre: 'borrador con categoría vigente → gana el cálculo (como siempre)',
+    fila: { modelo: FILA_SELECTOR.categoria, motor: 'M271 1.8T', aceite_litros: 7, aceite_spec: 'MB 229.3' },
+    esperado: { litros: 6.5, spec: 'MB 229.5' }, etiqueta: false,
+  });
+  code = r1 && r2 && r3 && r4 && r5 && r6 ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los seis escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;
