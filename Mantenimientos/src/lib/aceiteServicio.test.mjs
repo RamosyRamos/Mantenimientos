@@ -69,10 +69,16 @@ test("servicio nuevo sin cálculo: null, como hoy", () => {
   );
 });
 
-test("receta sin cambio de aceite: el cálculo es vacío y lo guardado no se borra", () => {
+test("A → RC: la receta no lleva aceite y queda vacío a propósito, aunque hubiera algo guardado", () => {
   assert.deepEqual(aceiteCalculado({ litros: 6.5, spec: "MB 229.5", llevaAceite: false }), { litros: null, spec: null });
-  const campos = camposAceite({ litros: 6.5, spec: "MB 229.5", llevaAceite: false, guardado: { litros: 7, spec: "MB 229.3" }, congelado: false });
-  assert.deepEqual(campos, { aceite_litros: 7, aceite_spec: "MB 229.3" });
+  const entrada = { litros: 6.5, spec: "MB 229.5", llevaAceite: false, guardado: { litros: 7, spec: "MB 229.3" }, congelado: false };
+  assert.deepEqual(camposAceite(entrada), { aceite_litros: null, aceite_spec: null });
+  assert.deepEqual(aceiteDelServicio(entrada), { litros: null, spec: null, origen: null, etiqueta: null });
+});
+
+test("A → RC en un huérfano (sin cálculo): también vacío", () => {
+  const campos = camposAceite({ litros: null, spec: null, llevaAceite: false, guardado: aceiteGuardado(filaHuerfana), congelado: false });
+  assert.deepEqual(campos, { aceite_litros: null, aceite_spec: null });
 });
 
 test("cálculo con litros y sin spec: la spec guardada no se pisa con null", () => {

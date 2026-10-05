@@ -2,9 +2,11 @@
 // servicios.aceite_litros / aceite_spec.
 //
 // Decisiones del dueño (2026-10-05):
-//  1. Nunca se reemplaza un aceite guardado por null. Si el cálculo (fila del
-//     selector + receta con cambio de aceite) da vacío, se conserva lo
-//     guardado y se muestra con la etiqueta "guardado en el servicio".
+//  1. Si la receta lleva cambio de aceite, nunca se reemplaza un aceite
+//     guardado por null: si el cálculo (fila del selector) da vacío, se
+//     conserva lo guardado y se muestra con la etiqueta "guardado en el
+//     servicio". Si la receta NO lleva aceite (A → RC), queda vacío a
+//     propósito, como siempre.
 //  2. En un servicio APROBADO el aceite queda congelado: ni el modo edición de
 //     jefe ni la firma lo recalculan. Es lo que se le informó al cliente.
 //
@@ -56,6 +58,10 @@ export function aceiteDelServicio({ litros, spec, llevaAceite, guardado, congela
       etiqueta: hay && !igual ? ETIQUETA_GUARDADO : null,
     };
   }
+
+  // Receta sin cambio de aceite (A → RC, por ejemplo): queda vacío a propósito,
+  // también lo guardado. La regla de "no pisar con null" vale solo si lleva aceite.
+  if (!llevaAceite) return { litros: null, spec: null, origen: null, etiqueta: null };
 
   if (calc.litros !== null) {
     // Un campo vacío del cálculo tampoco pisa lo guardado.

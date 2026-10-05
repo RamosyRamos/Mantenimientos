@@ -230,7 +230,8 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, esperado, etiqu
   const p = patches[0] || {};
   if (p.aceite_litros !== esperado.litros) errores.push(`PATCH aceite_litros = ${JSON.stringify(p.aceite_litros)}, esperado ${esperado.litros}`);
   if (p.aceite_spec !== esperado.spec) errores.push(`PATCH aceite_spec = ${JSON.stringify(p.aceite_spec)}, esperado ${JSON.stringify(esperado.spec)}`);
-  if (!texto.includes(`${esperado.litros} L`)) errores.push(`la pantalla no muestra "${esperado.litros} L"`);
+  if (esperado.litros !== null && !texto.includes(`${esperado.litros} L`)) errores.push(`la pantalla no muestra "${esperado.litros} L"`);
+  if (esperado.litros === null && fila.aceite_litros && texto.includes(`${fila.aceite_litros} L`)) errores.push(`la pantalla muestra "${fila.aceite_litros} L" con una receta sin aceite`);
   if (etiqueta !== texto.includes('guardado en el servicio')) errores.push(etiqueta ? 'falta la etiqueta "guardado en el servicio"' : 'muestra la etiqueta "guardado en el servicio" sin motivo');
   await context.close();
   const ok = errores.length === 0;
@@ -261,8 +262,13 @@ try {
     fila: { modelo: FILA_SELECTOR.categoria, motor: 'M271 1.8T', aceite_litros: 7, aceite_spec: 'MB 229.3' },
     esperado: { litros: 6.5, spec: 'MB 229.5' }, etiqueta: false,
   });
-  code = r1 && r2 && r3 && r4 && r5 && r6 ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los seis escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+  const r7 = await escenarioAceite(browser, baseUrl, {
+    nombre: 'receta sin cambio de aceite → queda vacío a propósito',
+    fila: { servicio_codigo: 'AEV', modelo: 'GLE (W166) 2015-2019', motor: 'OM642 3.0D V6', aceite_litros: 8.5, aceite_spec: 'MB 229.51' },
+    esperado: { litros: null, spec: null }, etiqueta: false,
+  });
+  code = r1 && r2 && r3 && r4 && r5 && r6 && r7 ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los siete escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;
