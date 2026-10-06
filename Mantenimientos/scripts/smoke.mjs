@@ -175,19 +175,37 @@ async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = f
   return ok;
 }
 
-// Aceite de un servicio abierto por ?servicio= (fix/aceite-no-se-pierde, 5/10):
-// la fila del mock se abre en la app real, el autosave escribe a los 2 s (las
-// revisiones vienen en null, así que la huella difiere) y se mira el PATCH.
-//  - huérfano: la categoría ya no está en el selector → el cálculo da vacío →
-//    se ve "guardado en el servicio" y el PATCH conserva los litros guardados.
-//  - control: categoría y motor en el selector → gana el cálculo, como siempre.
+// Aceite de un servicio abierto por ?servicio= (feat/aceite-desde-resolver, 5/10):
+// la fila del mock se abre en la app real y el aceite sale de la Edge Function
+// resolver-aceite SIMULADA (con la orden si la fila tiene orden_id; si no, por
+// el vehículo de la placa). El autosave escribe a los 2 s (las revisiones vienen
+// en null, así que la huella difiere) y se mira el último PATCH.
 const SVC_ID = '00000000-0000-4000-8000-0000000000a1';
-const FILA_SELECTOR = { id: '00000000-0000-4000-8000-0000000000b1', clase: 'C', categoria: 'C-Class (W204) 2007-2014', nombre: 'C 200 (M271 1.8T)', combustible: 'gasolina', aceite_lt: 6.5, especif_mb: 'MB 229.5', orden: 1 };
-async function escenarioAceite(browser, baseUrl, { nombre, fila, esperado, etiqueta }) {
+const ORDEN_ID = '00000000-0000-4000-8000-0000000000c1';
+const VEH_ID = '00000000-0000-4000-8000-0000000000d1';
+const FILA_SELECTOR = { id: '00000000-0000-4000-8000-0000000000b1', clase: 'C', categoria: 'C-Class (W204) 2007-2014', nombre: 'C 200 (M271 1.8T)', combustible: 'gasolina', orden: 1 };
+const RESP = {
+  automatico: { vehiculo_id: VEH_ID, build: 'smoke', avisos: [], atf: null,
+    aceite: { estado: 'auto', litros: 8, spec: 'MB 229.5', viscosidad: '5W40', origen: { tipo: 'catalogo', etiqueta: 'Por tarjeta de datos del EPC (M272.961)' }, motivo: null, opciones: [], fuentes: [] } },
+  opciones: { vehiculo_id: VEH_ID, build: 'smoke', avisos: [], atf: null,
+    aceite: { estado: 'pendiente', litros: null, spec: 'MB 229.52', viscosidad: '5W30', origen: { tipo: null, etiqueta: null }, motivo: 'El catálogo da 2 cantidades.', fuentes: [],
+      opciones: [
+        { litros: 6, spec: null, etiqueta: 'Excepto código M005: 4MATIC: 6 L', origen: 'catalogo' },
+        { litros: 6.5, spec: null, etiqueta: 'Con código M005: 4MATIC: 6.5 L', origen: 'catalogo' },
+      ] } },
+  sinDato: { vehiculo_id: VEH_ID, build: 'smoke', avisos: [], atf: null,
+    aceite: { estado: 'pendiente', litros: null, spec: null, viscosidad: null, origen: { tipo: null, etiqueta: null }, motivo: 'Este vehículo no está enlazado al catálogo.', fuentes: [],
+      opciones: [{ litros: 7.3, spec: null, etiqueta: 'Cantidad histórica del vehículo, sin verificar: 7.3 L', origen: 'historico' }] } },
+  otroValor: { vehiculo_id: VEH_ID, build: 'smoke', avisos: [], atf: null,
+    aceite: { estado: 'auto', litros: 6, spec: 'MB 229.5', viscosidad: '5W40', origen: { tipo: 'catalogo', etiqueta: null }, motivo: null, opciones: [], fuentes: [] } },
+};
+const JEFE = { ...USUARIO, rol: 'jefe' };
+async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const errores = [];
   const patches = [];
+  const llamadas = [];
   page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (!['error', 'warning'].includes(m.type())) return;
@@ -197,16 +215,22 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, esperado, etiqu
   });
   page.on('dialog', (d) => { errores.push(`dialog: ${d.message().slice(0, 200)}`); d.dismiss().catch(() => {}); });
   const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
-  const json = (body) => ({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(body) });
-  const row = { id: SVC_ID, estado: 'borrador', aprobado: false, servicio_codigo: 'A', placa: 'SMK001', mecanico: USUARIO.nombre, revisiones: null, observaciones: '', fotos: {}, created_at: new Date().toISOString(), ...fila };
+  const json = (body, status = 200) => ({ status, contentType: 'application/json', headers: CORS, body: JSON.stringify(body) });
+  const row = { id: SVC_ID, estado: 'borrador', aprobado: false, servicio_codigo: 'A', placa: 'SMK001', mecanico: usuario.nombre, revisiones: null, observaciones: '', fotos: {}, created_at: new Date().toISOString(), ...fila };
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const u = req.url();
     if (u.startsWith(baseUrl)) return req.continue();
     if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
     if (SUPA && u.startsWith(SUPA)) {
-      if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(USUARIO));
+      if (u.includes('/functions/v1/resolver-aceite')) {
+        llamadas.push({ body: JSON.parse(req.postData() || '{}'), auth: req.headers()['authorization'] || '' });
+        if (resolver === 'caida') return req.respond(json({ error: 'fallo_lectura', build: 'smoke' }, 503));
+        return req.respond(json(RESP[resolver]));
+      }
+      if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(usuario));
       if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR]));
+      if (u.includes('/rest/v1/vehiculos?patente=eq.SMK001')) return req.respond(json([{ id: VEH_ID }]));
       if (u.includes(`/rest/v1/servicios?id=eq.${SVC_ID}`)) {
         if (req.method() === 'PATCH') {
           const body = JSON.parse(req.postData() || '{}');
@@ -220,22 +244,42 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, esperado, etiqu
     }
     return req.respond({ status: 204, headers: CORS, body: '' });
   });
-  await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, USUARIO);
+  await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
   try {
     await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
   } catch (e) { errores.push(`goto: ${e.message}`); }
-  for (let i = 0; i < 60 && patches.length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+  if (elegir != null) {
+    try {
+      await page.waitForSelector('select[data-elegir-aceite]', { timeout: 6000 });
+      const opciones = await page.$$eval('select[data-elegir-aceite] option', (os) => os.map((o) => o.textContent));
+      for (const t of textos) if (!opciones.some((o) => o.includes(t))) errores.push(`el selector no ofrece "${t}" (${JSON.stringify(opciones)})`);
+      await page.select('select[data-elegir-aceite]', String(elegir));
+    } catch (e) { errores.push(`no apareció el selector de cantidad: ${e.message}`); }
+  }
+  const objetivo = (b) => b.aceite_litros === esperado.litros && b.aceite_spec === esperado.spec;
+  if (sinPatch) await new Promise((r) => setTimeout(r, 4000));
+  else for (let i = 0; i < 70 && !patches.some(objetivo); i++) await new Promise((r) => setTimeout(r, 100));
   const texto = await page.evaluate(() => document.body.innerText).catch(() => '');
-  if (!patches.length) errores.push('el autosave no escribió (no hubo PATCH a servicios)');
-  const p = patches[0] || {};
-  if (p.aceite_litros !== esperado.litros) errores.push(`PATCH aceite_litros = ${JSON.stringify(p.aceite_litros)}, esperado ${esperado.litros}`);
-  if (p.aceite_spec !== esperado.spec) errores.push(`PATCH aceite_spec = ${JSON.stringify(p.aceite_spec)}, esperado ${JSON.stringify(esperado.spec)}`);
+  const p = patches[patches.length - 1] || {};
+  if (sinPatch) {
+    if (patches.length) errores.push(`hubo PATCH a servicios y no debía (${JSON.stringify(patches.map((x) => x.aceite_litros))})`);
+  } else {
+    if (!patches.length) errores.push('el autosave no escribió (no hubo PATCH a servicios)');
+    if (p.aceite_litros !== esperado.litros) errores.push(`último PATCH aceite_litros = ${JSON.stringify(p.aceite_litros)}, esperado ${esperado.litros}`);
+    if (p.aceite_spec !== esperado.spec) errores.push(`último PATCH aceite_spec = ${JSON.stringify(p.aceite_spec)}, esperado ${JSON.stringify(esperado.spec)}`);
+  }
+  if (sinResolver && llamadas.length) errores.push(`llamó a resolver-aceite y no debía (${llamadas.length})`);
+  if (!sinResolver && !llamadas.length) errores.push('no llamó a resolver-aceite');
+  if (cuerpo && llamadas.length && JSON.stringify(llamadas[0].body) !== JSON.stringify(cuerpo)) errores.push(`resolver-aceite recibió ${JSON.stringify(llamadas[0].body)}, esperado ${JSON.stringify(cuerpo)}`);
+  if (llamadas.length && !/Bearer smoke\.fake\.jwt/.test(llamadas[0].auth)) errores.push('resolver-aceite no recibió el JWT de la sesión');
   if (esperado.litros !== null && !texto.includes(`${esperado.litros} L`)) errores.push(`la pantalla no muestra "${esperado.litros} L"`);
-  if (esperado.litros === null && fila.aceite_litros && texto.includes(`${fila.aceite_litros} L`)) errores.push(`la pantalla muestra "${fila.aceite_litros} L" con una receta sin aceite`);
   if (etiqueta !== texto.includes('guardado en el servicio')) errores.push(etiqueta ? 'falta la etiqueta "guardado en el servicio"' : 'muestra la etiqueta "guardado en el servicio" sin motivo');
+  if (origen && !texto.includes(origen)) errores.push(`no muestra el origen "${origen}" junto a la cantidad`);
+  for (const t of presentes) if (!texto.includes(t)) errores.push(`la pantalla no muestra "${t}"`);
+  for (const t of ausentes) if (texto.includes(t)) errores.push(`la pantalla muestra "${t}" y no debía`);
   await context.close();
   const ok = errores.length === 0;
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (PATCH: ${JSON.stringify({ aceite_litros: p.aceite_litros, aceite_spec: p.aceite_spec })})`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (PATCH: ${sinPatch ? 'ninguno' : JSON.stringify({ aceite_litros: p.aceite_litros, aceite_spec: p.aceite_spec })} · resolver: ${llamadas.length})`);
   for (const e of errores) console.log(`  - ${e}`);
   return ok;
 }
@@ -252,23 +296,39 @@ try {
   const r2 = await escenario(browser, baseUrl, { nombre: 'con sesión sembrada → MainApp', conSesion: true });
   const r3 = await escenario(browser, baseUrl, { nombre: 'version.json con otro build → banner "Hay una versión nueva"', conSesion: false, versionNueva: true });
   const r4 = await escenario(browser, baseUrl, { nombre: 'login en pestaña Correo → código por email, paso 2, vuelta a Teléfono', conSesion: false, pestanaCorreo: true });
-  const r5 = await escenarioAceite(browser, baseUrl, {
-    nombre: 'borrador con categoría inexistente → conserva el aceite guardado',
-    fila: { modelo: 'GLE (W166) 2015-2019', motor: 'OM642 3.0D V6', aceite_litros: 8.5, aceite_spec: 'MB 229.51' },
+  const rA = [];
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'aceite automático por la orden → se ve con su origen y se guarda',
+    fila: { orden_id: ORDEN_ID, aceite_litros: 7, aceite_spec: 'MB 229.3' }, resolver: 'automatico', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS',
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'varias cantidades por la placa → el mecánico elige 6.5 L y queda guardado',
+    fila: {}, resolver: 'opciones', cuerpo: { vehiculo_id: VEH_ID }, elegir: 6.5, textos: ['Con código M005', 'Excepto código M005'],
+    esperado: { litros: 6.5, spec: 'MB 229.52' }, origen: 'WIS',
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'sin dato del resolvedor ni guardado → "Aceite no disponible", la histórica no se ofrece',
+    fila: {}, resolver: 'sinDato', esperado: { litros: null, spec: null },
+    presentes: ['Aceite no disponible: identificá el vehículo (VIN)'], ausentes: ['7.3 L'],
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'función caída con aceite guardado → conserva lo guardado, con la etiqueta',
+    fila: { aceite_litros: 8.5, aceite_spec: 'MB 229.51' }, resolver: 'caida',
     esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true,
-  });
-  const r6 = await escenarioAceite(browser, baseUrl, {
-    nombre: 'borrador con categoría vigente → gana el cálculo (como siempre)',
-    fila: { modelo: FILA_SELECTOR.categoria, motor: 'M271 1.8T', aceite_litros: 7, aceite_spec: 'MB 229.3' },
-    esperado: { litros: 6.5, spec: 'MB 229.5' }, etiqueta: false,
-  });
-  const r7 = await escenarioAceite(browser, baseUrl, {
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
     nombre: 'receta sin cambio de aceite → queda vacío a propósito',
-    fila: { servicio_codigo: 'AEV', modelo: 'GLE (W166) 2015-2019', motor: 'OM642 3.0D V6', aceite_litros: 8.5, aceite_spec: 'MB 229.51' },
-    esperado: { litros: null, spec: null }, etiqueta: false,
-  });
-  code = r1 && r2 && r3 && r4 && r5 && r6 && r7 ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los siete escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+    fila: { servicio_codigo: 'AEV', aceite_litros: 8.5, aceite_spec: 'MB 229.51' }, resolver: 'automatico',
+    esperado: { litros: null, spec: null }, ausentes: ['8.5 L', '8 L'],
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'control: servicio APROBADO → aceite congelado, ni PATCH ni consulta al resolvedor',
+    fila: { estado: 'aprobado', aprobado: true, aceite_litros: 8.5, aceite_spec: 'MB 229.51' }, resolver: 'otroValor', usuario: JEFE,
+    esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true, sinPatch: true, sinResolver: true, ausentes: ['6 L'],
+  }));
+  code = r1 && r2 && r3 && r4 && rA.every(Boolean) ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los diez escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;
