@@ -12,10 +12,38 @@ import FotoPicker from './FotoPicker.jsx';
 // Reglas de concurrencia/sellado compartidas con Taller — ver el encabezado del
 // archivo: es un GEMELO byte a byte de Taller/src/lib/servicioConcurrencia.js.
 import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad, itemTieneContenido } from './servicioConcurrencia.js';
-import { apiFetch, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
+import { apiFetch, authHeaders, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
 import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
+import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
 const ACEITE_VACIO = { litros: null, spec: null };
+const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
+// "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
+// corregía vehiculos_modelos, que ya no es fuente. Se rehace en otra rama.
+const CORRECCION_ACEITE_ACTIVA = false;
+
+// El aceite del vehículo sale de la Edge Function resolver-aceite de Taller (el
+// mismo resolvedor del cotizador): con la orden si el servicio viene de una;
+// si no, con el vehículo encontrado por la placa. Nunca lanza.
+async function resolverAceiteDeVehiculo({ ordenId, placa }) {
+  const url = `${API_URL}/functions/v1/resolver-aceite`;
+  const headers = await authHeaders();
+  if (ordenId) {
+    const r = await llamarResolverAceite({ ordenId }, { url, headers });
+    // Orden inexistente o inválida: se prueba por la placa.
+    if (r.ok || !placa || (r.motivo !== 'no_encontrado' && r.motivo !== 'entrada_invalida')) return r;
+  }
+  if (!placa) return { ok: false, motivo: 'sin_vehiculo' };
+  let vehiculoId = null;
+  try {
+    const res = await apiFetch(`${API_URL}/rest/v1/vehiculos?patente=eq.${encodeURIComponent(placa)}&archivado=eq.false&select=id&limit=1`);
+    vehiculoId = (await res.json())?.[0]?.id ?? null;
+  } catch (e) {
+    return { ok: false, motivo: e?.tipo === 'red' ? 'red' : 'http' };
+  }
+  if (!vehiculoId) return { ok: false, motivo: 'vehiculo_no_registrado' };
+  return llamarResolverAceite({ vehiculoId }, { url, headers });
+}
 import { formatearTel, telValido, telE164, soloDigitos, esErrorCanal, mapearErrorOtp, CANAL_OTP, CANAL_FALLBACK, TEXTOS_CANAL, MENSAJE_RECHAZO, emailValido, normalizarEmail, canalLoginGuardado, guardarCanalLogin, textoRechazo } from './lib/authOtp.js';
 
 // ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
@@ -342,8 +370,6 @@ function buildEntriesFromSource(rawGrouped) {
     for (const item of items) {
       const nombre     = item.nombre ?? item.name ?? ''
       const fuel       = item.combustible ?? item.fuel ?? 'gasolina'
-      const oil        = item.aceite_lt ?? item.oil ?? null
-      const spec       = item.especif_mb ?? item.spec ?? ''
       const clase      = item.clase ?? null
       const engineMatch = nombre.match(/\(([^()]+)\)(?:\s+(\d{4}[-–]\d{4}))?\s*$/)
       const engineCode  = engineMatch?.[1] ?? nombre
@@ -373,8 +399,6 @@ function buildEntriesFromSource(rawGrouped) {
           version:     trim,
           motor:       engineCode,
           combustible: fuel,
-          aceite_lt:   oil != null ? Number(oil) : null,
-          especif_mb:  spec,
           categoria:   cat,
         })
       }
@@ -395,8 +419,6 @@ function buildModelsFromRows(rows) {
         id: r.id ?? null,
         name: code,
         fuel: r.combustible,
-        oil: r.aceite_lt != null ? Number(r.aceite_lt) : null,
-        spec: r.especif_mb,
       })
     }
     if (!modelGroups[r.clase]) modelGroups[r.clase] = []
@@ -413,7 +435,9 @@ function buildModelsFromRows(rows) {
 function loadModelsFromDB() {
   if (_modelsCache) return Promise.resolve(_modelsCache)
   if (_modelsCachePromise) return _modelsCachePromise
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos_modelos?activo=eq.true&select=id,clase,categoria,nombre,combustible,aceite_lt,especif_mb,orden&order=clase.asc,categoria.asc,orden.asc`
+  // Solo para elegir modelo y motor (combustible, eléctrico). El ACEITE ya no
+  // sale de acá: aceite_lt / especif_mb no son fuente (lo da resolver-aceite).
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos_modelos?activo=eq.true&select=id,clase,categoria,nombre,combustible,orden&order=clase.asc,categoria.asc,orden.asc`
   _modelsCachePromise = apiFetch(url)
     .then(r => r.json())
     .then(rows => {
@@ -428,7 +452,7 @@ function loadModelsFromDB() {
 async function loadVehiculoByPlaca(placa) {
   if (!placa) return null
   try {
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos?patente=eq.${encodeURIComponent(placa.toUpperCase())}&select=motor,combustible,aceite_lt,especif_mb,version,modelo,anio&limit=1`
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/vehiculos?patente=eq.${encodeURIComponent(placa.toUpperCase())}&select=motor,combustible,version,modelo,anio&limit=1`
     const res = await apiFetch(url)
     const data = await res.json()
     return data[0] || null
@@ -437,610 +461,611 @@ async function loadVehiculoByPlaca(placa) {
   }
 }
 
-// ─── MODELOS + MOTORES + ACEITE ──────────────────────────────────────────
+// ─── MODELOS + MOTORES (respaldo si vehiculos_modelos no carga) ──────────
 // fuel: "gasolina" | "diesel" | "electrico"
-// oil: litros con filtro
-// spec: especificación MB recomendada
+// Sin aceite desde el 5/10: los litros y la spec salen de resolver-aceite.
 const MODEL_DATA = {
   // ── A-Class ──────────────────────────────────────────────────────────────────
   "A-Class (W168) 1997-2004": [
-    { name:"A 140 / A 160 (M166 1.4-1.6)", fuel:"gasolina", oil:4.5, spec:"MB 229.1 / 229.3" },
-    { name:"A 190 (M166 1.9)", fuel:"gasolina", oil:4.5, spec:"MB 229.1 / 229.3" },
-    { name:"A 160 CDI / A 170 CDI (OM668)", fuel:"diesel", oil:4.5, spec:"MB 229.1" },
-    { name:"A 210 AMG (M166 2.1)", fuel:"gasolina", oil:5.0, spec:"MB 229.3" },
+    { name:"A 140 / A 160 (M166 1.4-1.6)", fuel:"gasolina" },
+    { name:"A 190 (M166 1.9)", fuel:"gasolina" },
+    { name:"A 160 CDI / A 170 CDI (OM668)", fuel:"diesel" },
+    { name:"A 210 AMG (M166 2.1)", fuel:"gasolina" },
   ],
   "A-Class (W169 / C169) 2004-2012": [
-    { name:"A 150 (M266 1.5)", fuel:"gasolina", oil:5.0, spec:"MB 229.3" },
-    { name:"A 170 (M266 1.7)", fuel:"gasolina", oil:5.0, spec:"MB 229.3" },
-    { name:"A 200 (M266 2.0)", fuel:"gasolina", oil:5.0, spec:"MB 229.3" },
-    { name:"A 200 Turbo (M266 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.3 / 229.5" },
-    { name:"A 160 CDI / A 180 CDI (OM640 2.0D)", fuel:"diesel", oil:4.5, spec:"MB 229.3" },
-    { name:"A 200 CDI (OM640 2.0D)", fuel:"diesel", oil:4.5, spec:"MB 229.3" },
+    { name:"A 150 (M266 1.5)", fuel:"gasolina" },
+    { name:"A 170 (M266 1.7)", fuel:"gasolina" },
+    { name:"A 200 (M266 2.0)", fuel:"gasolina" },
+    { name:"A 200 Turbo (M266 2.0T)", fuel:"gasolina" },
+    { name:"A 160 CDI / A 180 CDI (OM640 2.0D)", fuel:"diesel" },
+    { name:"A 200 CDI (OM640 2.0D)", fuel:"diesel" },
   ],
   "A-Class (W176) 2012-2018": [
-    { name:"A 160 / A 180 / A 200 (M270 1.6-2.0T)", fuel:"gasolina", oil:5.8, spec:"MB 229.5 / 229.52" },
-    { name:"A 180 CDI / A 200 CDI / A 220 CDI (OM651)", fuel:"diesel", oil:6.0, spec:"MB 229.51 / 229.52" },
-    { name:"A 250 (M270 2.0T)", fuel:"gasolina", oil:5.8, spec:"MB 229.52" },
-    { name:"A 45 AMG 4MATIC (M133 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"A 160 / A 180 / A 200 (M270 1.6-2.0T)", fuel:"gasolina" },
+    { name:"A 180 CDI / A 200 CDI / A 220 CDI (OM651)", fuel:"diesel" },
+    { name:"A 250 (M270 2.0T)", fuel:"gasolina" },
+    { name:"A 45 AMG 4MATIC (M133 2.0T)", fuel:"gasolina" },
   ],
   "A-Class Hatchback / Sedan (W177)": [
-    { name:"A 180 / A 200 (M282 1.3T)", fuel:"gasolina", oil:5.1, spec:"MB 229.52 / 229.61" },
-    { name:"A 220 / A 250 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52 / 229.61" },
-    { name:"A 180d / A 200d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"A 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52 / 229.61" },
-    { name:"A 45 / A 45S AMG 4MATIC (M139 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"A 180 / A 200 (M282 1.3T)", fuel:"gasolina" },
+    { name:"A 220 / A 250 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"A 180d / A 200d (OM654 2.0D)", fuel:"diesel" },
+    { name:"A 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"A 45 / A 45S AMG 4MATIC (M139 2.0T)", fuel:"gasolina" },
   ],
   // ── AMG GT ───────────────────────────────────────────────────────────────────
   "AMG GT Coupé / Roadster (C190 / R190)": [
-    { name:"AMG GT / GTS (M178 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.5 / 229.52" },
-    { name:"AMG GT R / GT R Pro (M178 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
-    { name:"AMG GT C (M178 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
+    { name:"AMG GT / GTS (M178 4.0 V8T)", fuel:"gasolina" },
+    { name:"AMG GT R / GT R Pro (M178 4.0 V8T)", fuel:"gasolina" },
+    { name:"AMG GT C (M178 4.0 V8T)", fuel:"gasolina" },
   ],
   "AMG GT 4-Door Coupé (X290)": [
-    { name:"AMG GT 43 / GT 53 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"AMG GT 63 / GT 63S 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
+    { name:"AMG GT 43 / GT 53 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"AMG GT 63 / GT 63S 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   "AMG GT Coupé (C192)": [
-    { name:"AMG GT 43 / GT 53 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"AMG GT 63 / GT 63S 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
-    { name:"AMG GT 63 SE Performance (M177 PHEV)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
+    { name:"AMG GT 43 / GT 53 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"AMG GT 63 / GT 63S 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"AMG GT 63 SE Performance (M177 PHEV)", fuel:"gasolina" },
   ],
   "AMG ONE (C298)": [
-    { name:"AMG ONE (1.6 F1 híbrido)", fuel:"gasolina", oil:5.0, spec:"MB 229.52" },
+    { name:"AMG ONE (1.6 F1 híbrido)", fuel:"gasolina" },
   ],
   "AMG SL (R232)": [
-    { name:"SL 43 AMG (M139 2.0T)", fuel:"gasolina", oil:6.5, spec:"MB 229.52" },
-    { name:"SL 55 AMG 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
-    { name:"SL 63 AMG 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
+    { name:"SL 43 AMG (M139 2.0T)", fuel:"gasolina" },
+    { name:"SL 55 AMG 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"SL 63 AMG 4MATIC+ (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   // ── B-Class ──────────────────────────────────────────────────────────────────
   "B-Class (W245) 2005-2011": [
-    { name:"B 150 / B 170 (M266 1.5-1.7)", fuel:"gasolina", oil:5.0, spec:"MB 229.3" },
-    { name:"B 200 / B 200 Turbo (M266 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.3" },
-    { name:"B 180 CDI / B 200 CDI (OM640 2.0D)", fuel:"diesel", oil:4.5, spec:"MB 229.3" },
+    { name:"B 150 / B 170 (M266 1.5-1.7)", fuel:"gasolina" },
+    { name:"B 200 / B 200 Turbo (M266 2.0T)", fuel:"gasolina" },
+    { name:"B 180 CDI / B 200 CDI (OM640 2.0D)", fuel:"diesel" },
   ],
   "B-Class (W246) 2011-2018": [
-    { name:"B 180 / B 200 (M270 1.6-2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.5 / 229.52" },
-    { name:"B 180 CDI / B 200 CDI / B 220 CDI (OM651)", fuel:"diesel", oil:6.0, spec:"MB 229.51 / 229.52" },
-    { name:"B 250 (M270 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
-    { name:"B 250e (híbrido eléctrico)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"B 180 / B 200 (M270 1.6-2.0T)", fuel:"gasolina" },
+    { name:"B 180 CDI / B 200 CDI / B 220 CDI (OM651)", fuel:"diesel" },
+    { name:"B 250 (M270 2.0T)", fuel:"gasolina" },
+    { name:"B 250e (híbrido eléctrico)", fuel:"gasolina" },
   ],
   // ── B-Class ──────────────────────────────────────────────────────────────────
   "B-Class (W247)": [
-    { name:"B 180 / B 200 (M282 1.3T)", fuel:"gasolina", oil:5.1, spec:"MB 229.52 / 229.61" },
-    { name:"B 220 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52 / 229.61" },
-    { name:"B 180d / B 200d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"B 250e (híbrido enchufable)", fuel:"gasolina", oil:5.1, spec:"MB 229.52" },
+    { name:"B 180 / B 200 (M282 1.3T)", fuel:"gasolina" },
+    { name:"B 220 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"B 180d / B 200d (OM654 2.0D)", fuel:"diesel" },
+    { name:"B 250e (híbrido enchufable)", fuel:"gasolina" },
   ],
   // ── C-Class / 190 ────────────────────────────────────────────────────────────
   "C-Class / 190 (W201) 1982-1993": [
-    { name:"190 E 1.8 / 2.0 / 2.3 (M102)", fuel:"gasolina", oil:5.5, spec:"MB 229.0 / 229.1" },
-    { name:"190 E 2.5-16 / 2.3-16 (M102 16v)", fuel:"gasolina", oil:6.0, spec:"MB 229.1" },
-    { name:"190 D / 190 D 2.5 (OM601/OM602)", fuel:"diesel", oil:5.5, spec:"MB 229.0" },
+    { name:"190 E 1.8 / 2.0 / 2.3 (M102)", fuel:"gasolina" },
+    { name:"190 E 2.5-16 / 2.3-16 (M102 16v)", fuel:"gasolina" },
+    { name:"190 D / 190 D 2.5 (OM601/OM602)", fuel:"diesel" },
   ],
   "C-Class (W202) 1993-2000": [
-    { name:"C 180 / C 200 (M111 1.8-2.0)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"C 220 (M111 2.2)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"C 230 Kompressor (M111 2.3T)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"C 240 (M112 2.4 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"C 280 (M104/M112 2.8 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"C 320 (M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"C 220 CDI (OM604)", fuel:"diesel", oil:6.0, spec:"MB 229.1" },
-    { name:"C 250 TD / C 250 Turbodiesel (OM605)", fuel:"diesel", oil:6.5, spec:"MB 229.1" },
-    { name:"C 36 AMG (M104 3.6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1" },
-    { name:"C 43 AMG (M113 4.3 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
+    { name:"C 180 / C 200 (M111 1.8-2.0)", fuel:"gasolina" },
+    { name:"C 220 (M111 2.2)", fuel:"gasolina" },
+    { name:"C 230 Kompressor (M111 2.3T)", fuel:"gasolina" },
+    { name:"C 240 (M112 2.4 V6)", fuel:"gasolina" },
+    { name:"C 280 (M104/M112 2.8 V6)", fuel:"gasolina" },
+    { name:"C 320 (M112 3.2 V6)", fuel:"gasolina" },
+    { name:"C 220 CDI (OM604)", fuel:"diesel" },
+    { name:"C 250 TD / C 250 Turbodiesel (OM605)", fuel:"diesel" },
+    { name:"C 36 AMG (M104 3.6)", fuel:"gasolina" },
+    { name:"C 43 AMG (M113 4.3 V8)", fuel:"gasolina" },
   ],
   "C-Class (W203) 2001-2007": [
-    { name:"C 180 / C 200 Kompressor (M271 1.8T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
-    { name:"C 230 / C 280 / C 350 (M272 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"C 220 CDI / C 270 CDI (OM611/OM612)", fuel:"diesel", oil:6.0, spec:"MB 229.3" },
-    { name:"C 30 CDI AMG (OM612 turbo)", fuel:"diesel", oil:6.5, spec:"MB 229.3" },
-    { name:"C 32 AMG (M112 supercharged)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"C 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"C 180 / C 200 Kompressor (M271 1.8T)", fuel:"gasolina" },
+    { name:"C 230 / C 280 / C 350 (M272 V6)", fuel:"gasolina" },
+    { name:"C 220 CDI / C 270 CDI (OM611/OM612)", fuel:"diesel" },
+    { name:"C 30 CDI AMG (OM612 turbo)", fuel:"diesel" },
+    { name:"C 32 AMG (M112 supercharged)", fuel:"gasolina" },
+    { name:"C 55 AMG (M113 5.5 V8)", fuel:"gasolina" },
   ],
   "C-Class Sedan / Estate (W204 / S204) 2007-2014": [
-    { name:"C 180 / C 200 CGI Kompressor (M271 1.8T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
-    { name:"C 230 / C 280 / C 300 (M272 V6)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"C 350 (M272 3.5 V6)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"C 220 CDI / C 250 CDI (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51" },
-    { name:"C 300 CDI / C 350 CDI (OM642 3.0D)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
-    { name:"C 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
+    { name:"C 180 / C 200 CGI Kompressor (M271 1.8T)", fuel:"gasolina" },
+    { name:"C 230 / C 280 / C 300 (M272 V6)", fuel:"gasolina" },
+    { name:"C 350 (M272 3.5 V6)", fuel:"gasolina" },
+    { name:"C 220 CDI / C 250 CDI (OM651 2.1D)", fuel:"diesel" },
+    { name:"C 300 CDI / C 350 CDI (OM642 3.0D)", fuel:"diesel" },
+    { name:"C 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   "C-Class Sedan / Estate (W205 / S205)": [
-    { name:"C 180 / C 200 (M274 2.0T)", fuel:"gasolina", oil:7.0, spec:"MB 229.5 / 229.52" },
-    { name:"C 300 / C 350e (M274 2.0T)", fuel:"gasolina", oil:7.0, spec:"MB 229.5 / 229.52" },
-    { name:"C 220d / C 250d (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51 / 229.52" },
-    { name:"C 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52" },
-    { name:"C 43 AMG (M276 3.0 V6T)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"C 63 / C 63S AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.5 / 229.52" },
+    { name:"C 180 / C 200 (M274 2.0T)", fuel:"gasolina" },
+    { name:"C 300 / C 350e (M274 2.0T)", fuel:"gasolina" },
+    { name:"C 220d / C 250d (OM651 2.1D)", fuel:"diesel" },
+    { name:"C 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"C 43 AMG (M276 3.0 V6T)", fuel:"gasolina" },
+    { name:"C 63 / C 63S AMG (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   "C-Class Sedan / Estate (W206 / S206)": [
-    { name:"C 200 / C 300 (M254 2.0T)", fuel:"gasolina", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"C 220d / C 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"C 300e / C 300de (híbrido enchufable)", fuel:"gasolina", oil:6.0, spec:"MB 229.52" },
-    { name:"C 43 AMG 4MATIC (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"C 63 AMG E Performance (M139 2.0T PHEV)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"C 200 / C 300 (M254 2.0T)", fuel:"gasolina" },
+    { name:"C 220d / C 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"C 300e / C 300de (híbrido enchufable)", fuel:"gasolina" },
+    { name:"C 43 AMG 4MATIC (M256 3.0T)", fuel:"gasolina" },
+    { name:"C 63 AMG E Performance (M139 2.0T PHEV)", fuel:"gasolina" },
   ],
   // ── CL-Class ─────────────────────────────────────────────────────────────────
   "CL-Class (C215) 1998-2006": [
-    { name:"CL 500 (M113 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
-    { name:"CL 600 (M137 5.8 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.3 / 229.5" },
-    { name:"CL 55 AMG (M113 supercharged)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
-    { name:"CL 65 AMG (M275 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"CL 500 (M113 5.0 V8)", fuel:"gasolina" },
+    { name:"CL 600 (M137 5.8 V12T)", fuel:"gasolina" },
+    { name:"CL 55 AMG (M113 supercharged)", fuel:"gasolina" },
+    { name:"CL 65 AMG (M275 6.0 V12T)", fuel:"gasolina" },
   ],
   "CL-Class (C216) 2006-2014": [
-    { name:"CL 500 / CL 550 (M273/M278 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CL 600 (M275 5.5 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
-    { name:"CL 63 AMG (M156/M157)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CL 65 AMG (M275/M279 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"CL 500 / CL 550 (M273/M278 V8)", fuel:"gasolina" },
+    { name:"CL 600 (M275 5.5 V12T)", fuel:"gasolina" },
+    { name:"CL 63 AMG (M156/M157)", fuel:"gasolina" },
+    { name:"CL 65 AMG (M275/M279 V12T)", fuel:"gasolina" },
   ],
   // ── CLA ──────────────────────────────────────────────────────────────────────
   "CLA Coupé / Shooting Brake (C117 / X117)": [
-    { name:"CLA 180 / CLA 200 (M270 1.6T)", fuel:"gasolina", oil:5.5, spec:"MB 229.5 / 229.52" },
-    { name:"CLA 250 (M270 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.5 / 229.52" },
-    { name:"CLA 200d / CLA 220d (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51 / 229.52" },
-    { name:"CLA 45 / CLA 45S AMG (M133 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.5" },
+    { name:"CLA 180 / CLA 200 (M270 1.6T)", fuel:"gasolina" },
+    { name:"CLA 250 (M270 2.0T)", fuel:"gasolina" },
+    { name:"CLA 200d / CLA 220d (OM651 2.1D)", fuel:"diesel" },
+    { name:"CLA 45 / CLA 45S AMG (M133 2.0T)", fuel:"gasolina" },
   ],
   "CLA Coupé / Shooting Brake (C118 / X118)": [
-    { name:"CLA 180 / CLA 200 (M282 1.3T)", fuel:"gasolina", oil:5.1, spec:"MB 229.52 / 229.61" },
-    { name:"CLA 220 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52 / 229.61" },
-    { name:"CLA 200d / CLA 220d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"CLA 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52" },
-    { name:"CLA 45 / CLA 45S AMG 4MATIC (M139 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"CLA 180 / CLA 200 (M282 1.3T)", fuel:"gasolina" },
+    { name:"CLA 220 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"CLA 200d / CLA 220d (OM654 2.0D)", fuel:"diesel" },
+    { name:"CLA 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"CLA 45 / CLA 45S AMG 4MATIC (M139 2.0T)", fuel:"gasolina" },
   ],
   // ── CLE ──────────────────────────────────────────────────────────────────────
   "CLE Coupé / Cabriolet (C236 / A236)": [
-    { name:"CLE 200 / CLE 300 (M254 2.0T)", fuel:"gasolina", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"CLE 220d / CLE 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"CLE 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
+    { name:"CLE 200 / CLE 300 (M254 2.0T)", fuel:"gasolina" },
+    { name:"CLE 220d / CLE 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"CLE 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
   ],
   // ── CLK-Class ────────────────────────────────────────────────────────────────
   "CLK-Class (C208) 1997-2003": [
-    { name:"CLK 200 / CLK 230 Kompressor (M111)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"CLK 320 (M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"CLK 430 (M113 4.3 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.3" },
-    { name:"CLK 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
+    { name:"CLK 200 / CLK 230 Kompressor (M111)", fuel:"gasolina" },
+    { name:"CLK 320 (M112 3.2 V6)", fuel:"gasolina" },
+    { name:"CLK 430 (M113 4.3 V8)", fuel:"gasolina" },
+    { name:"CLK 55 AMG (M113 5.5 V8)", fuel:"gasolina" },
   ],
   "CLK-Class (C209) 2002-2009": [
-    { name:"CLK 200 / CLK 240 (M271/M112)", fuel:"gasolina", oil:6.0, spec:"MB 229.3 / 229.5" },
-    { name:"CLK 280 / CLK 320 (M272/M112 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"CLK 350 (M272 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"CLK 500 (M273 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CLK 220 CDI / CLK 270 CDI (OM646/OM612)", fuel:"diesel", oil:6.0, spec:"MB 229.3" },
-    { name:"CLK 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CLK 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"CLK 200 / CLK 240 (M271/M112)", fuel:"gasolina" },
+    { name:"CLK 280 / CLK 320 (M272/M112 V6)", fuel:"gasolina" },
+    { name:"CLK 350 (M272 3.5 V6)", fuel:"gasolina" },
+    { name:"CLK 500 (M273 5.0 V8)", fuel:"gasolina" },
+    { name:"CLK 220 CDI / CLK 270 CDI (OM646/OM612)", fuel:"diesel" },
+    { name:"CLK 55 AMG (M113 5.5 V8)", fuel:"gasolina" },
+    { name:"CLK 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   // ── CLS-Class ────────────────────────────────────────────────────────────────
   "CLS-Class (C219) 2004-2010": [
-    { name:"CLS 300 / CLS 350 (M272 3.0-3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"CLS 500 / CLS 550 (M273 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CLS 320 CDI / CLS 350 CDI (OM642 3.0D)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
-    { name:"CLS 55 AMG (M113 supercharged)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CLS 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"CLS 300 / CLS 350 (M272 3.0-3.5 V6)", fuel:"gasolina" },
+    { name:"CLS 500 / CLS 550 (M273 V8)", fuel:"gasolina" },
+    { name:"CLS 320 CDI / CLS 350 CDI (OM642 3.0D)", fuel:"diesel" },
+    { name:"CLS 55 AMG (M113 supercharged)", fuel:"gasolina" },
+    { name:"CLS 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   "CLS-Class (C218) 2010-2017": [
-    { name:"CLS 300 / CLS 350 (M276 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"CLS 500 / CLS 550 (M278 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"CLS 220 CDI / CLS 250 CDI (OM651)", fuel:"diesel", oil:6.0, spec:"MB 229.51" },
-    { name:"CLS 350 CDI / CLS 350 BlueTEC (OM642)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
-    { name:"CLS 63 AMG / CLS 63S AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"CLS 300 / CLS 350 (M276 V6)", fuel:"gasolina" },
+    { name:"CLS 500 / CLS 550 (M278 V8T)", fuel:"gasolina" },
+    { name:"CLS 220 CDI / CLS 250 CDI (OM651)", fuel:"diesel" },
+    { name:"CLS 350 CDI / CLS 350 BlueTEC (OM642)", fuel:"diesel" },
+    { name:"CLS 63 AMG / CLS 63S AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   // ── E-Class ──────────────────────────────────────────────────────────────────
   "E-Class (W114 / W115) 1968-1976": [
-    { name:"200 / 220 (M115 2.0-2.2)", fuel:"gasolina", oil:5.5, spec:"MB 229.0" },
-    { name:"230 / 250 (M115/M114 2.3-2.5)", fuel:"gasolina", oil:5.5, spec:"MB 229.0" },
-    { name:"280 / 280 C (M110 2.8)", fuel:"gasolina", oil:6.5, spec:"MB 229.0" },
-    { name:"200 D / 220 D / 240 D (OM615/OM616)", fuel:"diesel", oil:5.5, spec:"MB 229.0" },
-    { name:"300 D (OM617 3.0D)", fuel:"diesel", oil:6.5, spec:"MB 229.0" },
+    { name:"200 / 220 (M115 2.0-2.2)", fuel:"gasolina" },
+    { name:"230 / 250 (M115/M114 2.3-2.5)", fuel:"gasolina" },
+    { name:"280 / 280 C (M110 2.8)", fuel:"gasolina" },
+    { name:"200 D / 220 D / 240 D (OM615/OM616)", fuel:"diesel" },
+    { name:"300 D (OM617 3.0D)", fuel:"diesel" },
   ],
   "E-Class (W123) 1976-1984": [
-    { name:"200 / 230 E (M115/M102 2.0-2.3)", fuel:"gasolina", oil:5.5, spec:"MB 229.0" },
-    { name:"250 / 280 E (M123/M110 2.5-2.8)", fuel:"gasolina", oil:6.5, spec:"MB 229.0" },
-    { name:"300 D / 300 TD (OM617 3.0D)", fuel:"diesel", oil:6.5, spec:"MB 229.0" },
-    { name:"230 CE / 280 CE Coupé", fuel:"gasolina", oil:6.0, spec:"MB 229.0" },
+    { name:"200 / 230 E (M115/M102 2.0-2.3)", fuel:"gasolina" },
+    { name:"250 / 280 E (M123/M110 2.5-2.8)", fuel:"gasolina" },
+    { name:"300 D / 300 TD (OM617 3.0D)", fuel:"diesel" },
+    { name:"230 CE / 280 CE Coupé", fuel:"gasolina" },
   ],
   "E-Class (W124) 1984-1996": [
-    { name:"E 200 / 230 E (M102 2.0-2.3)", fuel:"gasolina", oil:6.0, spec:"MB 229.1" },
-    { name:"E 260 / 280 E (M103 2.6-2.8)", fuel:"gasolina", oil:7.5, spec:"MB 229.1" },
-    { name:"E 320 (M104 3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 420 (M119 4.2 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.1" },
-    { name:"E 500 (M119 5.0 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.1" },
-    { name:"E 300 D / E 300 TD (OM606 3.0D)", fuel:"diesel", oil:7.0, spec:"MB 229.1" },
-    { name:"E 60 AMG (M119 6.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.1" },
+    { name:"E 200 / 230 E (M102 2.0-2.3)", fuel:"gasolina" },
+    { name:"E 260 / 280 E (M103 2.6-2.8)", fuel:"gasolina" },
+    { name:"E 320 (M104 3.2)", fuel:"gasolina" },
+    { name:"E 420 (M119 4.2 V8)", fuel:"gasolina" },
+    { name:"E 500 (M119 5.0 V8)", fuel:"gasolina" },
+    { name:"E 300 D / E 300 TD (OM606 3.0D)", fuel:"diesel" },
+    { name:"E 60 AMG (M119 6.0 V8)", fuel:"gasolina" },
   ],
   "E-Class (W210) 1995-2002": [
-    { name:"E 200 / E 220 (M111 2.0-2.2 4cil)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 240 (M112 2.4 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"E 280 (M104/M112 2.8 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 320 (M104/M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"E 430 (M113 4.3 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
-    { name:"E 500 (M113 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
-    { name:"E 200 CDI / E 220 CDI (OM611 2.0-2.2D)", fuel:"diesel", oil:6.0, spec:"MB 229.1 / 229.3" },
-    { name:"E 270 CDI (OM612 2.7D)", fuel:"diesel", oil:7.0, spec:"MB 229.3" },
-    { name:"E 300 D / E 290 TD (OM606 3.0D)", fuel:"diesel", oil:6.5, spec:"MB 229.1" },
-    { name:"E 320 CDI (OM613 3.2D)", fuel:"diesel", oil:7.5, spec:"MB 229.3" },
-    { name:"E 55 AMG (M113 5.4 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
+    { name:"E 200 / E 220 (M111 2.0-2.2 4cil)", fuel:"gasolina" },
+    { name:"E 240 (M112 2.4 V6)", fuel:"gasolina" },
+    { name:"E 280 (M104/M112 2.8 V6)", fuel:"gasolina" },
+    { name:"E 320 (M104/M112 3.2 V6)", fuel:"gasolina" },
+    { name:"E 430 (M113 4.3 V8)", fuel:"gasolina" },
+    { name:"E 500 (M113 5.0 V8)", fuel:"gasolina" },
+    { name:"E 200 CDI / E 220 CDI (OM611 2.0-2.2D)", fuel:"diesel" },
+    { name:"E 270 CDI (OM612 2.7D)", fuel:"diesel" },
+    { name:"E 300 D / E 290 TD (OM606 3.0D)", fuel:"diesel" },
+    { name:"E 320 CDI (OM613 3.2D)", fuel:"diesel" },
+    { name:"E 55 AMG (M113 5.4 V8)", fuel:"gasolina" },
   ],
   "E-Class (W211 / S211) 2002-2009": [
-    { name:"E 200 / E 200 Kompressor (M271 1.8T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
-    { name:"E 240 (M112 2.6 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"E 280 (M272 3.0 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"E 320 (M112/M272 3.2-3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"E 350 (M272 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"E 500 / E 550 (M113/M273 5.0-5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
-    { name:"E 200 CDI / E 220 CDI (OM646 2.0-2.2D)", fuel:"diesel", oil:6.5, spec:"MB 229.3 / 229.51" },
-    { name:"E 270 CDI (OM647 2.7D)", fuel:"diesel", oil:7.0, spec:"MB 229.3" },
-    { name:"E 320 CDI (OM648 3.2D)", fuel:"diesel", oil:7.5, spec:"MB 229.3 / 229.51" },
-    { name:"E 280 CDI / E 300 CDI (OM642 3.0D V6)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
-    { name:"E 420 CDI (OM629 4.0D V8)", fuel:"diesel", oil:9.5, spec:"MB 229.51" },
-    { name:"E 55 AMG (M113 supercharged)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"E 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"E 200 / E 200 Kompressor (M271 1.8T)", fuel:"gasolina" },
+    { name:"E 240 (M112 2.6 V6)", fuel:"gasolina" },
+    { name:"E 280 (M272 3.0 V6)", fuel:"gasolina" },
+    { name:"E 320 (M112/M272 3.2-3.5 V6)", fuel:"gasolina" },
+    { name:"E 350 (M272 3.5 V6)", fuel:"gasolina" },
+    { name:"E 500 / E 550 (M113/M273 5.0-5.5 V8)", fuel:"gasolina" },
+    { name:"E 200 CDI / E 220 CDI (OM646 2.0-2.2D)", fuel:"diesel" },
+    { name:"E 270 CDI (OM647 2.7D)", fuel:"diesel" },
+    { name:"E 320 CDI (OM648 3.2D)", fuel:"diesel" },
+    { name:"E 280 CDI / E 300 CDI (OM642 3.0D V6)", fuel:"diesel" },
+    { name:"E 420 CDI (OM629 4.0D V8)", fuel:"diesel" },
+    { name:"E 55 AMG (M113 supercharged)", fuel:"gasolina" },
+    { name:"E 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   "E-Class Sedan / Estate (W212 / S212) 2009-2016": [
-    { name:"E 200 / E 250 CGI (M271/M274 1.8-2.0T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
-    { name:"E 300 / E 350 (M276 3.0-3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"E 400 / E 500 (M278 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"E 200 CDI / E 220 CDI / E 250 CDI (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51" },
-    { name:"E 300 CDI / E 350 CDI / E 350 BlueTEC (OM642 3.0D)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
-    { name:"E 63 AMG / E 63S AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"E 200 / E 250 CGI (M271/M274 1.8-2.0T)", fuel:"gasolina" },
+    { name:"E 300 / E 350 (M276 3.0-3.5 V6)", fuel:"gasolina" },
+    { name:"E 400 / E 500 (M278 V8T)", fuel:"gasolina" },
+    { name:"E 200 CDI / E 220 CDI / E 250 CDI (OM651 2.1D)", fuel:"diesel" },
+    { name:"E 300 CDI / E 350 CDI / E 350 BlueTEC (OM642 3.0D)", fuel:"diesel" },
+    { name:"E 63 AMG / E 63S AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   "E-Class Coupé / Cabriolet (C207 / A207) 2009-2016": [
-    { name:"E 200 / E 250 CGI (M271/M274)", fuel:"gasolina", oil:7.0, spec:"MB 229.5" },
-    { name:"E 300 / E 350 (M276 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"E 500 (M278 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"E 220 CDI / E 350 CDI (OM651/OM642)", fuel:"diesel", oil:6.0, spec:"MB 229.51" },
-    { name:"E 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"E 200 / E 250 CGI (M271/M274)", fuel:"gasolina" },
+    { name:"E 300 / E 350 (M276 V6)", fuel:"gasolina" },
+    { name:"E 500 (M278 V8T)", fuel:"gasolina" },
+    { name:"E 220 CDI / E 350 CDI (OM651/OM642)", fuel:"diesel" },
+    { name:"E 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   "E-Class Sedan / Estate (W213 / S213)": [
-    { name:"E 200 / E 300 (M274 2.0T)", fuel:"gasolina", oil:6.5, spec:"MB 229.5 / 229.52" },
-    { name:"E 200d / E 220d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52" },
-    { name:"E 300d / E 350d (OM654 2.0D / OM656 3.0D)", fuel:"diesel", oil:6.5, spec:"MB 229.52" },
-    { name:"E 400d 4MATIC (OM656 3.0D)", fuel:"diesel", oil:7.5, spec:"MB 229.52" },
-    { name:"E 300e / E 300de (híbrido enchufable)", fuel:"gasolina", oil:6.5, spec:"MB 229.52" },
-    { name:"E 43 AMG (M276 3.0 V6T)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"E 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"E 63 / E 63S AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.5 / 229.52" },
+    { name:"E 200 / E 300 (M274 2.0T)", fuel:"gasolina" },
+    { name:"E 200d / E 220d (OM654 2.0D)", fuel:"diesel" },
+    { name:"E 300d / E 350d (OM654 2.0D / OM656 3.0D)", fuel:"diesel" },
+    { name:"E 400d 4MATIC (OM656 3.0D)", fuel:"diesel" },
+    { name:"E 300e / E 300de (híbrido enchufable)", fuel:"gasolina" },
+    { name:"E 43 AMG (M276 3.0 V6T)", fuel:"gasolina" },
+    { name:"E 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"E 63 / E 63S AMG (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   "E-Class Coupé / Cabriolet (C238 / A238)": [
-    { name:"E 200 / E 300 (M274 2.0T)", fuel:"gasolina", oil:6.5, spec:"MB 229.5 / 229.52" },
-    { name:"E 220d / E 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52" },
-    { name:"E 400 (M276 3.0 V6T)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"E 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"E 63 / E 63S AMG S (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
+    { name:"E 200 / E 300 (M274 2.0T)", fuel:"gasolina" },
+    { name:"E 220d / E 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"E 400 (M276 3.0 V6T)", fuel:"gasolina" },
+    { name:"E 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"E 63 / E 63S AMG S (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   "E-Class Sedan / Estate (W214 / S214)": [
-    { name:"E 200 / E 300 (M254 2.0T)", fuel:"gasolina", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"E 220d / E 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"E 300e / E 300de (híbrido enchufable)", fuel:"gasolina", oil:6.0, spec:"MB 229.52" },
-    { name:"E 450 4MATIC (M256 3.0T)", fuel:"gasolina", oil:9.9, spec:"MB 229.52" },
-    { name:"E 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"E 63 / E 63S AMG S (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
+    { name:"E 200 / E 300 (M254 2.0T)", fuel:"gasolina" },
+    { name:"E 220d / E 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"E 300e / E 300de (híbrido enchufable)", fuel:"gasolina" },
+    { name:"E 450 4MATIC (M256 3.0T)", fuel:"gasolina" },
+    { name:"E 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"E 63 / E 63S AMG S (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   // ── EQ Eléctricos ────────────────────────────────────────────────────────────
   "EQE SUV (X294)": [
-    { name:"EQE 300 / EQE 350 / EQE 500 SUV (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
-    { name:"AMG EQE 43 / AMG EQE 53 SUV (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQE 300 / EQE 350 / EQE 500 SUV (eléctrico)", fuel:"electrico" },
+    { name:"AMG EQE 43 / AMG EQE 53 SUV (eléctrico)", fuel:"electrico" },
   ],
   "EQS SUV (X296)": [
-    { name:"EQS 450 / EQS 580 SUV (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
-    { name:"AMG EQS 53 SUV (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
-    { name:"Maybach EQS 680 SUV (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQS 450 / EQS 580 SUV (eléctrico)", fuel:"electrico" },
+    { name:"AMG EQS 53 SUV (eléctrico)", fuel:"electrico" },
+    { name:"Maybach EQS 680 SUV (eléctrico)", fuel:"electrico" },
   ],
   "EQT / Citan (W420)": [
-    { name:"EQT (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
-    { name:"Citan 110 / 112 (OM622 1.5D)", fuel:"diesel", oil:5.0, spec:"MB 229.52" },
-    { name:"Citan 108 / 110 (M282 1.0T gasolina)", fuel:"gasolina", oil:4.5, spec:"MB 229.52" },
+    { name:"EQT (eléctrico)", fuel:"electrico" },
+    { name:"Citan 110 / 112 (OM622 1.5D)", fuel:"diesel" },
+    { name:"Citan 108 / 110 (M282 1.0T gasolina)", fuel:"gasolina" },
   ],
   // ── G-Class ──────────────────────────────────────────────────────────────────
   "G-Class (W460) 1979-1991": [
-    { name:"230 G / 240 GD (M115/OM616)", fuel:"gasolina", oil:5.5, spec:"MB 229.0" },
-    { name:"280 GE (M110 2.8)", fuel:"gasolina", oil:6.5, spec:"MB 229.0" },
-    { name:"300 GD (OM617 3.0D)", fuel:"diesel", oil:7.0, spec:"MB 229.0" },
+    { name:"230 G / 240 GD (M115/OM616)", fuel:"gasolina" },
+    { name:"280 GE (M110 2.8)", fuel:"gasolina" },
+    { name:"300 GD (OM617 3.0D)", fuel:"diesel" },
   ],
   "G-Class (W463)": [
-    { name:"G 300 D / G 320 (OM606/M112 3.0-3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"G 300 CDI (OM642 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
-    { name:"G 350 d (OM642 3.0D V6)", fuel:"diesel", oil:9.0, spec:"MB 229.51 / 229.52" },
-    { name:"G 400 CDI (OM628 4.0D V8)", fuel:"diesel", oil:9.0, spec:"MB 229.51" },
-    { name:"G 500 (M113 5.0 V8) 1998-2012", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
-    { name:"G 500 (M273 5.5 V8) 2012-2018", fuel:"gasolina", oil:9.0, spec:"MB 229.3 / 229.5" },
-    { name:"G 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"G 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"G 65 AMG (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"G 300 D / G 320 (OM606/M112 3.0-3.2)", fuel:"gasolina" },
+    { name:"G 300 CDI (OM642 3.0D)", fuel:"diesel" },
+    { name:"G 350 d (OM642 3.0D V6)", fuel:"diesel" },
+    { name:"G 400 CDI (OM628 4.0D V8)", fuel:"diesel" },
+    { name:"G 500 (M113 5.0 V8) 1998-2012", fuel:"gasolina" },
+    { name:"G 500 (M273 5.5 V8) 2012-2018", fuel:"gasolina" },
+    { name:"G 55 AMG (M113 5.5 V8)", fuel:"gasolina" },
+    { name:"G 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
+    { name:"G 65 AMG (M279 6.0 V12T)", fuel:"gasolina" },
   ],
   "G-Class (W464)": [
-    { name:"G 400d (OM656 3.0D)", fuel:"diesel", oil:9.0, spec:"MB 229.52" },
-    { name:"G 500 (M176 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
-    { name:"G 63 AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
+    { name:"G 400d (OM656 3.0D)", fuel:"diesel" },
+    { name:"G 500 (M176 4.0 V8T)", fuel:"gasolina" },
+    { name:"G 63 AMG (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   // ── GLA ──────────────────────────────────────────────────────────────────────
   "GLA (X156)": [
-    { name:"GLA 200 / GLA 250 (M270 1.6-2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.5 / 229.52" },
-    { name:"GLA 200d / GLA 220d (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51 / 229.52" },
-    { name:"GLA 45 / GLA 45S AMG (M133 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.5" },
+    { name:"GLA 200 / GLA 250 (M270 1.6-2.0T)", fuel:"gasolina" },
+    { name:"GLA 200d / GLA 220d (OM651 2.1D)", fuel:"diesel" },
+    { name:"GLA 45 / GLA 45S AMG (M133 2.0T)", fuel:"gasolina" },
   ],
   "GLA (X247)": [
-    { name:"GLA 180 / GLA 200 (M282 1.3T)", fuel:"gasolina", oil:5.1, spec:"MB 229.52 / 229.61" },
-    { name:"GLA 220 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52 / 229.61" },
-    { name:"GLA 200d / GLA 220d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"GLA 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52" },
-    { name:"GLA 45 / GLA 45S AMG (M139 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"GLA 180 / GLA 200 (M282 1.3T)", fuel:"gasolina" },
+    { name:"GLA 220 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"GLA 200d / GLA 220d (OM654 2.0D)", fuel:"diesel" },
+    { name:"GLA 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"GLA 45 / GLA 45S AMG (M139 2.0T)", fuel:"gasolina" },
   ],
   // ── GLB ──────────────────────────────────────────────────────────────────────
   "GLB (X247)": [
-    { name:"GLB 180 / GLB 200 (M282 1.3T)", fuel:"gasolina", oil:5.1, spec:"MB 229.52 / 229.61" },
-    { name:"GLB 220 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52 / 229.61" },
-    { name:"GLB 200d / GLB 220d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"GLB 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina", oil:5.0, spec:"MB 229.52" },
+    { name:"GLB 180 / GLB 200 (M282 1.3T)", fuel:"gasolina" },
+    { name:"GLB 220 4MATIC (M260 2.0T)", fuel:"gasolina" },
+    { name:"GLB 200d / GLB 220d (OM654 2.0D)", fuel:"diesel" },
+    { name:"GLB 35 AMG 4MATIC (M260 2.0T)", fuel:"gasolina" },
   ],
   // ── GLC ──────────────────────────────────────────────────────────────────────
   "GLC / GLC Coupé (X253 / C253)": [
-    { name:"GLC 200 / GLC 300 (M274 2.0T)", fuel:"gasolina", oil:7.0, spec:"MB 229.5 / 229.52" },
-    { name:"GLC 220d / GLC 250d (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51 / 229.52" },
-    { name:"GLC 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52" },
-    { name:"GLC 350e (M274 híbrido)", fuel:"gasolina", oil:7.0, spec:"MB 229.52" },
-    { name:"GLC 43 AMG (M276 3.0 V6T)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"GLC 63 / GLC 63S AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
+    { name:"GLC 200 / GLC 300 (M274 2.0T)", fuel:"gasolina" },
+    { name:"GLC 220d / GLC 250d (OM651 2.1D)", fuel:"diesel" },
+    { name:"GLC 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"GLC 350e (M274 híbrido)", fuel:"gasolina" },
+    { name:"GLC 43 AMG (M276 3.0 V6T)", fuel:"gasolina" },
+    { name:"GLC 63 / GLC 63S AMG (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   "GLC / GLC Coupé (X254 / C254)": [
-    { name:"GLC 200 / GLC 300 4MATIC (M254 2.0T)", fuel:"gasolina", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"GLC 220d / GLC 300d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52 / 229.61" },
-    { name:"GLC 300e / GLC 300de (híbrido)", fuel:"gasolina", oil:6.0, spec:"MB 229.52" },
-    { name:"GLC 43 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"GLC 63 AMG E Performance (M139 PHEV)", fuel:"gasolina", oil:5.5, spec:"MB 229.52" },
+    { name:"GLC 200 / GLC 300 4MATIC (M254 2.0T)", fuel:"gasolina" },
+    { name:"GLC 220d / GLC 300d (OM654 2.0D)", fuel:"diesel" },
+    { name:"GLC 300e / GLC 300de (híbrido)", fuel:"gasolina" },
+    { name:"GLC 43 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"GLC 63 AMG E Performance (M139 PHEV)", fuel:"gasolina" },
   ],
   "GLE / GLE Coupé (W166 / C166)": [
-    { name:"GLE 250d / GLE 350d (OM651/OM642)", fuel:"diesel", oil:6.5, spec:"MB 229.51 / 229.52" },
-    { name:"GLE 400 / GLE 500 (M276 / M278 V6-V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"GLE 43 AMG (M276 3.0 V6T)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"GLE 63 / GLE 63S AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"GLE 250d / GLE 350d (OM651/OM642)", fuel:"diesel" },
+    { name:"GLE 400 / GLE 500 (M276 / M278 V6-V8)", fuel:"gasolina" },
+    { name:"GLE 43 AMG (M276 3.0 V6T)", fuel:"gasolina" },
+    { name:"GLE 63 / GLE 63S AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   "GLE / GLE Coupé (W167 / C167)": [
-    { name:"GLE 300d / GLE 350d (OM654 2.0D)", fuel:"diesel", oil:6.0, spec:"MB 229.52" },
-    { name:"GLE 350 / GLE 450 4MATIC (M254 / M256)", fuel:"gasolina", oil:6.0, spec:"MB 229.52" },
-    { name:"GLE 400d 4MATIC (OM656 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.52" },
-    { name:"GLE 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina", oil:8.0, spec:"MB 229.52" },
-    { name:"GLE 580 4MATIC (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
-    { name:"GLE 63 / GLE 63S AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
+    { name:"GLE 300d / GLE 350d (OM654 2.0D)", fuel:"diesel" },
+    { name:"GLE 350 / GLE 450 4MATIC (M254 / M256)", fuel:"gasolina" },
+    { name:"GLE 400d 4MATIC (OM656 3.0D)", fuel:"diesel" },
+    { name:"GLE 53 AMG 4MATIC+ (M256 3.0T)", fuel:"gasolina" },
+    { name:"GLE 580 4MATIC (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"GLE 63 / GLE 63S AMG (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   // ── GL-Class ─────────────────────────────────────────────────────────────────
   "GL-Class (X164) 2006-2012": [
-    { name:"GL 320 CDI / GL 350 CDI (OM642 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
-    { name:"GL 450 / GL 500 (M273 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"GL 420 CDI (OM629 4.0D V8)", fuel:"diesel", oil:9.0, spec:"MB 229.51" },
-    { name:"GL 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"GL 320 CDI / GL 350 CDI (OM642 3.0D)", fuel:"diesel" },
+    { name:"GL 450 / GL 500 (M273 V8)", fuel:"gasolina" },
+    { name:"GL 420 CDI (OM629 4.0D V8)", fuel:"diesel" },
+    { name:"GL 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   "GL-Class / GLS (X166) 2012-2015": [
-    { name:"GL/GLS 320 CDI / 350d (OM642 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
-    { name:"GL/GLS 350 (M276 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"GL/GLS 450 / 500 / 550 (M278 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"GL/GLS 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"GL/GLS 320 CDI / 350d (OM642 3.0D)", fuel:"diesel" },
+    { name:"GL/GLS 350 (M276 V6)", fuel:"gasolina" },
+    { name:"GL/GLS 450 / 500 / 550 (M278 V8T)", fuel:"gasolina" },
+    { name:"GL/GLS 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   // ── GLS ──────────────────────────────────────────────────────────────────────
   "GLS (X166)": [
-    { name:"GLS 350d (OM642 3.0D)", fuel:"diesel", oil:8.5, spec:"MB 229.51 / 229.52" },
-    { name:"GLS 400 / GLS 500 (M276 / M278)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"GLS 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"GLS 350d (OM642 3.0D)", fuel:"diesel" },
+    { name:"GLS 400 / GLS 500 (M276 / M278)", fuel:"gasolina" },
+    { name:"GLS 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   "GLS (X167)": [
-    { name:"GLS 350d / GLS 400d (OM656 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.52" },
-    { name:"GLS 450 4MATIC (M256 3.0T)", fuel:"gasolina", oil:8.0, spec:"MB 229.52" },
-    { name:"GLS 580 4MATIC (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
-    { name:"GLS 600 Maybach (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
-    { name:"GLS 63 AMG (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
+    { name:"GLS 350d / GLS 400d (OM656 3.0D)", fuel:"diesel" },
+    { name:"GLS 450 4MATIC (M256 3.0T)", fuel:"gasolina" },
+    { name:"GLS 580 4MATIC (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"GLS 600 Maybach (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"GLS 63 AMG (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   // ── GLK-Class ────────────────────────────────────────────────────────────────
   "GLK-Class (X204) 2008-2015": [
-    { name:"GLK 200 CDI / GLK 220 CDI (OM651 2.1D)", fuel:"diesel", oil:6.0, spec:"MB 229.51" },
-    { name:"GLK 250 (M274 2.0T)", fuel:"gasolina", oil:7.0, spec:"MB 229.5" },
-    { name:"GLK 300 / GLK 350 (M272/M276 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"GLK 350 CDI (OM642 3.0D)", fuel:"diesel", oil:7.5, spec:"MB 229.51" },
+    { name:"GLK 200 CDI / GLK 220 CDI (OM651 2.1D)", fuel:"diesel" },
+    { name:"GLK 250 (M274 2.0T)", fuel:"gasolina" },
+    { name:"GLK 300 / GLK 350 (M272/M276 V6)", fuel:"gasolina" },
+    { name:"GLK 350 CDI (OM642 3.0D)", fuel:"diesel" },
   ],
   // ── GLE / M-Class ────────────────────────────────────────────────────────────
   "M-Class (W163) 1997-2004": [
-    { name:"ML 230 (M111 2.3)", fuel:"gasolina", oil:5.5, spec:"MB 229.3" },
-    { name:"ML 320 (M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"ML 430 (M113 4.3 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
-    { name:"ML 500 (M113 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
-    { name:"ML 270 CDI (OM612 2.7D)", fuel:"diesel", oil:6.5, spec:"MB 229.3" },
-    { name:"ML 400 CDI (OM628 4.0D V8)", fuel:"diesel", oil:8.5, spec:"MB 229.3" },
-    { name:"ML 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3" },
+    { name:"ML 230 (M111 2.3)", fuel:"gasolina" },
+    { name:"ML 320 (M112 3.2 V6)", fuel:"gasolina" },
+    { name:"ML 430 (M113 4.3 V8)", fuel:"gasolina" },
+    { name:"ML 500 (M113 5.0 V8)", fuel:"gasolina" },
+    { name:"ML 270 CDI (OM612 2.7D)", fuel:"diesel" },
+    { name:"ML 400 CDI (OM628 4.0D V8)", fuel:"diesel" },
+    { name:"ML 55 AMG (M113 5.5 V8)", fuel:"gasolina" },
   ],
   "M-Class (W164) 2005-2011": [
-    { name:"ML 280 CDI / ML 320 CDI (OM642 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
-    { name:"ML 350 (M272 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"ML 500 / ML 550 (M273 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"ML 420 CDI (OM629 4.0D V8)", fuel:"diesel", oil:9.0, spec:"MB 229.51" },
-    { name:"ML 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"ML 280 CDI / ML 320 CDI (OM642 3.0D)", fuel:"diesel" },
+    { name:"ML 350 (M272 3.5 V6)", fuel:"gasolina" },
+    { name:"ML 500 / ML 550 (M273 V8)", fuel:"gasolina" },
+    { name:"ML 420 CDI (OM629 4.0D V8)", fuel:"diesel" },
+    { name:"ML 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   "M-Class / GLE (W166) 2011-2015": [
-    { name:"ML/GLE 250 BlueTEC (OM651 2.1D)", fuel:"diesel", oil:6.5, spec:"MB 229.51" },
-    { name:"ML/GLE 350 BlueTEC / 350d (OM642 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
-    { name:"ML/GLE 350 (M276 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"ML/GLE 400 / 450 (M276 3.0T / M278 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"ML/GLE 500 / 550 (M278 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"ML/GLE 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"ML/GLE 250 BlueTEC (OM651 2.1D)", fuel:"diesel" },
+    { name:"ML/GLE 350 BlueTEC / 350d (OM642 3.0D)", fuel:"diesel" },
+    { name:"ML/GLE 350 (M276 3.5 V6)", fuel:"gasolina" },
+    { name:"ML/GLE 400 / 450 (M276 3.0T / M278 V8)", fuel:"gasolina" },
+    { name:"ML/GLE 500 / 550 (M278 V8T)", fuel:"gasolina" },
+    { name:"ML/GLE 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
   ],
   // ── Maybach ──────────────────────────────────────────────────────────────────
   "Mercedes-Maybach EQS SUV (X296)": [
-    { name:"Maybach EQS 680 SUV (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"Maybach EQS 680 SUV (eléctrico)", fuel:"electrico" },
   ],
   "Mercedes-Maybach GLS (X167)": [
-    { name:"Maybach GLS 600 (M177 4.0 V8T)", fuel:"gasolina", oil:9.5, spec:"MB 229.52" },
+    { name:"Maybach GLS 600 (M177 4.0 V8T)", fuel:"gasolina" },
   ],
   "Mercedes-Maybach S-Class (W222)": [
-    { name:"Maybach S 500 (M176 4.0 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5 / 229.52" },
-    { name:"Maybach S 600 (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
-    { name:"Maybach S 650 (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"Maybach S 500 (M176 4.0 V8T)", fuel:"gasolina" },
+    { name:"Maybach S 600 (M279 6.0 V12T)", fuel:"gasolina" },
+    { name:"Maybach S 650 (M279 6.0 V12T)", fuel:"gasolina" },
   ],
   "Mercedes-Maybach S-Class (W223)": [
-    { name:"Maybach S 450 / S 500 (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"Maybach S 580 (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
-    { name:"Maybach S 680 (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"Maybach S 450 / S 500 (M256 3.0T)", fuel:"gasolina" },
+    { name:"Maybach S 580 (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"Maybach S 680 (M279 6.0 V12T)", fuel:"gasolina" },
   ],
   // ── R-Class ──────────────────────────────────────────────────────────────────
   "R-Class (W251) 2005-2012": [
-    { name:"R 280 / R 300 / R 350 (M272 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"R 280 CDI / R 320 CDI / R 350 CDI (OM642)", fuel:"diesel", oil:8.0, spec:"MB 229.51" },
-    { name:"R 500 (M273 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"R 63 AMG (M156 6.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"R 280 / R 300 / R 350 (M272 V6)", fuel:"gasolina" },
+    { name:"R 280 CDI / R 320 CDI / R 350 CDI (OM642)", fuel:"diesel" },
+    { name:"R 500 (M273 V8)", fuel:"gasolina" },
+    { name:"R 63 AMG (M156 6.2 V8)", fuel:"gasolina" },
   ],
   // ── S-Class ──────────────────────────────────────────────────────────────────
   "S-Class (W108 / W109) 1967-1972": [
-    { name:"280 S / 280 SE (M130 2.8)", fuel:"gasolina", oil:6.5, spec:"MB 229.0" },
-    { name:"300 SEL (M189 3.0)", fuel:"gasolina", oil:7.0, spec:"MB 229.0" },
-    { name:"300 SEL 6.3 (M100 6.3 V8)", fuel:"gasolina", oil:10.0, spec:"MB 229.0" },
+    { name:"280 S / 280 SE (M130 2.8)", fuel:"gasolina" },
+    { name:"300 SEL (M189 3.0)", fuel:"gasolina" },
+    { name:"300 SEL 6.3 (M100 6.3 V8)", fuel:"gasolina" },
   ],
   "S-Class (W116) 1972-1979": [
-    { name:"280 S / 280 SE (M110 2.8)", fuel:"gasolina", oil:6.5, spec:"MB 229.0" },
-    { name:"350 SE (M116 3.5 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.0" },
-    { name:"450 SE / 450 SEL (M117 4.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.0" },
-    { name:"450 SEL 6.9 (M100 6.9 V8)", fuel:"gasolina", oil:10.0, spec:"MB 229.0" },
-    { name:"300 SD (OM617 3.0D turbo)", fuel:"diesel", oil:7.0, spec:"MB 229.0" },
+    { name:"280 S / 280 SE (M110 2.8)", fuel:"gasolina" },
+    { name:"350 SE (M116 3.5 V8)", fuel:"gasolina" },
+    { name:"450 SE / 450 SEL (M117 4.5 V8)", fuel:"gasolina" },
+    { name:"450 SEL 6.9 (M100 6.9 V8)", fuel:"gasolina" },
+    { name:"300 SD (OM617 3.0D turbo)", fuel:"diesel" },
   ],
   "S-Class (W126) 1979-1991": [
-    { name:"260 SE / 280 SE (M103 2.6-2.8)", fuel:"gasolina", oil:7.5, spec:"MB 229.0 / 229.1" },
-    { name:"300 SE / 300 SEL (M103 3.0)", fuel:"gasolina", oil:7.5, spec:"MB 229.1" },
-    { name:"380 SE / 420 SE (M116 3.8-4.2 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.0 / 229.1" },
-    { name:"500 SE / 500 SEL (M117 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.0 / 229.1" },
-    { name:"560 SE / 560 SEL (M117 5.6 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.1" },
-    { name:"300 SD Turbodiesel (OM617 3.0D)", fuel:"diesel", oil:7.0, spec:"MB 229.0" },
+    { name:"260 SE / 280 SE (M103 2.6-2.8)", fuel:"gasolina" },
+    { name:"300 SE / 300 SEL (M103 3.0)", fuel:"gasolina" },
+    { name:"380 SE / 420 SE (M116 3.8-4.2 V8)", fuel:"gasolina" },
+    { name:"500 SE / 500 SEL (M117 5.0 V8)", fuel:"gasolina" },
+    { name:"560 SE / 560 SEL (M117 5.6 V8)", fuel:"gasolina" },
+    { name:"300 SD Turbodiesel (OM617 3.0D)", fuel:"diesel" },
   ],
   "S-Class (W140) 1991-1998": [
-    { name:"S 280 / S 320 (M104 2.8-3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"S 350 Turbodiesel (OM603 3.5D)", fuel:"diesel", oil:8.0, spec:"MB 229.1" },
-    { name:"S 420 (M119 4.2 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.1 / 229.3" },
-    { name:"S 500 (M119 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.1 / 229.3" },
-    { name:"S 600 (M120 6.0 V12)", fuel:"gasolina", oil:10.5, spec:"MB 229.1 / 229.3" },
-    { name:"S 60 / S 70 AMG (M120)", fuel:"gasolina", oil:10.5, spec:"MB 229.1" },
+    { name:"S 280 / S 320 (M104 2.8-3.2)", fuel:"gasolina" },
+    { name:"S 350 Turbodiesel (OM603 3.5D)", fuel:"diesel" },
+    { name:"S 420 (M119 4.2 V8)", fuel:"gasolina" },
+    { name:"S 500 (M119 5.0 V8)", fuel:"gasolina" },
+    { name:"S 600 (M120 6.0 V12)", fuel:"gasolina" },
+    { name:"S 60 / S 70 AMG (M120)", fuel:"gasolina" },
   ],
   "S-Class (W220) 1998-2005": [
-    { name:"S 280 / S 320 (M112 2.8-3.2 V6)", fuel:"gasolina", oil:8.0, spec:"MB 229.3 / 229.5" },
-    { name:"S 320 CDI (OM613 3.2D)", fuel:"diesel", oil:8.5, spec:"MB 229.3" },
-    { name:"S 400 CDI (OM628 4.0D V8)", fuel:"diesel", oil:9.5, spec:"MB 229.3" },
-    { name:"S 430 (M113 4.3 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
-    { name:"S 500 (M113 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
-    { name:"S 600 (M137 5.8 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.3 / 229.5" },
-    { name:"S 55 AMG (M113 supercharged)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"S 65 AMG (M275 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"S 280 / S 320 (M112 2.8-3.2 V6)", fuel:"gasolina" },
+    { name:"S 320 CDI (OM613 3.2D)", fuel:"diesel" },
+    { name:"S 400 CDI (OM628 4.0D V8)", fuel:"diesel" },
+    { name:"S 430 (M113 4.3 V8)", fuel:"gasolina" },
+    { name:"S 500 (M113 5.0 V8)", fuel:"gasolina" },
+    { name:"S 600 (M137 5.8 V12T)", fuel:"gasolina" },
+    { name:"S 55 AMG (M113 supercharged)", fuel:"gasolina" },
+    { name:"S 65 AMG (M275 6.0 V12T)", fuel:"gasolina" },
   ],
   "S-Class (W221) 2005-2013": [
-    { name:"S 280 / S 300 / S 350 (M272 V6)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"S 320 CDI / S 350 CDI (OM642 3.0D)", fuel:"diesel", oil:8.5, spec:"MB 229.51" },
-    { name:"S 400 / S 450 / S 500 (M273/M278 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"S 600 (M275 5.5 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
-    { name:"S 63 AMG (M156/M157)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"S 65 AMG (M275/M279 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"S 280 / S 300 / S 350 (M272 V6)", fuel:"gasolina" },
+    { name:"S 320 CDI / S 350 CDI (OM642 3.0D)", fuel:"diesel" },
+    { name:"S 400 / S 450 / S 500 (M273/M278 V8)", fuel:"gasolina" },
+    { name:"S 600 (M275 5.5 V12T)", fuel:"gasolina" },
+    { name:"S 63 AMG (M156/M157)", fuel:"gasolina" },
+    { name:"S 65 AMG (M275/M279 V12T)", fuel:"gasolina" },
   ],
   "S-Class (W222)": [
-    { name:"S 300d / S 350d (OM642 3.0D V6)", fuel:"diesel", oil:8.5, spec:"MB 229.51 / 229.52" },
-    { name:"S 400d (OM656 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.52" },
-    { name:"S 400 / S 450 (M276 3.0 V6T)", fuel:"gasolina", oil:8.0, spec:"MB 229.5" },
-    { name:"S 500 / S 560 (M176 / M177 4.0 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5 / 229.52" },
-    { name:"S 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"S 65 AMG (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"S 300d / S 350d (OM642 3.0D V6)", fuel:"diesel" },
+    { name:"S 400d (OM656 3.0D)", fuel:"diesel" },
+    { name:"S 400 / S 450 (M276 3.0 V6T)", fuel:"gasolina" },
+    { name:"S 500 / S 560 (M176 / M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"S 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
+    { name:"S 65 AMG (M279 6.0 V12T)", fuel:"gasolina" },
   ],
   "S-Class (W223)": [
-    { name:"S 350d / S 400d (OM656 3.0D)", fuel:"diesel", oil:8.0, spec:"MB 229.52 / 229.61" },
-    { name:"S 450 / S 500 4MATIC (M256 3.0T)", fuel:"gasolina", oil:8.5, spec:"MB 229.52" },
-    { name:"S 580 4MATIC (M177 4.0 V8T)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
-    { name:"S 63 AMG E Performance (M177 PHEV)", fuel:"gasolina", oil:9.0, spec:"MB 229.52" },
-    { name:"S 680 Maybach (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"S 350d / S 400d (OM656 3.0D)", fuel:"diesel" },
+    { name:"S 450 / S 500 4MATIC (M256 3.0T)", fuel:"gasolina" },
+    { name:"S 580 4MATIC (M177 4.0 V8T)", fuel:"gasolina" },
+    { name:"S 63 AMG E Performance (M177 PHEV)", fuel:"gasolina" },
+    { name:"S 680 Maybach (M279 6.0 V12T)", fuel:"gasolina" },
   ],
   // ── SL-Class ─────────────────────────────────────────────────────────────────
   "SL-Class (R107) 1971-1989": [
-    { name:"280 SL (M110 2.8)", fuel:"gasolina", oil:6.5, spec:"MB 229.0" },
-    { name:"350 SL (M116 3.5 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.0" },
-    { name:"380 SL (M116 3.8 V8)", fuel:"gasolina", oil:8.0, spec:"MB 229.0" },
-    { name:"450 SL (M117 4.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.0" },
-    { name:"500 SL / 560 SL (M117 5.0-5.6 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.0 / 229.1" },
+    { name:"280 SL (M110 2.8)", fuel:"gasolina" },
+    { name:"350 SL (M116 3.5 V8)", fuel:"gasolina" },
+    { name:"380 SL (M116 3.8 V8)", fuel:"gasolina" },
+    { name:"450 SL (M117 4.5 V8)", fuel:"gasolina" },
+    { name:"500 SL / 560 SL (M117 5.0-5.6 V8)", fuel:"gasolina" },
   ],
   "SL-Class (R129) 1990-2001": [
-    { name:"SL 280 / SL 320 (M104 2.8-3.2)", fuel:"gasolina", oil:7.5, spec:"MB 229.1 / 229.3" },
-    { name:"SL 500 (M119 5.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.1 / 229.3" },
-    { name:"SL 600 (M120 6.0 V12)", fuel:"gasolina", oil:10.5, spec:"MB 229.1 / 229.3" },
-    { name:"SL 60 AMG (M119 6.0 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.1" },
-    { name:"SL 73 AMG (M297 7.3 V12)", fuel:"gasolina", oil:10.5, spec:"MB 229.1" },
+    { name:"SL 280 / SL 320 (M104 2.8-3.2)", fuel:"gasolina" },
+    { name:"SL 500 (M119 5.0 V8)", fuel:"gasolina" },
+    { name:"SL 600 (M120 6.0 V12)", fuel:"gasolina" },
+    { name:"SL 60 AMG (M119 6.0 V8)", fuel:"gasolina" },
+    { name:"SL 73 AMG (M297 7.3 V12)", fuel:"gasolina" },
   ],
   "SL-Class (R230) 2001-2011": [
-    { name:"SL 350 (M112/M272 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3 / 229.5" },
-    { name:"SL 500 / SL 550 (M113/M273 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.3 / 229.5" },
-    { name:"SL 600 (M275 5.5 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
-    { name:"SL 55 AMG (M113 supercharged)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"SL 65 AMG (M275 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"SL 350 (M112/M272 3.5 V6)", fuel:"gasolina" },
+    { name:"SL 500 / SL 550 (M113/M273 V8)", fuel:"gasolina" },
+    { name:"SL 600 (M275 5.5 V12T)", fuel:"gasolina" },
+    { name:"SL 55 AMG (M113 supercharged)", fuel:"gasolina" },
+    { name:"SL 65 AMG (M275 6.0 V12T)", fuel:"gasolina" },
   ],
   "SL-Class (R231) 2012-2021": [
-    { name:"SL 350 (M276 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5 / 229.52" },
-    { name:"SL 400 / SL 450 (M276 V6T)", fuel:"gasolina", oil:7.5, spec:"MB 229.52" },
-    { name:"SL 500 / SL 550 (M278 4.7 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5 / 229.52" },
-    { name:"SL 600 (M279 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
-    { name:"SL 63 AMG (M157 5.5 V8T)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
-    { name:"SL 65 AMG (M279 6.0 V12T)", fuel:"gasolina", oil:10.5, spec:"MB 229.5" },
+    { name:"SL 350 (M276 3.5 V6)", fuel:"gasolina" },
+    { name:"SL 400 / SL 450 (M276 V6T)", fuel:"gasolina" },
+    { name:"SL 500 / SL 550 (M278 4.7 V8T)", fuel:"gasolina" },
+    { name:"SL 600 (M279 V12T)", fuel:"gasolina" },
+    { name:"SL 63 AMG (M157 5.5 V8T)", fuel:"gasolina" },
+    { name:"SL 65 AMG (M279 6.0 V12T)", fuel:"gasolina" },
   ],
   // ── SLC-Class ────────────────────────────────────────────────────────────────
   "SLC-Class (R172) 2011-2020": [
-    { name:"SLK/SLC 200 (M271/M274 1.8-2.0T)", fuel:"gasolina", oil:7.0, spec:"MB 229.3 / 229.5" },
-    { name:"SLK/SLC 250 (M271 1.8T)", fuel:"gasolina", oil:7.0, spec:"MB 229.5" },
-    { name:"SLK/SLC 350 (M276 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"SLK/SLC 55 AMG (M152 5.5 V8)", fuel:"gasolina", oil:7.0, spec:"MB 229.5" },
+    { name:"SLK/SLC 200 (M271/M274 1.8-2.0T)", fuel:"gasolina" },
+    { name:"SLK/SLC 250 (M271 1.8T)", fuel:"gasolina" },
+    { name:"SLK/SLC 350 (M276 3.5 V6)", fuel:"gasolina" },
+    { name:"SLK/SLC 55 AMG (M152 5.5 V8)", fuel:"gasolina" },
   ],
   // ── SLK-Class ────────────────────────────────────────────────────────────────
   "SLK-Class (R170) 1996-2003": [
-    { name:"SLK 200 (M111 2.0)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"SLK 200 Kompressor (M111 2.0T)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"SLK 230 Kompressor (M111 2.3T)", fuel:"gasolina", oil:5.5, spec:"MB 229.1 / 229.3" },
-    { name:"SLK 320 (M112 3.2 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
-    { name:"SLK 32 AMG (M112 supercharged)", fuel:"gasolina", oil:7.5, spec:"MB 229.3" },
+    { name:"SLK 200 (M111 2.0)", fuel:"gasolina" },
+    { name:"SLK 200 Kompressor (M111 2.0T)", fuel:"gasolina" },
+    { name:"SLK 230 Kompressor (M111 2.3T)", fuel:"gasolina" },
+    { name:"SLK 320 (M112 3.2 V6)", fuel:"gasolina" },
+    { name:"SLK 32 AMG (M112 supercharged)", fuel:"gasolina" },
   ],
   "SLK-Class (R171) 2004-2010": [
-    { name:"SLK 200 / SLK 280 Kompressor (M271)", fuel:"gasolina", oil:6.5, spec:"MB 229.3 / 229.5" },
-    { name:"SLK 350 (M272 3.5 V6)", fuel:"gasolina", oil:7.5, spec:"MB 229.5" },
-    { name:"SLK 55 AMG (M113 5.5 V8)", fuel:"gasolina", oil:8.5, spec:"MB 229.5" },
+    { name:"SLK 200 / SLK 280 Kompressor (M271)", fuel:"gasolina" },
+    { name:"SLK 350 (M272 3.5 V6)", fuel:"gasolina" },
+    { name:"SLK 55 AMG (M113 5.5 V8)", fuel:"gasolina" },
   ],
   // ── EQ Eléctricos ────────────────────────────────────────────────────────────
   "EQA (H243)": [
-    { name:"EQA 250 / EQA 300 4MATIC (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQA 250 / EQA 300 4MATIC (eléctrico)", fuel:"electrico" },
   ],
   "EQB (X243)": [
-    { name:"EQB 250 / EQB 300 4MATIC (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQB 250 / EQB 300 4MATIC (eléctrico)", fuel:"electrico" },
   ],
   "EQC (N293)": [
-    { name:"EQC 400 4MATIC (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQC 400 4MATIC (eléctrico)", fuel:"electrico" },
   ],
   "EQE Sedan (V295)": [
-    { name:"EQE 300 / EQE 350 / EQE 500 (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
-    { name:"AMG EQE 43 / AMG EQE 53 (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQE 300 / EQE 350 / EQE 500 (eléctrico)", fuel:"electrico" },
+    { name:"AMG EQE 43 / AMG EQE 53 (eléctrico)", fuel:"electrico" },
   ],
   "EQS Sedan (V297)": [
-    { name:"EQS 450 / EQS 580 4MATIC (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
-    { name:"AMG EQS 53 4MATIC+ (eléctrico)", fuel:"electrico", oil:0, spec:"Sin aceite de motor" },
+    { name:"EQS 450 / EQS 580 4MATIC (eléctrico)", fuel:"electrico" },
+    { name:"AMG EQS 53 4MATIC+ (eléctrico)", fuel:"electrico" },
   ],
   // ── Sprinter ─────────────────────────────────────────────────────────────────
   "Sprinter (W906) 1995-2018": [
-    { name:"208/211/213/216 CDI (OM651 2.1D)", fuel:"diesel", oil:11.5, spec:"MB 229.51 / 229.52" },
-    { name:"309/311/313/316 CDI (OM651 2.1D)", fuel:"diesel", oil:11.5, spec:"MB 229.51 / 229.52" },
-    { name:"319/324 CDI (OM642 3.0D V6)", fuel:"diesel", oil:12.5, spec:"MB 229.51 / 229.52" },
+    { name:"208/211/213/216 CDI (OM651 2.1D)", fuel:"diesel" },
+    { name:"309/311/313/316 CDI (OM651 2.1D)", fuel:"diesel" },
+    { name:"319/324 CDI (OM642 3.0D V6)", fuel:"diesel" },
   ],
   "Sprinter (W907)": [
-    { name:"2.0L OM654 4-cil diesel", fuel:"diesel", oil:10.0, spec:"MB 229.52 / 229.71" },
-    { name:"2.1L OM651 4-cil diesel", fuel:"diesel", oil:11.5, spec:"MB 229.51 / 229.52" },
-    { name:"3.0L OM642 V6 diesel", fuel:"diesel", oil:12.5, spec:"MB 229.52" },
-    { name:"2.0L M274 gasolina", fuel:"gasolina", oil:10.5, spec:"MB 229.52" },
+    { name:"2.0L OM654 4-cil diesel", fuel:"diesel" },
+    { name:"2.1L OM651 4-cil diesel", fuel:"diesel" },
+    { name:"3.0L OM642 V6 diesel", fuel:"diesel" },
+    { name:"2.0L M274 gasolina", fuel:"gasolina" },
   ],
   // ── Vito ─────────────────────────────────────────────────────────────────────
   "Vito (W638) 1996-2003": [
-    { name:"Vito 108/110/112 D (OM601/OM611)", fuel:"diesel", oil:6.0, spec:"MB 229.1" },
-    { name:"Vito 110/112 CDI (OM611 2.2D)", fuel:"diesel", oil:6.0, spec:"MB 229.1 / 229.3" },
-    { name:"Vito 114/116 gasolina (M111 2.3)", fuel:"gasolina", oil:5.5, spec:"MB 229.1" },
+    { name:"Vito 108/110/112 D (OM601/OM611)", fuel:"diesel" },
+    { name:"Vito 110/112 CDI (OM611 2.2D)", fuel:"diesel" },
+    { name:"Vito 114/116 gasolina (M111 2.3)", fuel:"gasolina" },
   ],
   "Vito (W639) 2003-2014": [
-    { name:"Vito 109/111/113 CDI (OM646 2.1D)", fuel:"diesel", oil:6.5, spec:"MB 229.3 / 229.51" },
-    { name:"Vito 116 CDI (OM642 3.0D V6)", fuel:"diesel", oil:8.5, spec:"MB 229.51" },
-    { name:"Vito 114/116 gasolina (M272 V6)", fuel:"gasolina", oil:8.0, spec:"MB 229.3" },
+    { name:"Vito 109/111/113 CDI (OM646 2.1D)", fuel:"diesel" },
+    { name:"Vito 116 CDI (OM642 3.0D V6)", fuel:"diesel" },
+    { name:"Vito 114/116 gasolina (M272 V6)", fuel:"gasolina" },
   ],
 };
 
-// Sub-fase 2B.1: normalize hardcoded fallback to match DB-derived shape
+// Sub-fase 2B.1: normalize hardcoded fallback to match DB-derived shape.
+// Respaldo SOLO de modelos y motores: los litros y la spec de MODEL_DATA no
+// viajan (el aceite sale de resolver-aceite, nunca de esta lista).
 const MODEL_DATA_NORMALIZED = (() => {
   const out = {}
   for (const [cat, engines] of Object.entries(MODEL_DATA)) {
@@ -1050,7 +1075,7 @@ const MODEL_DATA_NORMALIZED = (() => {
       const code = extractEngineCode(e.name)
       if (seen.has(code)) continue
       seen.add(code)
-      out[cat].push({ ...e, name: code })
+      out[cat].push({ name: code, fuel: e.fuel })
     }
   }
   return out
@@ -2066,6 +2091,11 @@ function MainApp({ session, onLogout }) {
   // Aceite que la fila de servicios ya tiene guardado. El cálculo de hoy nunca
   // lo reemplaza por null, y en un aprobado manda él (lib/aceiteServicio.js).
   const [aceiteFila, setAceiteFila] = useState(ACEITE_VACIO);
+  // Respuesta de resolver-aceite para el vehículo actual ({estado, clave, res,
+  // motivo}; clave = 'o:<orden>' | 'p:<placa>') y la cantidad que eligió el
+  // mecánico cuando hay varias opciones (vale solo para esa misma clave).
+  const [resolverAc, setResolverAc] = useState(RESOLVER_VACIO);
+  const [aceiteElegido, setAceiteElegido] = useState({ clave: null, litros: null });
   // Modo edición (jefe): editar un servicio APROBADO preservando aprobación y
   // link público, regenerando el informe de la orden en cada guardado. Solo
   // activable con esJefeReal && editingId && estadoOriginal === 'aprobado'.
@@ -2153,18 +2183,65 @@ function MainApp({ session, onLogout }) {
   const fuelLock     = svc.fuelLock || null;
   const fuelMismatch = fuelLock && fuelLock !== fuel;
 
-  // Motor seleccionado y capacidad de aceite
+  // Motor seleccionado (combustible y eléctrico). El aceite NO sale de acá.
   const availableEngines = model && modelData[model] ? modelData[model] : [];
   const engineInfo = availableEngines.find(e => e.name === engine) || null;
-  const oilLiters = engineInfo ? engineInfo.oil : null;
-  const oilSpec   = engineInfo ? engineInfo.spec : null;
   const isEV      = engineInfo ? engineInfo.fuel === "electrico" : false;
-  // Lo que se muestra y se guarda: el cálculo de hoy o, si da vacío (categoría
-  // renombrada o desactivada en el selector), lo guardado en el servicio. En un
-  // aprobado, siempre lo guardado.
-  const aceite = aceiteDelServicio({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) });
+
+  // Aceite: resolver-aceite (el mismo resolvedor de Taller), con la orden si
+  // el servicio viene de una y si no con el vehículo de la placa. Un aprobado
+  // no consulta: su aceite está congelado.
+  const congeladoAc = aceiteCongelado(estadoOriginal);
+  const ordenUuidAc = esUuid(ordenId) ? ordenId.trim() : null;
+  const placaAc     = (plate || '').trim().toUpperCase();
+  const claveAc     = congeladoAc ? null : ordenUuidAc ? `o:${ordenUuidAc}` : placaAc ? `p:${placaAc}` : null;
+  useEffect(() => {
+    if (!claveAc) { setResolverAc(RESOLVER_VACIO); return; }
+    let vivo = true;
+    setResolverAc(p => p.clave === claveAc ? p : { estado: 'cargando', clave: claveAc, res: null, motivo: null });
+    // La placa se escribe a mano: se espera a que deje de tipear.
+    const t = setTimeout(async () => {
+      const r = await resolverAceiteDeVehiculo({ ordenId: ordenUuidAc, placa: placaAc });
+      if (!vivo) return;
+      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo });
+    }, ordenUuidAc ? 0 : 700);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [claveAc]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resAc      = resolverAc.clave === claveAc ? resolverAc.res : null;
+  const cargandoAc = !!claveAc && (resolverAc.clave !== claveAc || resolverAc.estado === 'cargando');
+  const elegidaAc  = aceiteElegido.clave === claveAc ? aceiteElegido.litros : null;
+  const calcAc     = aceiteCalculadoDeResolver(resAc, { elegida: elegidaAc, guardado: aceiteFila });
+  const oilLiters  = calcAc.litros;   // el "cálculo" de hoy para lib/aceiteServicio.js
+  const oilSpec    = calcAc.spec;
+  const elegirAceite = (litros) => setAceiteElegido({ clave: claveAc, litros: litros === '' || litros == null ? null : Number(litros) });
+  // Lo que se muestra y se guarda: el cálculo de hoy o, si da vacío, lo guardado
+  // en el servicio (nunca null encima). En un aprobado, siempre lo guardado.
+  const aceite = aceiteDelServicio({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: congeladoAc });
+  const origenAc = aceite.origen === 'calculo' ? calcAc.origen : null;
   const etiquetaAceite = aceite.etiqueta
     ? <span data-aceite-guardado style={{ fontSize:9, color:"#888", border:"1px solid #44444488", borderRadius:4, padding:"0 5px", marginLeft:6 }}>{aceite.etiqueta}</span>
+    : origenAc
+      ? <span data-aceite-origen title={resAc?.etiquetaOrigen || undefined} style={{ fontSize:9, color:"#C8A96E", border:"1px solid #C8A96E55", borderRadius:4, padding:"0 5px", marginLeft:6 }}>{origenAc}</span>
+      : null;
+  // Varias cantidades documentadas y el mecánico todavía puede elegir.
+  const opcionesAc = !congeladoAc && llevaAceite && resAc?.tipo === 'opciones' ? resAc.opciones : [];
+  const sinDatoAc  = llevaAceite && !aceite.litros && !cargandoAc && !opcionesAc.length;
+  // Selector de cantidad (paso 1 y paso 3): cada opción con su condición.
+  const selectorAceite = opcionesAc.length ? (
+    <div data-aceite-opciones style={{ marginTop:6, display:"flex", flexDirection:"column", gap:4 }}>
+      <div style={{ fontSize:10, color:"#888" }}>{calcAc.elegida == null ? "Hay varias cantidades: elegí la que corresponde a este vehículo" : "Cantidad elegida (podés cambiarla)"}</div>
+      <select data-elegir-aceite value={calcAc.elegida ?? ""} onChange={e => elegirAceite(e.target.value)}
+        style={{ padding:"7px 9px", borderRadius:6, border:"1px solid #C8A96E40", background:"#0d0f12", color:"#C8A96E", fontFamily:"monospace", fontSize:11 }}>
+        <option value="">— Elegir cantidad —</option>
+        {opcionesAc.map(o => (
+          <option key={o.litros} value={o.litros}>{o.litros} L{o.spec ? ` · ${o.spec}` : ""} — {o.condicion || "sin condición"} ({o.origen})</option>
+        ))}
+      </select>
+    </div>
+  ) : null;
+  const avisoSinAceite = sinDatoAc
+    ? <div data-aceite-sin-dato style={{ fontSize:10, color:"#d97706" }}>🛢️ {MENSAJE_SIN_DATO}</div>
     : null;
 
   // Auto-set fuel when engine selected
@@ -2551,7 +2628,13 @@ function MainApp({ session, onLogout }) {
       // que trajimos del servidor no hay nada que guardar. Esto evita que dos
       // pestañas abiertas se peleen sin que nadie haya tocado nada.
       const huellaLocal = huellaServicio({ revisiones: byGrpMap, observaciones: d.notes, fotos: d.taskPhotos });
-      if (id && huellaLocal === baselineRef.current) {
+      // El aceite no entra en la huella (servicioConcurrencia.js es gemelo con
+      // Taller): se compara aparte, así una cantidad nueva de resolver-aceite o
+      // la opción que eligió el mecánico se guardan aunque el checklist no cambie.
+      const aceiteNuevo = camposAceite({ litros: d.oilLiters, spec: d.oilSpec, llevaAceite: d.llevaAceite, guardado: d.aceiteFila, congelado: aceiteCongelado(d.estadoOriginal) });
+      const aceiteSinCambio = !('aceite_litros' in aceiteNuevo)
+        || (aceiteNuevo.aceite_litros === d.aceiteFila?.litros && aceiteNuevo.aceite_spec === d.aceiteFila?.spec);
+      if (id && huellaLocal === baselineRef.current && aceiteSinCambio) {
         dirtyRef.current = false;
         borrarDraft(claveDraftActual());
         errorDesdeRef.current = null;
@@ -2665,7 +2748,7 @@ function MainApp({ session, onLogout }) {
     clearTimeout(retryTimer.current); // un cambio nuevo reemplaza el reintento pendiente: el debounce guarda
     autoSaveTimer.current = setTimeout(() => guardarAhoraRef.current(0), 2000);
     return () => clearTimeout(autoSaveTimer.current);
-  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce, oilLiters, oilSpec]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "hace Xs" vivo mientras haya algo que mostrar.
   useEffect(() => {
@@ -4000,7 +4083,6 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                           style={{ padding:"7px 12px", cursor:"pointer", borderBottom:`1px solid ${line}20`, fontSize:11, display:"flex", alignItems:"center", gap:8, color:engine===entry.motor&&model===entry.categoria?"#C8A96E":"#ccc", background:engine===entry.motor&&model===entry.categoria?"#C8A96E08":"transparent" }}
                         >
                           <span style={{ flex:1 }}>{entry.display}</span>
-                          {entry.aceite_lt != null && <span style={{ color:"#666", fontSize:10 }}>{entry.aceite_lt}L</span>}
                         </div>
                       </div>
                     );
@@ -4018,24 +4100,36 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             <select value={engine} onChange={e=>setEngine(e.target.value)} style={{ ...inp, width:"100%", boxSizing:"border-box" }}>
               <option value="">— Seleccionar motor —</option>
               {availableEngines.map(e => (
-                <option key={e.name} value={e.name}>{e.name} · {e.oil}L</option>
+                <option key={e.name} value={e.name}>{e.name}</option>
               ))}
             </select>
           </div>
         )}
 
-        {/* Badge de aceite — aparece al seleccionar motor */}
-        {(oilLiters > 0 || aceite.etiqueta) && (
-          <div style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:"#C8A96E12", border:"1px solid #C8A96E40" }}>
+        {/* Capacidad de aceite — de resolver-aceite (ya no depende del motor
+            elegido en el selector), con su origen; varias cantidades → elegir;
+            sin dato → aviso. */}
+        {!isEV && (aceite.litros > 0 || opcionesAc.length > 0 || sinDatoAc || (cargandoAc && llevaAceite)) && (
+          <div data-aceite-capacidad style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:"#C8A96E12", border:"1px solid #C8A96E40" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <span style={{ fontSize:22 }}>🛢️</span>
-              <div>
+              <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:11, color:"#888", letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE{etiquetaAceite}</div>
-                <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{aceite.etiqueta ? (aceite.litros ?? "—") : oilLiters} L</div>
-                <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{aceite.etiqueta ? aceite.spec : oilSpec}</div>
+                {aceite.litros > 0 ? (
+                  <>
+                    <div style={{ fontSize:20, fontWeight:"bold", color:"#C8A96E", lineHeight:1 }}>{aceite.litros} L</div>
+                    <div style={{ fontSize:10, color:"#777", marginTop:3 }}>{aceite.spec}</div>
+                  </>
+                ) : cargandoAc ? (
+                  <div style={{ fontSize:10, color:"#777" }}>Buscando el aceite de este vehículo…</div>
+                ) : avisoSinAceite}
+                {selectorAceite}
               </div>
             </div>
-            {aceite.etiqueta ? null : corrEnviada ? (
+            {/* Propuesta de corrección DESACTIVADA (5/10, decisión del dueño):
+                corregía vehiculos_modelos, que ya no es fuente del aceite. Se
+                rehace en otra rama. La tabla y la RPC no se tocan. */}
+            {!CORRECCION_ACEITE_ACTIVA ? null : corrEnviada ? (
               <div style={{ marginTop:8, fontSize:10, color:"#C8A96E" }}>⏳ corrección propuesta</div>
             ) : !corrOpen ? (
               <button onClick={() => { setCorrOpen(true); setCorrLitros(""); setCorrComentario(""); setCorrError(""); }}
@@ -4480,12 +4574,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
         </div>
         {aceite.litros > 0 && (
-          <div style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>
+          <div data-aceite-paso3 style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>
             <span style={{ fontSize:14 }}>🛢️</span>
             <span style={{ fontSize:12, fontWeight:"bold", color:"#C8A96E" }}>{aceite.litros} L</span>
             <span style={{ fontSize:10, color:"#888" }}>{aceite.spec}</span>{etiquetaAceite}
           </div>
         )}
+        {selectorAceite}
+        {!aceite.litros && !isEV && <div style={{ marginTop:6 }}>{avisoSinAceite}</div>}
       </div>
 
       {/* SOLO LECTURA — la fila no se cargó como borrador, así que el autosave
@@ -4764,6 +4860,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 {model && <div>🚗 {model}</div>}
                 {engine && <div>⚙️ {engine}</div>}
                 {aceite.litros > 0 && <div>🛢️ Aceite: <span style={{ color:"#C8A96E", fontWeight:"bold" }}>{aceite.litros} L</span> · {aceite.spec}{etiquetaAceite}</div>}
+                {!aceite.litros && !isEV && avisoSinAceite}
+                {!aceite.litros && opcionesAc.length > 0 && <div style={{ color:"#d97706" }}>🛢️ Aceite: falta elegir la cantidad (arriba)</div>}
                 {plate && <div>📋 <span style={{ letterSpacing:2 }}>{plate}</span></div>}
                 {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
                 <div>{fuelLabel(fuel)} {is4m?"· ⚙️ 4MATIC":""}</div>
