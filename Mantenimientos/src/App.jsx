@@ -2386,11 +2386,13 @@ function MainApp({ session, onLogout }) {
   // Combustible ↔ serie del código: si quedan incompatibles (eléctrico vs serie EV),
   // deseleccionar el código para no dejarlo elegido pero invisible en el PASO 2.
   // No aplica editando un servicio existente (no perder el código de un registro histórico).
+  // La serie C (RC / RG) vale para cualquier combustible: no se deselecciona en un eléctrico.
   useEffect(() => {
     if (!sel || editingId) return;
+    if (activeCKeys.includes(sel)) return;
     const esSelEV = !!activeCodes[sel]?.ev;
     if ((fuel === "electrico") !== esSelEV) setSel(null);
-  }, [fuel, sel, activeCodes, editingId]);
+  }, [fuel, sel, activeCodes, activeCKeys, editingId]);
 
   // On mount: check for an unfinished draft from today
   useEffect(() => {
@@ -4344,7 +4346,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </div>
             </>
           )}
-          {fuel !== "electrico" && activeCKeys.length > 0 && (
+          {/* Serie C (RC / RG): para CUALQUIER combustible, eléctricos incluidos (decisión del dueño, 7/10/2026). */}
+          {activeCKeys.length > 0 && (
             <>
               <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
