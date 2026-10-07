@@ -284,6 +284,167 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
   return ok;
 }
 
+// Serie C (RC / RG) en un vehículo ELÉCTRICO (feat/revisiones-c-ev, 7/10): decisión del
+// dueño: la revisión de compra y la general valen para cualquier combustible. Recorre el
+// flujo entero como un mecánico: paso 1 elige un modelo eléctrico del selector (el
+// combustible queda en "electrico"), paso 2 ve el bloque REVISIONES y elige RC/RG (y el
+// código NO se deselecciona por el efecto combustible ↔ serie EV), paso 3 marca todas
+// las tareas en OK, da el dictamen, firma y guarda: el POST a servicios tiene que traer
+// el código, combustible "electrico", todas las tareas de la receta en ok, el dictamen,
+// y nada de aceite. Cualquier pageerror, console.error o alert() lo hace fallar.
+const FILA_EV = { id: '00000000-0000-4000-8000-0000000000b2', clase: 'EQB', categoria: 'EQB (X243) 2021-presente', nombre: 'EQB 300 4MATIC (eléctrico)', combustible: 'electrico', orden: 1 };
+const RECETAS_C = [
+  { codigo: 'A',  serie: 'A',  descripcion: 'Inspección menor + aceite', items: ['1', '3'], orden: 1, color: '#C8A96E', fuel_lock: null },
+  { codigo: 'RC', serie: 'C',  descripcion: 'Revisión de Compra', items: ['RC'], orden: 1, color: '#C9CDD2', fuel_lock: null },
+  { codigo: 'RG', serie: 'C',  descripcion: 'Revisión General', items: ['RG_PTS'], orden: 2, color: '#C9CDD2', fuel_lock: null },
+  { codigo: 'AEV', serie: 'EV', descripcion: 'Servicio A Eléctrico', items: ['EV_A'], orden: 1, color: '#4ade80', fuel_lock: 'electrico' },
+];
+const TAREAS_RG = [
+  'Carrocería y pintura: indicios de choques, repintado o masilla', 'Chasis y puntos de fijación: deformaciones o soldaduras',
+  'Interior y tapicería: estado general', 'Inspección visual del motor — fugas, correas, mangueras', 'Verificación de todos los niveles de fluidos',
+  'Inspección de pastillas y discos de freno (todos los ejes)', 'Revisión del freno de estacionamiento', 'Inspección de suspensión y dirección',
+  'Revisión de soportes de motor y transmisión', 'Inspección de sistema de escape', 'Inspección de faja de accesorios',
+  'Inspección de presión de llantas (incluida llanta de repuesto)', 'Inspección visual de llantas — desgaste y daños',
+  'Estado del filtro de habitáculo / carbón activo', 'Revisión de luces, alertas y sensores', 'Revisión de escobillas limpiaparabrisas y lavadores',
+  'Prueba de batería con analizador (estado de salud y carga)', 'Escaneo completo de fallas (Star Diagnosis)', 'Prueba de ruta: caja, dirección, frenado y ruidos',
+];
+const TAREAS_RC = [
+  'Carrocería y pintura: indicios de choques, repintado o masilla', 'Chasis y puntos de fijación: deformaciones o soldaduras',
+  'Interior y tapicería: desgaste coherente con el kilometraje', 'Kilometraje: coherencia entre odómetro, desgaste y registros',
+  'Inspección visual del motor — fugas, correas, mangueras', 'Verificación de todos los niveles de fluidos', 'Inspección de pastillas y discos de freno (todos los ejes)',
+  'Revisión del freno de estacionamiento', 'Inspección de suspensión y dirección', 'Revisión de soportes de motor y transmisión', 'Inspección de sistema de escape',
+  'Inspección de faja de accesorios', 'Inspección de presión de llantas (incluida llanta de repuesto)', 'Inspección visual de llantas — desgaste y daños',
+  'Llantas: fecha de fabricación (DOT) y antigüedad', 'Estado del filtro de habitáculo / carbón activo', 'Revisión de luces, alertas y sensores',
+  'Revisión de escobillas limpiaparabrisas y lavadores', 'Prueba de batería con analizador (estado de salud y carga)', 'Escaneo completo de fallas (Star Diagnosis)',
+  'Prueba de ruta: caja, dirección, frenado y ruidos',
+];
+const ITEMS_C = [
+  { clave: '1', label: 'Inspección A (menor)', icon: '🔍', orden: 1, out_of_assyst: false, tasks: ['Inspección menor'] },
+  { clave: '3', label: 'Aceite y filtro de motor', icon: '🛢️', orden: 3, out_of_assyst: false, tasks: ['Cambio de aceite y filtro'] },
+  { clave: 'RC', label: 'Revisión de compra', icon: '📋', orden: 90, out_of_assyst: true, tasks: TAREAS_RC },
+  { clave: 'RG_PTS', label: 'Revisión general', icon: '📋', orden: 91, out_of_assyst: true, tasks: TAREAS_RG },
+  { clave: 'EV_A', label: 'Inspección A Eléctrico (menor EV)', icon: '⚡', orden: 95, out_of_assyst: false, tasks: ['Cambio de filtro de habitáculo'] },
+];
+
+async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, usuario = USUARIO }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  await page.setViewport({ width: 1280, height: 900 });
+  const errores = [];
+  const posts = [];
+  page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (!['error', 'warning'].includes(m.type())) return;
+    const txt = m.text();
+    if (IGNORAR.some((re) => re.test(txt)) || /keeping defaults/.test(txt)) return;
+    errores.push(`console.${m.type()}: ${txt.slice(0, 300)}`);
+  });
+  page.on('dialog', (d) => { errores.push(`dialog: ${d.message().slice(0, 200)}`); d.dismiss().catch(() => {}); });
+  const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+  const json = (body, status = 200) => ({ status, contentType: 'application/json', headers: CORS, body: JSON.stringify(body) });
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const u = req.url();
+    if (u.startsWith(baseUrl)) return req.continue();
+    if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
+    if (SUPA && u.startsWith(SUPA)) {
+      if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(usuario));
+      if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR, FILA_EV]));
+      if (u.includes('/rest/v1/mant_recetas')) return req.respond(json(RECETAS_C));
+      if (u.includes('/rest/v1/mant_items')) return req.respond(json(ITEMS_C));
+      if (u.includes('/rest/v1/servicios') && req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}');
+        posts.push(body);
+        return req.respond(json([{ id: '00000000-0000-4000-8000-0000000000a9', ...body }], 201));
+      }
+      if (u.includes('/functions/v1/resolver-aceite')) return req.respond(json(RESP.sinDato));
+      if (u.includes('/rest/v1/')) return req.respond(json([]));
+      return req.respond(json({}));
+    }
+    return req.respond({ status: 204, headers: CORS, body: '' });
+  });
+  await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
+  const clicTexto = async (re, desc) => {
+    const ok = await page.evaluate((src, flags) => {
+      const r = new RegExp(src, flags);
+      const b = [...document.querySelectorAll('button')].find((x) => r.test(x.textContent.trim()) && !x.disabled);
+      if (!b) return false; b.click(); return true;
+    }, re.source, re.flags);
+    if (!ok) errores.push(`no encontré el botón ${desc}`);
+    await new Promise((r) => setTimeout(r, 350));
+    return ok;
+  };
+  try {
+    await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+    // Paso 1: modelo eléctrico del selector
+    await page.waitForSelector('input[placeholder^="🔍 Buscar"]', { timeout: 8000 });
+    await page.type('input[placeholder^="🔍 Buscar"]', 'EQB');
+    await new Promise((r) => setTimeout(r, 400));
+    const eligio = await page.evaluate(() => {
+      const d = [...document.querySelectorAll('div')].find((x) => x.children.length <= 1 && /EQB 300/.test(x.textContent) && x.style.cursor === 'pointer');
+      if (!d) return false; d.click(); return true;
+    });
+    if (!eligio) errores.push('el selector no ofreció el EQB 300 eléctrico');
+    await new Promise((r) => setTimeout(r, 300));
+    const t1 = await page.evaluate(() => document.body.innerText);
+    if (!/✓ ?EQB/.test(t1)) errores.push('el paso 1 no confirmó el modelo eléctrico (texto: ' + (t1.match(/✓[^\n]{0,60}/) || ['sin ✓'])[0] + ')');
+    await clicTexto(/^CONTINUAR → TIPO DE SERVICIO$/, 'CONTINUAR → TIPO DE SERVICIO');
+    // Paso 2: el bloque REVISIONES está, se elige el código y no se deselecciona
+    const t2 = await page.evaluate(() => document.body.innerText);
+    if (!/PASO 2 · TIPO DE SERVICIO/.test(t2)) errores.push('no llegó al paso 2');
+    if (!/REVISIONES/.test(t2)) errores.push('el paso 2 de un eléctrico NO muestra el bloque REVISIONES');
+    if (!/⚡ Eléctrico/.test(t2)) errores.push('el paso 2 no muestra el selector de combustible');
+    if (!/CÓDIGO DE SERVICIO\s*\*/.test(t2) || /ASSYST/.test(t2)) errores.push('el paso 2 no está en modo eléctrico (debería decir CÓDIGO DE SERVICIO, sin ASSYST)');
+    await clicTexto(new RegExp(`^${codigo}$`), codigo);
+    await new Promise((r) => setTimeout(r, 600));
+    const seleccionado = await page.evaluate((c) => {
+      const b = [...document.querySelectorAll('button.svc-btn')].find((x) => x.textContent.trim() === c);
+      return b ? (b.style.border || '').startsWith('1.5px') : null;
+    }, codigo);
+    if (seleccionado !== true) errores.push(`${codigo} no quedó seleccionado en un eléctrico (border: ${seleccionado})`);
+    const iniciar = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /INICIAR INSPECCIÓN/.test(x.textContent)); return b ? !b.disabled : null; });
+    if (iniciar !== true) errores.push(`"INICIAR INSPECCIÓN" no está habilitado (${iniciar})`);
+    await clicTexto(/INICIAR INSPECCIÓN/, 'INICIAR INSPECCIÓN');
+    // Paso 3: todas las tareas de la receta, en OK
+    const nOk = await page.evaluate(() => [...document.querySelectorAll('button.chk-btn')].filter((b) => /✓ OK/.test(b.textContent)).length);
+    if (nOk !== tareas.length) errores.push(`el checklist tiene ${nOk} tareas, esperaba ${tareas.length}`);
+    for (let i = 0; i < nOk; i++) {
+      await page.evaluate((i) => { [...document.querySelectorAll('button.chk-btn')].filter((b) => /✓ OK/.test(b.textContent))[i].click(); }, i);
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    const t3 = await page.evaluate(() => document.body.innerText);
+    for (const t of tareas) if (!t3.includes(t)) errores.push(`falta la tarea "${t}"`);
+    // "FUERA DEL ASSYST" es la etiqueta legítima de los ítems fuera del ASSYST (RC y RG lo son).
+    const sospechosos = [...t3.matchAll(/.{0,50}(aceite|ASSYST).{0,50}/gi)].map((m) => m[0].replace(/\s+/g, ' ')).filter((t) => !/FUERA DEL ASSYST/.test(t));
+    if (sospechosos.length) errores.push('el paso 3 de la revisión menciona aceite o ASSYST: ' + JSON.stringify(sospechosos));
+    await clicTexto(/CONTINUAR → NOTAS Y FIRMA/, 'CONTINUAR → NOTAS Y FIRMA');
+    // Dictamen, mecánico y guardar
+    const t4 = await page.evaluate(() => document.body.innerText);
+    if (!/DICTAMEN DE REVISIÓN/.test(t4)) errores.push('no aparece el bloque DICTAMEN');
+    await clicTexto(/^○/, 'la primera opción del dictamen');
+    await clicTexto(/^Gustavo Ramos$/, 'el mecánico responsable');
+    await clicTexto(/CONFIRMAR Y GUARDAR/, 'CONFIRMAR Y GUARDAR');
+    for (let i = 0; i < 60 && !posts.length; i++) await new Promise((r) => setTimeout(r, 100));
+  } catch (e) { errores.push(`flujo: ${e.message}`); }
+  const p = posts[0] || null;
+  if (!p) errores.push('no hubo POST a servicios');
+  else {
+    if (p.servicio_codigo !== codigo) errores.push(`servicio_codigo = ${JSON.stringify(p.servicio_codigo)}, esperaba ${codigo}`);
+    if (p.combustible !== 'electrico') errores.push(`combustible = ${JSON.stringify(p.combustible)}, esperaba electrico`);
+    const items = Object.values(p.revisiones || {}).flat();
+    if (items.length !== tareas.length) errores.push(`revisiones con ${items.length} ítems, esperaba ${tareas.length}`);
+    if (items.some((it) => it.status !== 'ok')) errores.push('hay ítems que no quedaron en ok: ' + JSON.stringify(items.filter((it) => it.status !== 'ok').map((it) => it.text)));
+    if (!p.dictamen || !p.dictamen.recomendacion) errores.push('el POST no trae el dictamen');
+    if (p.aceite_litros != null || p.aceite_spec) errores.push(`el POST trae aceite (${p.aceite_litros} / ${p.aceite_spec}) y una revisión en un eléctrico no lleva`);
+    if (p.progreso?.completadas !== tareas.length || p.progreso?.total !== tareas.length) errores.push(`progreso ${JSON.stringify(p.progreso)}`);
+  }
+  await context.close();
+  const ok = errores.length === 0;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (POST servicios: ${p ? `${p.servicio_codigo} · ${p.combustible} · ${Object.values(p.revisiones || {}).flat().length} ítems · dictamen ${p.dictamen?.recomendacion}` : 'ninguno'})`);
+  for (const e of errores) console.log(`  - ${e}`);
+  return ok;
+}
+
 let server, browser, code = 1;
 try {
   console.log('smoke: vite build…');
@@ -327,8 +488,11 @@ try {
     fila: { estado: 'aprobado', aprobado: true, aceite_litros: 8.5, aceite_spec: 'MB 229.51' }, resolver: 'otroValor', usuario: JEFE,
     esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true, sinPatch: true, sinResolver: true, ausentes: ['6 L'],
   }));
-  code = r1 && r2 && r3 && r4 && rA.every(Boolean) ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los diez escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+  const rC = [];
+  rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) de punta a punta: 21 tareas, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC }));
+  rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión general (RG) de punta a punta: 19 tareas, dictamen y guardado', codigo: 'RG', tareas: TAREAS_RG }));
+  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los doce escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;
