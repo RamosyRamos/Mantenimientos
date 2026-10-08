@@ -16,6 +16,7 @@ import { apiFetch, authHeaders, SURL as API_URL, siguienteReintento, mensajeErro
 import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
 import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
+import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar } from './lib/placaOrden.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -2060,6 +2061,11 @@ function MainApp({ session, onLogout }) {
   const [ordenId,       setOrdenId]       = useState("");
   const [ordenNumero,   setOrdenNumero]   = useState("");
   const [ordenFalla,    setOrdenFalla]    = useState("");
+  // Placa y número de la orden vinculada, leídos por ordenId (fix #3049): es lo
+  // que compara el guard de la placa del paso 1. null = sin orden o sin leer.
+  const [ordenPlaca,    setOrdenPlaca]    = useState(null);
+  const placaAlEnfocarRef    = useRef("");   // la placa al entrar al campo, para volver si se cancela
+  const avisoPlacaInformeRef = useRef("");   // ordenId ya avisado por regenerarInformeOrden
   const [vehAnio,       setVehAnio]       = useState("");
   const [vehVersion,    setVehVersion]    = useState("");
   const [ordenEnvioStatus, setOrdenEnvioStatus] = useState("idle"); // 'idle'|'sending'|'done'
@@ -2334,6 +2340,33 @@ function MainApp({ session, onLogout }) {
     setOrdenId(""); setOrdenNumero(""); setOrdenFalla("");
     setAceiteFila(ACEITE_VACIO);
   };
+  // Saca de la URL lo que ataba el servicio a la orden del link, así un refresh
+  // no vuelve a vincularla (el prefill corre una vez al montar).
+  const quitarOrdenDeUrl = () => {
+    try {
+      const u = new URL(window.location.href);
+      ["orden_id", "numero", "falla"].forEach(k => u.searchParams.delete(k));
+      window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+    } catch { /* nada */ }
+  };
+  // Guard de la placa del paso 1 (fix #3049, 8/10): con una orden vinculada,
+  // confirmar una placa distinta de la de la orden pregunta si desvincular. Se
+  // llama al salir del campo y al tocar Continuar, nunca por tecla. Devuelve
+  // true si se puede seguir con la placa que quedó. Aceptar: el servicio sigue
+  // sin orden (ordenId/ordenNumero/ordenFalla vacíos, y la URL sin esos
+  // parámetros). Cancelar: vuelve la placa anterior y el vínculo queda intacto.
+  const confirmarPlacaConOrden = () => {
+    const d = decidirPlacaPaso1({ ordenId, placaOrden: ordenPlaca?.placa, placa: plate });
+    if (d.accion === "seguir") return true;
+    const num = ordenNumero || ordenPlaca?.numero;
+    if (confirm(preguntaDesvincular({ placaServicio: d.placaServicio, placaOrden: d.placaOrden, ordenNumero: num }))) {
+      setOrdenId(""); setOrdenNumero(""); setOrdenFalla("");
+      quitarOrdenDeUrl();
+      return true;
+    }
+    setPlate(placaAlCancelar({ placaAnterior: placaAlEnfocarRef.current, placaOrden: d.placaOrden }));
+    return false;
+  };
   const continuarDraft = (draft) => {
     loadService(draft);
     setDraftPrompt(false);
@@ -2410,6 +2443,25 @@ function MainApp({ session, onLogout }) {
       })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // La placa de la orden vinculada (fix #3049): se lee por ordenId —llegue del
+  // link, de un borrador o de loadService— para el guard del paso 1. Si la
+  // lectura falla queda null y el paso 1 no pregunta; los guards de escritura
+  // (enviarAOrden, regenerarInformeOrden, aprobar) releen por su cuenta.
+  useEffect(() => {
+    if (!ordenId) { setOrdenPlaca(null); return; }
+    let vivo = true;
+    apiFetch(`${API_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=numero,vehiculo_id,vehiculos(patente)`)
+      .then(r => r.json())
+      .then(rows => {
+        if (!vivo) return;
+        const o = Array.isArray(rows) ? rows[0] : null;
+        const veh = Array.isArray(o?.vehiculos) ? o.vehiculos[0] : o?.vehiculos;
+        setOrdenPlaca(o ? { placa: normalizarPlaca(veh?.patente), numero: o.numero } : null);
+      })
+      .catch(e => { if (vivo) { console.warn("[ordenPlaca] lectura falló:", e); setOrdenPlaca(null); } });
+    return () => { vivo = false; };
+  }, [ordenId]);
 
   // Pre-fill from URL params — never auto-advances step
   useEffect(() => {
@@ -3650,12 +3702,29 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
   // Paso 3 de enviarAOrden, extraído para reuso desde el modo edición de jefe:
-  // regenera SOLO ordenes.informe_mantenimiento. Sin guard de placa, sin
-  // confirm de sobrescritura, sin tocar la fila de servicios ni es_mantenimiento.
+  // regenera SOLO ordenes.informe_mantenimiento. Sin confirm de sobrescritura,
+  // sin tocar la fila de servicios ni es_mantenimiento. CON guard de placa desde
+  // el 8/10 (fix #3049): una orden con otra placa no recibe el informe; se avisa
+  // una vez por orden (corre desde el autosave) y se anota en consola.
   // Nunca lanza: un fallo acá no debe bloquear el guardado del checklist.
   const regenerarInformeOrden = async ({ correccion = false } = {}) => {
     if (!ordenId) return;
     try {
+      let ordenRow = null;
+      try {
+        const r = await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=vehiculo_id,vehiculos(patente)`);
+        ordenRow = (await r.json())?.[0] || null;
+      } catch (e) { console.warn("[regenerarInformeOrden] check orden falló:", e); }
+      const v = verificarPlacaOrden({ placaServicio: plate, ordenRow });
+      if (v.estado === "distinta") {
+        console.warn("[regenerarInformeOrden] placa distinta: no se escribe el informe", v);
+        if (avisoPlacaInformeRef.current !== ordenId) {
+          avisoPlacaInformeRef.current = ordenId;
+          alert(mensajePlacaDistinta({ placaServicio: v.placaServicio, placaOrden: v.placaOrden, ordenNumero }));
+        }
+        return;
+      }
+      if (v.estado === "incompleto") console.warn("[regenerarInformeOrden] guard placa omitido: datos incompletos", v);
       const markdown = buildInformeMarkdown({ correccion });
       await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
@@ -3677,13 +3746,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         checkData = await checkRes.json();
       } catch (e) { console.warn("[enviarAOrden] check orden falló:", e); }
       const ordenRow = checkData?.[0] || null;
-      const placaOrden = (ordenRow?.vehiculos?.patente || "").trim().toUpperCase();
-      const placaServicio = (plate || "").trim().toUpperCase();
-      if (!ordenRow || !ordenRow.vehiculo_id || !placaOrden || !placaServicio) {
+      // Guard compartido con regenerarInformeOrden y Taller (lib/placaOrden.js):
+      // placas normalizadas (mayúsculas, sin espacios ni guiones).
+      const v = verificarPlacaOrden({ placaServicio: plate, ordenRow });
+      if (v.estado === "incompleto") {
         // Órdenes viejas sin vehículo o fetch incompleto: no bloquear por datos faltantes
-        console.warn("[enviarAOrden] guard placa omitido: datos incompletos", { ordenRow, placaOrden, placaServicio });
-      } else if (placaOrden !== placaServicio) {
-        alert(`⛔ El servicio es de la placa ${placaServicio} pero la orden ${ordenNumero ? `#${ordenNumero}` : "destino"} es del vehículo con placa ${placaOrden}.\n\nNo se guardó nada. Revisá que estés en el servicio correcto antes de reintentar.`);
+        console.warn("[enviarAOrden] guard placa omitido: datos incompletos", { ordenRow, placaOrden: v.placaOrden, placaServicio: v.placaServicio });
+      } else if (v.estado === "distinta") {
+        alert(mensajePlacaDistinta({ placaServicio: v.placaServicio, placaOrden: v.placaOrden, ordenNumero }));
         setOrdenEnvioStatus("idle");
         return;
       }
@@ -4199,7 +4269,16 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         <div style={{ marginBottom:12 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>PLACA</div>
           <input value={plate} onChange={e=>setPlate(e.target.value.replace(/[^A-Z0-9]/gi,"").toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
+            onFocus={() => { placaAlEnfocarRef.current = plate; }}
+            onBlur={confirmarPlacaConOrden}
             style={{ ...inp, width:"100%", boxSizing:"border-box", letterSpacing:2, textTransform:"uppercase" }} />
+          {ordenId && ordenPlaca?.placa && (
+            <div data-orden-vinculada data-placa-coincide={String(normalizarPlaca(plate) === ordenPlaca.placa)}
+              style={{ fontSize:10, marginTop:5, color: normalizarPlaca(plate) && normalizarPlaca(plate) !== ordenPlaca.placa ? "#f87171" : "#555" }}>
+              Orden {ordenNumero || ordenPlaca.numero ? `#${String(ordenNumero || ordenPlaca.numero).replace(/^#/, "")}` : "vinculada"} · placa {ordenPlaca.placa}
+              {normalizarPlaca(plate) && normalizarPlaca(plate) !== ordenPlaca.placa ? " · ⚠ no coincide" : ""}
+            </div>
+          )}
         </div>
 
         {/* Kilometraje */}
@@ -4211,7 +4290,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
         <div className="sticky-action">
           <button
-            onClick={() => { if (model) { setModelOpen(false); setStep(2); } }}
+            onClick={() => { if (!model) return; if (!confirmarPlacaConOrden()) return; setModelOpen(false); setStep(2); }}
             disabled={!model}
             style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${model?G+"60":"#2f363b"}`, background:model?G+"18":"transparent", color:model?G:"#333", fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:model?"pointer":"default" }}>
             CONTINUAR → TIPO DE SERVICIO
@@ -5012,6 +5091,22 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                         {/* F4: un solo botón; aprobado_por = session.nombre (identidad de Auth). Antes: tres botones por nombre fijo. */}
                         <button onClick={async () => {
                           const nombre = session?.nombre || "—";
+                          // Guard de placa (fix #3049): con orden vinculada, aprobar exige que la
+                          // placa de la orden coincida; ilegible o distinta → no se aprueba.
+                          if (ordenId) {
+                            let ordenRow = null;
+                            try {
+                              const r = await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=vehiculo_id,vehiculos(patente)`);
+                              ordenRow = (await r.json())?.[0] || null;
+                            } catch (e) { console.warn("[aprobar] check orden falló:", e); }
+                            const v = verificarPlacaOrden({ placaServicio: plate, ordenRow });
+                            if (v.estado !== "coincide") {
+                              alert(v.estado === "distinta"
+                                ? mensajePlacaDistinta({ placaServicio: v.placaServicio, placaOrden: v.placaOrden, ordenNumero })
+                                : `⛔ No se pudo leer la placa de la orden ${ordenNumero ? `#${String(ordenNumero).replace(/^#/, "")}` : "vinculada"}. No se puede aprobar.`);
+                              return;
+                            }
+                          }
                           // Solo se marca aprobado en pantalla si el PATCH llegó (antes se marcaba igual).
                           try {
                             await apiFetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`, {
