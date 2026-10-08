@@ -55,3 +55,16 @@ export function placaAlCancelar({ placaAnterior, placaOrden }) {
   const prev = normalizarPlaca(placaAnterior), po = normalizarPlaca(placaOrden);
   return prev && prev === po ? prev : po;
 }
+
+// ¿El blur del campo de placa ocurre porque el foco se va al botón Continuar?
+// Entonces el blur NO pregunta: la verificación la hace Continuar, una sola vez
+// (si el confirm salía en el blur, el toque sobre el botón se perdía). Dos señales,
+// porque en táctil el botón puede no recibir foco (relatedTarget null): el
+// relatedTarget del blur (el botón o algo dentro de él) o la marca que deja el
+// pointerdown sobre el botón, que ocurre antes del blur.
+export function blurVaAContinuar({ relatedTarget = null, botonContinuar = null, continuarPresionado = false } = {}) {
+  if (continuarPresionado) return true;
+  if (!relatedTarget || !botonContinuar) return false;
+  if (relatedTarget === botonContinuar) return true;
+  return typeof botonContinuar.contains === "function" && botonContinuar.contains(relatedTarget) === true;
+}

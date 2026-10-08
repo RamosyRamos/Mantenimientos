@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   normalizarPlaca, placasCoinciden, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular,
-  decidirPlacaPaso1, placaAlCancelar,
+  decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar,
 } from "./placaOrden.js";
 
 test("normalizarPlaca: mayúsculas, sin espacios ni guiones", () => {
@@ -45,6 +45,19 @@ test("decidirPlacaPaso1: sin orden o sin placa de la orden no pregunta; distinta
   assert.deepEqual(decidirPlacaPaso1({ ordenId: "o1", placaOrden: "MFC090", placa: "" }), { accion: "seguir" });
   assert.deepEqual(decidirPlacaPaso1({ ordenId: "o1", placaOrden: "MFC090", placa: "mfc-090" }), { accion: "seguir" });
   assert.deepEqual(decidirPlacaPaso1({ ordenId: "o1", placaOrden: "MFC090", placa: "347559" }), { accion: "preguntar", placaServicio: "347559", placaOrden: "MFC090" });
+});
+
+test("blurVaAContinuar: el blur hacia el botón Continuar (o lo que tenga adentro, o con el pointerdown marcado) no pregunta; cualquier otro blur sí", () => {
+  const hijo = {};
+  const boton = { contains: (n) => n === hijo };
+  const otro = { contains: () => false };
+  assert.equal(blurVaAContinuar({ relatedTarget: boton, botonContinuar: boton }), true);
+  assert.equal(blurVaAContinuar({ relatedTarget: hijo, botonContinuar: boton }), true);
+  assert.equal(blurVaAContinuar({ relatedTarget: null, botonContinuar: boton, continuarPresionado: true }), true);
+  assert.equal(blurVaAContinuar({ relatedTarget: null, botonContinuar: boton }), false);
+  assert.equal(blurVaAContinuar({ relatedTarget: otro, botonContinuar: boton }), false);
+  assert.equal(blurVaAContinuar({ relatedTarget: boton, botonContinuar: null }), false);
+  assert.equal(blurVaAContinuar(), false);
 });
 
 test("placaAlCancelar: vuelve a la anterior si coincidía con la orden; si no, a la de la orden", () => {

@@ -16,7 +16,7 @@ import { apiFetch, authHeaders, SURL as API_URL, siguienteReintento, mensajeErro
 import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
 import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
-import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar } from './lib/placaOrden.js';
+import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -2066,6 +2066,8 @@ function MainApp({ session, onLogout }) {
   const [ordenPlaca,    setOrdenPlaca]    = useState(null);
   const placaAlEnfocarRef    = useRef("");   // la placa al entrar al campo, para volver si se cancela
   const avisoPlacaInformeRef = useRef("");   // ordenId ya avisado por regenerarInformeOrden
+  const continuarRef          = useRef(null); // el botón Continuar del paso 1 (relatedTarget del blur)
+  const continuarPresionadoRef = useRef(false); // pointerdown sobre Continuar: el blur que sigue no pregunta
   const [vehAnio,       setVehAnio]       = useState("");
   const [vehVersion,    setVehVersion]    = useState("");
   const [ordenEnvioStatus, setOrdenEnvioStatus] = useState("idle"); // 'idle'|'sending'|'done'
@@ -4270,7 +4272,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           <div style={{ fontSize:10, color:"#555", marginBottom:5 }}>PLACA</div>
           <input value={plate} onChange={e=>setPlate(e.target.value.replace(/[^A-Z0-9]/gi,"").toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
             onFocus={() => { placaAlEnfocarRef.current = plate; }}
-            onBlur={confirmarPlacaConOrden}
+            onBlur={e => {
+              // Si el foco se va al botón Continuar, la verificación la hace el botón,
+              // una sola vez: un confirm acá se comía el toque (ver blurVaAContinuar).
+              if (blurVaAContinuar({ relatedTarget: e.relatedTarget, botonContinuar: continuarRef.current, continuarPresionado: continuarPresionadoRef.current })) return;
+              confirmarPlacaConOrden();
+            }}
             style={{ ...inp, width:"100%", boxSizing:"border-box", letterSpacing:2, textTransform:"uppercase" }} />
           {ordenId && ordenPlaca?.placa && (
             <div data-orden-vinculada data-placa-coincide={String(normalizarPlaca(plate) === ordenPlaca.placa)}
@@ -4290,7 +4297,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
         <div className="sticky-action">
           <button
-            onClick={() => { if (!model) return; if (!confirmarPlacaConOrden()) return; setModelOpen(false); setStep(2); }}
+            ref={continuarRef}
+            onPointerDown={() => { continuarPresionadoRef.current = true; setTimeout(() => { continuarPresionadoRef.current = false; }, 600); }}
+            onClick={() => { continuarPresionadoRef.current = false; if (!model) return; if (!confirmarPlacaConOrden()) return; setModelOpen(false); setStep(2); }}
             disabled={!model}
             style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${model?G+"60":"#2f363b"}`, background:model?G+"18":"transparent", color:model?G:"#333", fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:model?"pointer":"default" }}>
             CONTINUAR → TIPO DE SERVICIO
