@@ -17,6 +17,8 @@ import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
 import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
 import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
+import { autorInicial, campoMecanico } from './lib/autorServicio.js';
+import { formatoFechaCR } from './lib/fechaServicio.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -2053,6 +2055,9 @@ function MainApp({ session, onLogout }) {
   const [notes, setNotes]   = useState("");
   const [tab, setTab]       = useState("check");
   const [showEx, setShowEx] = useState(false);
+  // mechName = el ENCARGADO que trajo el link (?mecanico=) o la fila cargada.
+  // Ya no es una entrada manual (la "firma" de cinco botones se quitó el 8/10):
+  // sin link ni fila, el autor es session.nombre (ver autorServicioActual).
   const [mechName, setMechName] = useState("");
   const [sigDate, setSigDate]   = useState("");
   const [trelloStatus, setTrelloStatus] = useState("idle");
@@ -2291,7 +2296,10 @@ function MainApp({ session, onLogout }) {
   const normalizar = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
   // Keep ref current so debounced timer always reads latest values
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe, aceiteFila };
+  // El encargado que se muestra y que se escribe en el PRIMER guardado de la
+  // fila: el del link o la fila (mechName), si no quien está logueado.
+  const autorServicioActual = autorInicial({ mecanicoLink: mechName, sessionNombre: session?.nombre });
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe, aceiteFila };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2390,7 +2398,7 @@ function MainApp({ session, onLogout }) {
 
   const handleReset = async () => {
     if (editingId && !sigDate) {
-      if (!window.confirm('Tenés un servicio en progreso sin firmar. ¿Seguro que querés empezar uno nuevo?')) return;
+      if (!window.confirm('Tenés un servicio en progreso sin confirmar. ¿Seguro que querés empezar uno nuevo?')) return;
       const discard = window.confirm('¿Descartar el borrador? Presioná Cancelar para guardarlo y continuar más tarde.');
       if (discard) {
         // Si el descarte no llega a la base, NO se resetea: el borrador seguiría
@@ -2572,8 +2580,8 @@ function MainApp({ session, onLogout }) {
   const sellorAjeno = (id) => {
     const por = itemStamps[id]?.por;
     if (!por) return false;
-    if (!mechName) return true;
-    return normalizar(por) !== normalizar(mechName);
+    if (!autorServicioActual) return true;
+    return normalizar(por) !== normalizar(autorServicioActual);
   };
 
   // Deja registrada la fila tal como está en el servidor: huella para la guarda
@@ -2720,7 +2728,10 @@ function MainApp({ session, onLogout }) {
       const payload = {
         ...(draftSlug ? { slug: draftSlug } : {}),
         placa: d.plate, modelo: d.model, motor: d.engine,
-        mecanico: d.mechName, servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
+        // El encargado se fija en el PRIMER guardado de la fila y nunca se
+        // reescribe (autorServicio.js): un PATCH no manda `mecanico`.
+        ...campoMecanico({ esFilaNueva: !id, autor: d.autor }),
+        servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
         km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
         // Nunca null encima de lo guardado; en modo edición (aprobado) no viaja.
         ...camposAceite({ litros: d.oilLiters, spec: d.oilSpec, llevaAceite: d.llevaAceite, guardado: d.aceiteFila, congelado: aceiteCongelado(d.estadoOriginal) }),
@@ -3628,7 +3639,7 @@ function MainApp({ session, onLogout }) {
       });
     });
     return {
-      taller: "Ramos y Ramos", fecha: sigDate, mecanico: mechName,
+      taller: "Ramos y Ramos", fecha: sigDate, mecanico: autorServicioActual,
       servicio: { codigo: sel, descripcion: svc.desc },
       vehiculo: { modelo: model, motor: engine, placa: plate, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD" },
       aceite: aceite.litros ? { litros: aceite.litros, especificacion: aceite.spec } : null,
@@ -3661,7 +3672,7 @@ function MainApp({ session, onLogout }) {
 | **Kilometraje** | ${km ? parseInt(km).toLocaleString()+" km" : "—"} |
 | **Combustible** | ${fuelLabel(fuel)}${is4m?" · ⚙️ 4MATIC":""} |
 ${aceite.litros ? `| **Aceite** | 🛢️ ${aceite.litros} L — ${aceite.spec || ""} |` : ""}
-| **Mecánico** | ${mechName} |
+| **Mecánico** | ${autorServicioActual} |
 | **Fecha** | ${sigDate} |
 
 ---
@@ -3679,7 +3690,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     // Un aprobado reabierto no tiene sigDate (loadService la limpia): la fecha
     // del título sale de la fila original, nunca de la corrección.
     let txt = `🔧 ${servicioTitulo} — ${sigDate || fechaFilaRef.current || ""}\n\n`;
-    txt += `Mecánico: ${mechName}\n`;
+    txt += `Mecánico: ${autorServicioActual}\n`;
     txt += `Aprobado por: ${aprobadoPor}\n`;
     if (correccion) {
       // Honestidad con el cliente: el informe cambió después de la aprobación.
@@ -3830,7 +3841,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     clearTimeout(retryTimer.current);
     autoSaveTimer.current = null;
     const now = new Date();
-    const fecha = now.toLocaleDateString("es-ES", { day:"2-digit", month:"2-digit", year:"numeric" }) + " " + now.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
+    // "dd/mm/aaaa hh:mm" en hora de Costa Rica: el formato que ya tiene la
+    // columna servicios.fecha (vuelve a escribirse desde el 8/10).
+    const fecha = formatoFechaCR(now);
 
     // Guardar en Supabase — usar variables locales, no estado (aún no actualizado)
     try {
@@ -3870,7 +3883,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         placa:           plate,
         modelo:          model,
         motor:           engine,
-        mecanico:        mechName,
+        // Encargado: solo si la fila NACE acá (sin autosave previo); una fila
+        // existente conserva su mecanico (autorServicio.js).
+        ...campoMecanico({ esFilaNueva: !editingId, autor: autorServicioActual }),
+        fecha,
         servicio_codigo: sel,
         servicio_desc:   svc?.desc || "",
         km,
@@ -3915,16 +3931,16 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       notifyPush(
         ["Otto Ramos","Gustavo Ramos","Arturo Ramos"],
         esRC ? `${revisionLabel} pendiente de aprobación` : "Servicio pendiente de aprobación",
-        `${mechName} — ${plate} (${model})`
+        `${autorServicioActual} — ${plate} (${model})`
       );
-      // Firmado y guardado: la red de seguridad local ya no hace falta.
+      // Confirmado y guardado: la red de seguridad local ya no hace falta.
       borrarDraft(draftKey(savedId || editingId, ordenId));
       borrarDraft(draftKey(null, ordenId));
       dirtyRef.current = false;
       setSigDate(fecha);
     } catch(e) {
       console.error("[confirmSig] save failed:", e);
-      alert(`⚠️ ERROR al guardar el informe: ${mensajeError(e)}.\n\nNo se firmó. Por favor reintentá. Si persiste, contactá soporte. NO cierres la app (los cambios quedan en este dispositivo).`);
+      alert(`⚠️ ERROR al guardar el informe: ${mensajeError(e)}.\n\nNo se confirmó. Por favor reintentá. Si persiste, contactá soporte. NO cierres la app (los cambios quedan en este dispositivo).`);
     }
   };
 
@@ -4930,7 +4946,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               <button
                 onClick={() => { setTab("notes"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:`linear-gradient(135deg, ${G}20, ${G}10)`, color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
-                📝 CONTINUAR → NOTAS Y FIRMA
+                📝 CONTINUAR → NOTAS Y CIERRE
               </button>
             </div>
           </>
@@ -5014,21 +5030,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </div>
             )}
 
-            {/* ── FIRMA DEL MECÁNICO ── */}
+            {/* ── CIERRE DEL SERVICIO (sin firma desde el 8/10: el encargado es el del
+                 link o quien está logueado, y la autoría por ítem ya la sella la sesión) ── */}
             <div style={{ marginTop:20, paddingTop:16, borderTop:"1px dashed #2f363b", paddingBottom:32 }}>
-              <div style={{ fontSize:9, color:"#C8A96E", letterSpacing:3, marginBottom:12 }}>✍️ FIRMA DEL MECÁNICO RESPONSABLE</div>
+              <div style={{ fontSize:9, color:"#C8A96E", letterSpacing:3, marginBottom:12 }}>✓ CIERRE DEL SERVICIO</div>
 
-              {/* Nombre — lista predefinida */}
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:5 }}>MECÁNICO RESPONSABLE</div>
-                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                  {["Fabián Araya","Benjamin Corrales","Gustavo Ramos","Otto Ramos","Arturo Ramos"].map(name => (
-                    <button key={name} onClick={()=>setMechName(name)}
-                      style={{ padding:"8px 12px", borderRadius:6, fontFamily:"monospace", fontSize:12, cursor:"pointer", border:`1px solid ${mechName===name?"#C8A96E60":line}`, background:mechName===name?"#C8A96E18":card, color:mechName===name?"#C8A96E":"#888", fontWeight:mechName===name?"bold":"normal" }}>
-                      {name}
-                    </button>
-                  ))}
-                </div>
+              {/* Encargado: del link de Taller, de la fila cargada o de la sesión. No se elige. */}
+              <div style={{ marginBottom:12 }} data-encargado>
+                <div style={{ fontSize:9, color:"#555", letterSpacing:2, marginBottom:5 }}>ENCARGADO</div>
+                <div style={{ fontSize:12, color:"#e0d8cc", fontWeight:"bold" }}>👤 {autorServicioActual || "—"}</div>
               </div>
 
               {/* Resumen del servicio */}
@@ -5048,22 +5058,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               <div className="sticky-action">
                 <button
                   onClick={confirmSig}
-                  disabled={!mechName.trim()}
-                  style={{ width:"100%", padding:"14px", borderRadius:6, border:`1px solid ${mechName.trim()?"#C8A96E60":"#2f363b"}`, background:mechName.trim()?"#C8A96E20":card, color:mechName.trim()?"#C8A96E":"#444", fontFamily:"monospace", fontSize:13, letterSpacing:1, cursor:mechName.trim()?"pointer":"default", fontWeight:"bold" }}
+                  data-confirmar-guardar
+                  style={{ width:"100%", padding:"14px", borderRadius:6, border:"1px solid #C8A96E60", background:"#C8A96E20", color:"#C8A96E", fontFamily:"monospace", fontSize:13, letterSpacing:1, cursor:"pointer", fontWeight:"bold" }}
                 >
                   ✓ CONFIRMAR Y GUARDAR
                 </button>
               </div>
 
-              {/* Indicador */}
-              {!sigDate && !mechName.trim() && (
-                <div style={{ fontSize:10, color:"#444", textAlign:"center", padding:"6px", borderRadius:6, border:"1px dashed #2f363b" }}>
-                  ① Seleccioná el mecánico  ② Confirmá
-                </div>
-              )}
-
-              {/* ── PANTALLA DE FINALIZACIÓN ── */}
-              {sigDate && mechName.trim() && (
+              {/* ── PANTALLA DE FINALIZACIÓN (solo tras el guardado confirmado: e502b9b) ── */}
+              {sigDate && (
                 <div style={{ marginTop:4 }}>
                   {/* Declaración principal */}
                   <div style={{ padding:"20px 16px", borderRadius:10, border:"2px solid #C8A96E60", background:"linear-gradient(180deg,#C8A96E0a 0%,#0B0B0D 100%)", textAlign:"center", marginBottom:14 }}>
@@ -5073,7 +5076,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                       "Confirmo que se ha realizado la lista de revisiones previas a la entrega"
                     </div>
                     <div style={{ fontSize:12, color:"#888", lineHeight:2 }}>
-                      <div>👤 <span style={{ color:"#e0d8cc", fontWeight:"bold" }}>{mechName}</span></div>
+                      <div>👤 <span style={{ color:"#e0d8cc", fontWeight:"bold" }}>{autorServicioActual}</span></div>
                       <div>🗓 <span style={{ color:"#ccc" }}>{sigDate}</span></div>
                       {plate && <div>🚗 Placa: <span style={{ color:"#ccc", letterSpacing:2 }}>{plate}</span></div>}
                       {model && <div>🔎 {model}</div>}
@@ -5130,7 +5133,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                           }
                           setAprobado(true);
                           setAprobadoPor(nombre);
-                          if (mechName) notifyPush([mechName], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
+                          if (autorServicioActual) notifyPush([autorServicioActual], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
                         }}
                           style={{ width:"100%", padding:"10px", borderRadius:6, border:"1px solid #4ade8040", background:"#4ade8010", color:"#4ade80", fontFamily:"monospace", fontSize:11, cursor:"pointer", letterSpacing:1, textAlign:"center" }}>
                           ✅ Revisión de aprobación — {session?.nombre || "—"}
