@@ -11,10 +11,11 @@ test("formatoFechaCR: hora de Costa Rica (UTC-6) con el formato de la columna", 
   assert.equal(formatoFechaCR("no es fecha"), null);
 });
 
-test("fechaServicioTexto: la columna si está; si no, created_at formateado igual", () => {
+test("fechaServicioTexto: la columna si está; si no, SOLO EL DÍA de created_at (decisión del dueño, 11/10)", () => {
   assert.equal(fechaServicioTexto({ fecha: "21/04/2026 15:27", created_at: "2026-04-22T00:00:00Z" }), "21/04/2026 15:27");
-  assert.equal(fechaServicioTexto({ fecha: null, created_at: "2026-10-03T19:05:00+00:00" }), "03/10/2026 13:05");
-  assert.equal(fechaServicioTexto({ fecha: "  ", created_at: "2026-10-03T19:05:00Z" }), "03/10/2026 13:05");
+  assert.equal(fechaServicioTexto({ fecha: null, created_at: "2026-10-03T19:05:00+00:00" }), "03/10/2026");
+  assert.equal(fechaServicioTexto({ fecha: "  ", created_at: "2026-10-03T19:05:00Z" }), "03/10/2026");
+  assert.equal(fechaServicioTexto({ created_at: "2026-10-09T03:10:00Z" }), "08/10/2026");
   assert.equal(fechaServicioTexto({}), null);
   assert.equal(fechaServicioCorta({ fecha: null, created_at: "2026-10-03T19:05:00Z" }), "03/10/2026");
 });

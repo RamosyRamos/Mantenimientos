@@ -417,12 +417,16 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
     // "FUERA DEL ASSYST" es la etiqueta legítima de los ítems fuera del ASSYST (RC y RG lo son).
     const sospechosos = [...t3.matchAll(/.{0,50}(aceite|ASSYST).{0,50}/gi)].map((m) => m[0].replace(/\s+/g, ' ')).filter((t) => !/FUERA DEL ASSYST/.test(t));
     if (sospechosos.length) errores.push('el paso 3 de la revisión menciona aceite o ASSYST: ' + JSON.stringify(sospechosos));
-    await clicTexto(/CONTINUAR → NOTAS Y FIRMA/, 'CONTINUAR → NOTAS Y FIRMA');
-    // Dictamen, mecánico y guardar
+    // feat/autor-sin-firma (8/10): ya no hay firma; el bloque se llama NOTAS Y CIERRE y el
+    // ENCARGADO es el de la sesión (no se elige).
+    await clicTexto(/CONTINUAR → NOTAS Y CIERRE/, 'CONTINUAR → NOTAS Y CIERRE');
+    // Dictamen, encargado y guardar
     const t4 = await page.evaluate(() => document.body.innerText);
     if (!/DICTAMEN DE REVISIÓN/.test(t4)) errores.push('no aparece el bloque DICTAMEN');
     await clicTexto(/^○/, 'la primera opción del dictamen');
-    await clicTexto(/^Gustavo Ramos$/, 'el mecánico responsable');
+    const encargado = await page.evaluate(() => document.querySelector('[data-encargado]')?.innerText || '');
+    if (!/Smoke Test/.test(encargado)) errores.push('el ENCARGADO no es el de la sesión: ' + JSON.stringify(encargado));
+    if (/Gustavo Ramos|Fabián Araya/.test(await page.evaluate(() => document.body.innerText))) errores.push('siguen los botones de la firma');
     await clicTexto(/CONFIRMAR Y GUARDAR/, 'CONFIRMAR Y GUARDAR');
     for (let i = 0; i < 60 && !posts.length; i++) await new Promise((r) => setTimeout(r, 100));
   } catch (e) { errores.push(`flujo: ${e.message}`); }
@@ -435,6 +439,9 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
     if (items.length !== tareas.length) errores.push(`revisiones con ${items.length} ítems, esperaba ${tareas.length}`);
     if (items.some((it) => it.status !== 'ok')) errores.push('hay ítems que no quedaron en ok: ' + JSON.stringify(items.filter((it) => it.status !== 'ok').map((it) => it.text)));
     if (!p.dictamen || !p.dictamen.recomendacion) errores.push('el POST no trae el dictamen');
+    // feat/autor-sin-firma: la fila nace con el encargado de la sesión y la fecha en su columna (dd/mm/aaaa hh:mm).
+    if (p.mecanico !== 'Smoke Test') errores.push('mecanico = ' + JSON.stringify(p.mecanico) + ', esperaba Smoke Test (el de la sesión)');
+    if (!/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(String(p.fecha || ''))) errores.push('fecha = ' + JSON.stringify(p.fecha) + ', esperaba dd/mm/aaaa hh:mm');
     if (p.aceite_litros != null || p.aceite_spec) errores.push(`el POST trae aceite (${p.aceite_litros} / ${p.aceite_spec}) y una revisión en un eléctrico no lleva`);
     if (p.progreso?.completadas !== tareas.length || p.progreso?.total !== tareas.length) errores.push(`progreso ${JSON.stringify(p.progreso)}`);
   }

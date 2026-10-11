@@ -18,7 +18,7 @@ import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from
 import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
 import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
 import { autorInicial, campoMecanico } from './lib/autorServicio.js';
-import { formatoFechaCR } from './lib/fechaServicio.js';
+import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -2115,6 +2115,7 @@ function MainApp({ session, onLogout }) {
   const [modoEdicionJefe, setModoEdicionJefe] = useState(false);
   const editadoPorRef = useRef(null);  // editado_por de la fila cargada (convención primer-editor, como Taller)
   const fechaFilaRef  = useRef("");    // fecha original de la fila (loadService limpia sigDate)
+  const creadaFilaRef = useRef("");    // created_at de la fila: respaldo de la fecha del informe si la columna está vacía
   const [saveNonce,     setSaveNonce]     = useState(0);  // reintento manual del autosave tras un conflicto
   const autoSaveTimer = useRef(null);
   const editingIdRef  = useRef(null);
@@ -2339,6 +2340,7 @@ function MainApp({ session, onLogout }) {
     setModoEdicionJefe(false);
     editadoPorRef.current = null;
     fechaFilaRef.current  = "";
+    creadaFilaRef.current = "";
   };
   // Limpia SOLO el estado ligado al vehículo y a la orden. El estado de un
   // vehículo nunca debe sobrevivir al servicio de otro: se llama antes de
@@ -2986,6 +2988,7 @@ function MainApp({ session, onLogout }) {
     setModoEdicionJefe(false);
     editadoPorRef.current = s.editado_por || null;
     fechaFilaRef.current  = s.fecha || "";
+    creadaFilaRef.current = s.created_at || "";
     registrarFilaVista(s);
     const act = ultimaActividad(s);
     setServicioIntro(act.at ? { ...act, mecanico: s.mecanico || "" } : null);
@@ -3689,7 +3692,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
     // Un aprobado reabierto no tiene sigDate (loadService la limpia): la fecha
     // del título sale de la fila original, nunca de la corrección.
-    let txt = `🔧 ${servicioTitulo} — ${sigDate || fechaFilaRef.current || ""}\n\n`;
+    // El encabezado lleva SOLO EL DÍA, igual que cuando aprueba Taller (decisión
+    // del dueño, 11/10): la columna si está (sigDate o la fila), si no created_at.
+    let txt = `🔧 ${servicioTitulo} — ${fechaServicioCorta({ fecha: sigDate || fechaFilaRef.current, created_at: creadaFilaRef.current }) || ""}\n\n`;
     txt += `Mecánico: ${autorServicioActual}\n`;
     txt += `Aprobado por: ${aprobadoPor}\n`;
     if (correccion) {
