@@ -452,6 +452,108 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
   return ok;
 }
 
+// Combustible según el vehículo (feat/combustible-desde-vehiculo, 12/10). Decisión de Tavo:
+// si el vehículo de la placa tiene combustible, el selector del paso 2 se autoselecciona y
+// queda bloqueado; sin dato queda libre; un servicio ya guardado con otro valor no se toca
+// y avisa. modo 'link' entra como desde Taller (?placa=&modelo=), llega al paso 2, elige el
+// código y devuelve las tareas del paso 3; modo 'borrador' abre ?servicio= y mira el aviso.
+const CAT_COMB = FILA_SELECTOR.categoria;
+async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', combVehiculo, manual = null, codigo = 'A3', esperado, bloqueado, fila = null, aviso = false }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  await page.setViewport({ width: 1280, height: 900 });
+  const errores = [];
+  const patches = [];
+  let tareas = [];
+  page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (!['error', 'warning'].includes(m.type())) return;
+    const txt = m.text();
+    if (IGNORAR.some((re) => re.test(txt)) || /keeping defaults/.test(txt)) return;
+    errores.push(`console.${m.type()}: ${txt.slice(0, 300)}`);
+  });
+  page.on('dialog', (d) => { errores.push(`dialog: ${d.message().slice(0, 200)}`); d.dismiss().catch(() => {}); });
+  const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+  const json = (body, status = 200) => ({ status, contentType: 'application/json', headers: CORS, body: JSON.stringify(body) });
+  const row = fila ? { id: SVC_ID, estado: 'borrador', aprobado: false, servicio_codigo: 'A3', placa: 'SMK010', modelo: CAT_COMB, mecanico: USUARIO.nombre, revisiones: null, observaciones: '', fotos: {}, created_at: new Date().toISOString(), ...fila } : null;
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const u = req.url();
+    if (u.startsWith(baseUrl)) return req.continue();
+    if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
+    if (SUPA && u.startsWith(SUPA)) {
+      if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(USUARIO));
+      if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR, FILA_EV]));
+      if (u.includes('/rest/v1/vehiculos?patente=eq.SMK010')) return req.respond(json([{ id: VEH_ID, modelo: CAT_COMB, combustible: combVehiculo }]));
+      if (row && u.includes(`/rest/v1/servicios?id=eq.${SVC_ID}`)) {
+        if (req.method() === 'PATCH') { const body = JSON.parse(req.postData() || '{}'); patches.push(body); return req.respond(json([{ ...row, ...body }])); }
+        return req.respond(json([row]));
+      }
+      if (u.includes('/functions/v1/resolver-aceite')) return req.respond(json(RESP.sinDato));
+      if (u.includes('/rest/v1/')) return req.respond(json([]));
+      return req.respond(json({}));
+    }
+    return req.respond({ status: 204, headers: CORS, body: '' });
+  });
+  await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, USUARIO);
+  const clic = async (re, desc) => {
+    const ok = await page.evaluate((src) => {
+      const r = new RegExp(src);
+      const b = [...document.querySelectorAll('button')].find((x) => r.test(x.textContent.trim()) && !x.disabled);
+      if (!b) return false; b.click(); return true;
+    }, re.source);
+    if (!ok) errores.push(`no encontré el botón ${desc}`);
+    await new Promise((r) => setTimeout(r, 350));
+  };
+  const selector = () => page.evaluate(() => ({
+    activo: document.querySelector('button[data-combustible][data-activo="1"]')?.dataset.combustible ?? null,
+    deshabilitados: [...document.querySelectorAll('button[data-combustible]')].filter((b) => b.disabled).length,
+    total: document.querySelectorAll('button[data-combustible]').length,
+    origen: document.querySelector('[data-combustible-bloqueado]')?.innerText ?? null,
+    aviso: document.querySelector('[data-combustible-aviso]')?.innerText ?? null,
+  }));
+  try {
+    if (modo === 'link') {
+      await page.goto(`${baseUrl}?placa=SMK010&modelo=${encodeURIComponent(CAT_COMB)}`, { waitUntil: 'networkidle0', timeout: 30000 });
+      await new Promise((r) => setTimeout(r, 900));          // el debounce de la placa (400 ms) + la lectura
+      await clic(/^CONTINUAR → TIPO DE SERVICIO$/, 'CONTINUAR → TIPO DE SERVICIO');
+    } else {
+      await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
+      await new Promise((r) => setTimeout(r, 900));
+      const a3 = await page.evaluate(() => document.querySelector('[data-combustible-aviso]')?.innerText ?? null);
+      if (aviso && !a3) errores.push('el paso 3 del borrador no muestra el aviso de la diferencia');
+      await clic(/editar$/, '✏️ editar');
+    }
+    const s = await selector();
+    if (s.total !== 3) errores.push(`el paso 2 no muestra los tres botones de combustible (${s.total})`);
+    if (bloqueado) {
+      if (s.deshabilitados !== 3) errores.push(`el selector no quedó bloqueado (${s.deshabilitados}/3 deshabilitados)`);
+      if (!/Según el vehículo/.test(s.origen || '')) errores.push('falta la línea "Según el vehículo · para corregir, editá el vehículo en Taller"');
+    } else {
+      if (s.deshabilitados !== 0) errores.push(`el selector quedó bloqueado y debía estar libre (${s.deshabilitados}/3)`);
+      if (s.origen) errores.push('muestra "Según el vehículo" sin estar bloqueado');
+    }
+    if (aviso !== !!s.aviso) errores.push(aviso ? 'falta el aviso de la diferencia en el paso 2' : `muestra un aviso sin motivo: ${s.aviso}`);
+    if (manual) { await page.click(`button[data-combustible="${manual}"]`); await new Promise((r) => setTimeout(r, 300)); }
+    const s2 = await selector();
+    if (s2.activo !== esperado) errores.push(`combustible seleccionado = ${s2.activo}, esperaba ${esperado}`);
+    if (modo === 'link') {
+      await clic(new RegExp(`^${codigo}$`), codigo);
+      await clic(/INICIAR INSPECCIÓN/, 'INICIAR INSPECCIÓN');
+      tareas = await page.evaluate(() => document.body.innerText.split('\n').map((l) => l.trim()).filter((l) => l.length > 12 && !/^(✓|✗|N\/A|—)/.test(l)));
+    } else {
+      await new Promise((r) => setTimeout(r, 3500));          // el autosave (2 s): no debe reescribir el combustible
+      const mal = patches.filter((p) => 'combustible' in p && p.combustible !== esperado);
+      if (mal.length) errores.push(`el autosave reescribió el combustible: ${JSON.stringify(mal.map((p) => p.combustible))}`);
+    }
+  } catch (e) { errores.push(`flujo: ${e.message}`); }
+  await context.close();
+  const ok = errores.length === 0;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (combustible ${esperado}${modo === 'link' ? ` · ${tareas.length} líneas en el paso 3` : ` · PATCH: ${patches.length}`})`);
+  for (const e of errores) console.log(`  - ${e}`);
+  return { ok, tareas };
+}
+
 let server, browser, code = 1;
 try {
   console.log('smoke: vite build…');
@@ -498,8 +600,21 @@ try {
   const rC = [];
   rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) de punta a punta: 21 tareas, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC }));
   rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión general (RG) de punta a punta: 19 tareas, dictamen y guardado', codigo: 'RG', tareas: TAREAS_RG }));
-  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) ? 0 : 1;
-  console.log(code === 0 ? 'smoke OK: la app carga sin errores en los doce escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
+  const rF = [];
+  const fGas  = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: vehículo gasolina por el link → autoseleccionado y bloqueado', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true });
+  const fDie  = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: vehículo diésel por el link → autoseleccionado y bloqueado', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true });
+  const fEle  = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: vehículo eléctrico por el link → bloqueado, serie EV', combVehiculo: 'electrico', esperado: 'electrico', bloqueado: true, codigo: 'AEV' });
+  const fSin  = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: vehículo sin dato → selector libre, gasolina por defecto', combVehiculo: null, esperado: 'gasolina', bloqueado: false });
+  const fRaro = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: valor desconocido ("hibrido") → selector libre', combVehiculo: 'hibrido', esperado: 'gasolina', bloqueado: false });
+  const mDie  = await escenarioCombustible(browser, baseUrl, { nombre: 'control: sin dato + Diesel a mano', combVehiculo: null, manual: 'diesel', esperado: 'diesel', bloqueado: false });
+  const mEle  = await escenarioCombustible(browser, baseUrl, { nombre: 'control: sin dato + Eléctrico a mano', combVehiculo: null, manual: 'electrico', esperado: 'electrico', bloqueado: false, codigo: 'AEV' });
+  const igual = (a, b, q) => { const ok = a.tareas.length > 0 && JSON.stringify(a.tareas) === JSON.stringify(b.tareas); console.log(`${ok ? 'PASS' : 'FAIL'}  combustible: el paso 3 con ${q} del vehículo es igual al de ${q} elegido a mano (${a.tareas.length} líneas)`); return ok; };
+  rF.push(fGas.ok, fDie.ok, fEle.ok, fSin.ok, fRaro.ok, mDie.ok, mEle.ok, igual(fDie, mDie, 'diésel'), igual(fEle, mEle, 'eléctrico'), igual(fGas, fSin, 'gasolina'));
+  if (JSON.stringify(fDie.tareas) === JSON.stringify(fGas.tareas)) { console.log('FAIL  combustible: diésel y gasolina dan el mismo paso 3 (el A3 debería cambiar)'); rF.push(false); }
+  rF.push((await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: borrador guardado con gasolina y vehículo diésel → se muestra gasolina, aviso, libre, sin reescribir', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'gasolina' }, esperado: 'gasolina', bloqueado: false, aviso: true })).ok);
+  rF.push((await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: borrador guardado con diésel y vehículo diésel → bloqueado, sin aviso', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'diesel' }, esperado: 'diesel', bloqueado: true })).ok);
+  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) ? 0 : 1;
+  console.log(code === 0 ? 'smoke OK: la app carga sin errores en todos los escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
   code = 1;
