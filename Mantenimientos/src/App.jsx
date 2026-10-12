@@ -19,6 +19,7 @@ import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esU
 import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
 import { autorInicial, campoMecanico } from './lib/autorServicio.js';
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
+import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from './lib/combustibleVehiculo.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -2063,6 +2064,30 @@ function MainApp({ session, onLogout }) {
   const [trelloStatus, setTrelloStatus] = useState("idle");
   const [trelloUrl, setTrelloUrl]       = useState("");
   const [clientUrl, setClientUrl]       = useState("");
+  // Combustible del VEHÍCULO de la placa (feat/combustible-desde-vehiculo, 12/10):
+  // con dato, el selector del paso 2 se autoselecciona y queda bloqueado. Un
+  // servicio abierto ya guardado con combustible (combGuardado) no se reescribe.
+  const [vehComb, setVehComb]           = useState({ placa: "", valor: null });
+  const [combGuardado, setCombGuardado] = useState(null);
+  const placaComb = (plate || "").trim().toUpperCase();
+  useEffect(() => {
+    if (placaComb.length < 3) { setVehComb({ placa: "", valor: null }); return; }
+    let vivo = true;
+    const t = setTimeout(() => {
+      loadVehiculoByPlaca(placaComb).then(veh => {
+        if (vivo) setVehComb({ placa: placaComb, valor: normalizarCombustible(veh?.combustible) });
+      });
+    }, 400);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [placaComb]);
+  const estComb = estadoCombustible({
+    combustibleVehiculo: vehComb.placa === placaComb ? vehComb.valor : null,
+    combustibleActual: fuel,
+    servicioExistente: combGuardado != null,
+  });
+  useEffect(() => {
+    if (estComb.autoseleccionar) setFuel(estComb.autoseleccionar);
+  }, [estComb.autoseleccionar]);
   const [ordenId,       setOrdenId]       = useState("");
   const [ordenNumero,   setOrdenNumero]   = useState("");
   const [ordenFalla,    setOrdenFalla]    = useState("");
@@ -2265,7 +2290,7 @@ function MainApp({ session, onLogout }) {
   const handleEngineChange = (e) => {
     const eng = availableEngines.find(x => x.name === e.target.value);
     setEngine(e.target.value);
-    if (eng && eng.fuel !== "electrico") setFuel(eng.fuel);
+    if (eng && eng.fuel !== "electrico" && !estComb.bloqueado) setFuel(eng.fuel);
     resetCorreccionAceite();
   };
   const handleModelChange = (e) => {
@@ -2336,6 +2361,7 @@ function MainApp({ session, onLogout }) {
     conflictoRef.current = false;
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
     setEstadoOriginal('borrador');   // arranca de cero: es un borrador nuevo
+    setCombGuardado(null);
     setAceiteFila(ACEITE_VACIO);
     setModoEdicionJefe(false);
     editadoPorRef.current = null;
@@ -2517,7 +2543,8 @@ function MainApp({ session, onLogout }) {
         if (veh.version)       setVehVersion(veh.version)
         if (veh.anio)          setVehAnio(String(veh.anio))
         if (veh.motor)         setEngine(veh.motor)
-        if (veh.combustible)   setFuel(veh.combustible)
+        const comb = normalizarCombustible(veh.combustible)
+        if (comb)              setFuel(comb)
       }).catch(() => {})
     }
     // step intentionally NOT changed — mechanic must verify and fill kilometraje first
@@ -3008,6 +3035,8 @@ function MainApp({ session, onLogout }) {
     setModel(modelo); setModelSearch(modelo);
     setEngine(motor); setPlate(placa); setKm(km);
     setFuel(combustible); setIs4m(traccion === "4MATIC");
+    // Lo guardado manda sobre el vehículo: si difiere se avisa, no se cambia.
+    setCombGuardado(v.combustible || s.combustible || null);
     // ?? y no ||: si la fila tiene null, el campo queda VACÍO — no debe
     // conservarse el año/versión del vehículo que estaba antes en memoria.
     setVehAnio(s.anio ?? "");
@@ -4172,7 +4201,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                             setModelSearch(entry.display);
                             setVehVersion(entry.version);
                             setEngine(entry.motor);
-                            setFuel(entry.combustible);
+                            if (!estComb.bloqueado) setFuel(entry.combustible);
                             setModelOpen(false);
                           }}
                           style={{ padding:"7px 12px", cursor:"pointer", borderBottom:`1px solid ${line}20`, fontSize:11, display:"flex", alignItems:"center", gap:8, color:engine===entry.motor&&model===entry.categoria?"#C8A96E":"#ccc", background:engine===entry.motor&&model===entry.categoria?"#C8A96E08":"transparent" }}
@@ -4479,13 +4508,15 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             {[["gasolina","⛽ Gasolina"],["diesel","🛢️ Diesel"],["electrico","⚡ Eléctrico"]].map(([v,lbl])=>{
               const acc = v === "electrico" ? "#4ade80" : "#C8A96E";
               return (
-                <button key={v} onClick={()=>setFuel(v)}
-                  style={{ flex:1, padding:"10px 4px", borderRadius:6, border:`1px solid ${fuel===v?acc+"60":line}`, background:fuel===v?acc+"15":"transparent", color:fuel===v?acc:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:fuel===v?"bold":"normal" }}>
+                <button key={v} onClick={()=>setFuel(v)} disabled={estComb.bloqueado} data-combustible={v} data-activo={fuel===v?"1":"0"}
+                  style={{ flex:1, padding:"10px 4px", borderRadius:6, border:`1px solid ${fuel===v?acc+"60":line}`, background:fuel===v?acc+"15":"transparent", color:fuel===v?acc:"#555", fontFamily:"monospace", fontSize:11, cursor:estComb.bloqueado?"not-allowed":"pointer", fontWeight:fuel===v?"bold":"normal", opacity:estComb.bloqueado&&fuel!==v?0.4:1 }}>
                   {lbl}
                 </button>
               );
             })}
           </div>
+          {estComb.bloqueado && <div data-combustible-bloqueado style={{ marginTop:6, fontSize:10, color:"#888" }}>🔒 {TEXTO_SEGUN_VEHICULO}</div>}
+          {estComb.aviso && <div data-combustible-aviso style={{ marginTop:6, fontSize:10, color:"#d97706" }}>⚠ {estComb.aviso}</div>}
         </div>
 
         {/* 4MATIC */}
@@ -4685,6 +4716,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
         </div>
+        {estComb.aviso && <div data-combustible-aviso style={{ marginTop:6, fontSize:10, color:"#d97706" }}>⚠ {estComb.aviso}</div>}
         {aceite.litros > 0 && (
           <div data-aceite-paso3 style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>
             <span style={{ fontSize:14 }}>🛢️</span>
