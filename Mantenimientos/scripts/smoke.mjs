@@ -582,6 +582,17 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
     } else {
       await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
       await new Promise((r) => setTimeout(r, 900));
+      if (recetasCaidas) {
+        // La apertura por ?servicio= ESPERA las recetas: con la lectura caída el error
+        // (con Reintentar) tiene que verse ya en el paso 1, y al reintentar se abre el servicio.
+        const e = await page.evaluate(() => ({ estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null, paso1: document.body.innerText.includes('PASO 1') }));
+        if (e.estado !== 'error') errores.push(`recetas caídas con ?servicio=: el paso 1 no muestra el error (${e.estado})`);
+        if (!e.paso1) errores.push('recetas caídas con ?servicio=: no se quedó en el paso 1');
+        await page.click('button[data-accion="reintentar-recetas"]').catch(() => errores.push('no está el botón Reintentar en el paso 1'));
+        await new Promise((r) => setTimeout(r, 1200));
+        const e2 = await page.evaluate(() => ({ estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null, paso1: document.body.innerText.includes('PASO 1') }));
+        if (e2.estado || e2.paso1) errores.push(`tras Reintentar no se abrió el servicio (${JSON.stringify(e2)})`);
+      }
       const a3 = await page.evaluate(() => document.querySelector('[data-combustible-aviso]')?.innerText ?? null);
       if (aviso && !a3) errores.push('el paso 3 del borrador no muestra el aviso de la diferencia');
       await clic(/editar$/, '✏️ editar');
@@ -599,7 +610,7 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
     if (manual) { await page.click(`button[data-combustible="${manual}"]`); await new Promise((r) => setTimeout(r, 300)); }
     const s2 = await selector();
     if (s2.activo !== esperado) errores.push(`combustible seleccionado = ${s2.activo}, esperaba ${esperado}`);
-    if (recetasCaidas) {
+    if (recetasCaidas && modo === 'link') {
       // Falla cerrado: error con Reintentar, sin códigos, INICIAR deshabilitado; Reintentar recupera.
       const e = await page.evaluate(() => ({
         estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null,
@@ -724,6 +735,7 @@ try {
   rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: código diésel (BD) deshabilitado con 🔒 en un gasolina', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'A', candado: 'BD' })).ok);
   rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: código gasolina (BF) deshabilitado con 🔒 en un diésel', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true, codigo: 'A', candado: 'BF' })).ok);
   rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: la lectura de recetas falla → error con Reintentar, sin códigos ni INICIAR; Reintentar las carga', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'A', recetasCaidas: true })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: con ?servicio= y la lectura caída, el paso 1 muestra el error con Reintentar y al reintentar se abre el servicio', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'diesel' }, esperado: 'diesel', bloqueado: true, recetasCaidas: true })).ok);
   code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) && rR.every(Boolean) ? 0 : 1;
   console.log(code === 0 ? 'smoke OK: la app carga sin errores en todos los escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {

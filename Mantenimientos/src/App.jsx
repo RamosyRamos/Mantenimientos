@@ -1855,7 +1855,7 @@ function MainApp({ session, onLogout }) {
   // servicio abierto ya guardado con combustible (combGuardado) no se reescribe.
   const [vehComb, setVehComb]           = useState({ placa: "", valor: null });
   const [combGuardado, setCombGuardado] = useState(null);
-  const [tracGuardada, setTracGuardada] = useState(null);   // tracción de la fila cargada (manda sobre el vehículo)
+  const [tracGuardada, setTracGuardada] = useState(null);   // tracción de la fila cargada (manda sobre el vehículo); "" = cargada sin tracción guardada
   const placaComb = (plate || "").trim().toUpperCase();
   useEffect(() => {
     if (placaComb.length < 3) { setVehComb({ placa: "", valor: null }); return; }
@@ -2108,7 +2108,7 @@ function MainApp({ session, onLogout }) {
   const congeladoChecklist = estadoOriginal !== 'borrador' && itemsGuardados && itemsGuardados.size > 0;
   const tasks        = buildTasks(sel, fuel, is4m, activeCodes, activeItems, { adicionales, soloItems: congeladoChecklist ? itemsGuardados : null });
   // Las casillas de adicionales que corresponden a este código y vehículo.
-  const adicOfrecidos = adicionalesOfrecidos(svc, { fuel, is4m });
+  const adicOfrecidos = adicionalesOfrecidos(activeCodes[sel], { fuel, is4m });   // sin código (o sin recetas), ninguno
   const alternarAdicional = (k) => setAdicionales(p => ({ ...p, [k]: !p[k], legado: false }));
   // Candado de combustible (decisión 5): el combustible ya no se puede cambiar a mano.
   const fuelFijo = estComb.bloqueado || combGuardado != null;
@@ -2413,6 +2413,9 @@ function MainApp({ session, onLogout }) {
     if (!ordenId) return;
     if (!pendingDrafts.length) return;
     if (editingId) return; // already loaded a draft, don't double-load
+    // Espera al catálogo, como la apertura por ?servicio=: sin recetas el
+    // checklist sale vacío (y con la lectura caída quedaría así, sin explicación).
+    if (!recetasReady) return;
 
     const exactMatch = pendingDrafts.find(d => d.orden_id === ordenId);
     if (exactMatch) {
@@ -2426,7 +2429,7 @@ function MainApp({ session, onLogout }) {
     if (samePlacaDifferentOrden.length > 0) {
       setDifferentOrdenPrompt({ drafts: samePlacaDifferentOrden, currentOrden: ordenNumero });
     }
-  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId, recetasReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ¿El ítem lo marcó alguien distinto del mecánico de la orden? Ese es el caso
   // que interesa mostrar: la intervención de un jefe sobre el checklist ajeno.
@@ -2868,7 +2871,10 @@ function MainApp({ session, onLogout }) {
     setFuel(combustible); setIs4m(traccion === "4MATIC");
     // Lo guardado manda sobre el vehículo: si difiere se avisa, no se cambia.
     setCombGuardado(v.combustible || s.combustible || null);
-    setTracGuardada(traccion || null);
+    // "" y no null: una fila sin tracción guardada también es un servicio
+    // existente, y en uno existente el 4MATIC del vehículo solo avisa (si se
+    // tratara como nuevo, se prendería solo y el modo edición lo reescribiría).
+    setTracGuardada(traccion || "");
     if (!revisiones) { setAdicionales(SIN_ADICIONALES); setItemsGuardados(null); }
     // ?? y no ||: si la fila tiene null, el campo queda VACÍO — no debe
     // conservarse el año/versión del vehículo que estaba antes en memoria.
@@ -3216,6 +3222,27 @@ function MainApp({ session, onLogout }) {
       <span style={{ flex:1 }}>{deepLinkMsg.tipo === 'error' ? '⚠️ ' : 'ℹ️ '}{deepLinkMsg.texto}</span>
       <button onClick={() => setDeepLinkMsg(null)}
         style={{ background:"transparent", border:"none", color:"inherit", fontSize:13, cursor:"pointer", lineHeight:1, padding:0 }}>✕</button>
+    </div>
+  ) : null;
+
+  // Recetas (feat/recetas-astra): sin mant_recetas + mant_items la app falla
+  // cerrado. En el paso 2 el aviso vive junto a los códigos; este es el de los
+  // pasos 1 y 3, porque ahí también se espera a las recetas: la apertura por
+  // ?servicio= no avanza sin ellas, y un borrador abierto desde la lista muestra
+  // el checklist vacío hasta que lleguen. Ninguna de las dos esperas puede quedar
+  // muda. En el paso 1 solo el error (cargar tarda un instante); en el 3 también
+  // el "Cargando…".
+  const recetasBanner = (!recetasReady && step !== 2 && (recetasError || step === 3)) ? (
+    <div data-recetas-estado={recetasError ? "error" : "cargando"} style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, fontFamily:"monospace", fontSize:11, lineHeight:1.6,
+      border:`1px solid ${recetasError ? '#f8717150' : line}`, background: recetasError ? '#1a0808' : 'transparent', color: recetasError ? '#f87171' : '#888',
+      display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+      <span style={{ flex:1, minWidth:0 }}>{recetasError ? `⚠ ${recetasError} Sin recetas no se puede iniciar ni continuar un servicio.` : "Cargando las recetas…"}</span>
+      {recetasError && (
+        <button data-accion="reintentar-recetas" onClick={() => setRecetasNonce(n => n + 1)}
+          style={{ padding:"7px 12px", borderRadius:6, border:"1px solid #f87171", background:"transparent", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+          Reintentar
+        </button>
+      )}
     </div>
   ) : null;
 
@@ -3971,6 +3998,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {completedPanel}
       {borradoresPanel}
       {deepLinkBanner}
+      {recetasBanner}
       {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
@@ -4571,6 +4599,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {completedPanel}
       {borradoresPanel}
       {deepLinkBanner}
+      {recetasBanner}
       {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
