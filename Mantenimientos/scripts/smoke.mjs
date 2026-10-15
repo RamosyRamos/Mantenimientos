@@ -35,6 +35,47 @@ const TEXTO_LOGIN_CORREO = 'Ingresá tu correo';
 const CLAVE_CANAL_LOGIN = 'ryr_login_canal';   // = authOtp.CLAVE_CANAL_LOGIN
 const EMAIL_PRUEBA = 'Smoke.Test@RamosyRamosCR.com';
 
+// Recetas e ítems como en la base (14/10, feat/recetas-astra): mant_recetas + mant_items
+// son la ÚNICA fuente; sin ellas la app falla cerrado. Recortadas a lo que usan los
+// escenarios.
+const T_GLOW_TEST = 'Prueba de las bujías de precalentamiento con XENTRY, sin desmontar';
+const T_GLOW_0 = 'Extracción de bujías de precalentamiento';
+const T_4M_INSP = 'Inspección de fugas en diferenciales delantero y trasero y caja de transferencia';
+const T_4M_DIFF = 'Drenaje del aceite del diferencial trasero';
+const RECETAS_SMOKE = [
+  { codigo: 'A',   serie: 'A',  descripcion: 'Inspección menor + aceite', items: ['1', '3'], orden: 1, color: '#C8A96E', fuel_lock: null },
+  { codigo: 'A3',  serie: 'A',  descripcion: 'A + filtro aire + combustible/bujías', items: ['1', '3', '8', 'FUEL'], orden: 5, color: '#B88A00', fuel_lock: null },
+  { codigo: 'B',   serie: 'B',  descripcion: 'Inspección mayor + aceite + filtro habitáculo', items: ['2', '3'], orden: 1, color: '#7EB8F7', fuel_lock: null },
+  { codigo: 'BD',  serie: 'B',  descripcion: 'B + filtro aire + combustible + ATF', items: ['2', '3', '8', '11', '20', '19'], orden: 13, color: '#4878B8', fuel_lock: 'diesel' },
+  { codigo: 'BF',  serie: 'B',  descripcion: 'B + frenos + filtro aire + bujías + ATF', items: ['2', '3', '4', '8', '12', '20'], orden: 15, color: '#B88A00', fuel_lock: 'gasolina' },
+  { codigo: 'RC',  serie: 'C',  descripcion: 'Revisión de Compra', items: ['RC'], orden: 1, color: '#C9CDD2', fuel_lock: null },
+  { codigo: 'RG',  serie: 'C',  descripcion: 'Revisión General', items: ['RG_PTS'], orden: 2, color: '#C9CDD2', fuel_lock: null },
+  { codigo: 'AEV', serie: 'EV', descripcion: 'Servicio A Eléctrico', items: ['EV_A'], orden: 1, color: '#4ade80', fuel_lock: 'electrico' },
+];
+const ITEMS_SMOKE_BASE = [
+  { clave: '1', label: 'Inspección A (menor)', icon: '🔍', orden: 1, out_of_assyst: false, tasks: ['Inspección menor del vehículo completo'] },
+  { clave: '2', label: 'Inspección B (mayor)', icon: '🔍', orden: 2, out_of_assyst: false, tasks: ['Inspección mayor del vehículo completo'] },
+  { clave: '3', label: 'Aceite y filtro de motor', icon: '🛢️', orden: 3, out_of_assyst: false, tasks: ['Cambio de aceite y filtro de motor'] },
+  { clave: '4', label: 'Líquido de frenos', icon: '🛑', orden: 4, out_of_assyst: false, tasks: ['Cambio del líquido de frenos'] },
+  { clave: '8', label: 'Filtro de aire del motor', icon: '🌀', orden: 5, out_of_assyst: false, tasks: ['Instalación del filtro de aire nuevo'] },
+  { clave: '11', label: 'Filtro de combustible — Diesel', icon: '⛽', orden: 7, out_of_assyst: false, tasks: ['Instalación del filtro de combustible nuevo'] },
+  { clave: '12', label: 'Bujías de encendido — gasolina', icon: '⚡', orden: 8, out_of_assyst: false, tasks: ['Instalación de bujías nuevas con torque especificado'] },
+  { clave: '19', label: 'Inspeccion de DPF', icon: '💨', orden: 11, out_of_assyst: false, tasks: ['Inspección del estado del filtro de partículas (DPF) con escáner'] },
+  { clave: '20', label: 'Caja automática ATF', icon: '🔧', orden: 11, out_of_assyst: false, tasks: ['Carga de aceite ATF — especificación MB aprobada'] },
+  { clave: 'GLOW', label: 'Bujías de precalentamiento — Solo diesel', icon: '🌡️', orden: 13, out_of_assyst: true, tasks: ['~' + T_GLOW_0, 'Verificación con Star Diagnosis (test de precalentamiento)'] },
+  { clave: 'GLOW_TEST', label: 'Prueba de bujías de precalentamiento', icon: '🌡️', orden: 13, out_of_assyst: true, tasks: [T_GLOW_TEST] },
+  { clave: '4M_DIFF', label: 'Diferencial trasero 4MATIC', icon: '🔩', orden: 14, out_of_assyst: true, tasks: [T_4M_DIFF] },
+  { clave: '4M_INSP', label: 'Inspección de diferenciales 4MATIC', icon: '🔩', orden: 14, out_of_assyst: true, tasks: [T_4M_INSP] },
+  { clave: '4M_FDIFF', label: 'Diferencial delantero 4MATIC', icon: '🔩', orden: 15, out_of_assyst: true, tasks: ['Drenaje del aceite del diferencial delantero si aplica'] },
+  { clave: 'EV_A', label: 'Inspección A Eléctrico (menor EV)', icon: '⚡', orden: 30, out_of_assyst: false, tasks: ['Cambio de filtro de habitáculo'] },
+];
+// Responde mant_recetas / mant_items; null si la URL no es de recetas.
+function respuestaRecetas(u, json, { fallar = false } = {}) {
+  if (u.includes('/rest/v1/mant_recetas')) return fallar ? json({ message: 'caida' }, 503) : json(RECETAS_SMOKE);
+  if (u.includes('/rest/v1/mant_items')) return fallar ? json({ message: 'caida' }, 503) : json(ITEMS_SMOKE);
+  return null;
+}
+
 function sembrarSesion() {
   return (REF, UID, USUARIO) => {
     const exp = Math.floor(Date.now() / 1000) + 86400;
@@ -79,6 +120,8 @@ async function escenario(browser, baseUrl, { nombre, conSesion, versionNueva = f
       const auth = u.match(/\/auth\/v1\/(otp|verify)\b/);
       if (auth) { try { authBodies[auth[1]] = JSON.parse(req.postData() || '{}'); } catch { authBodies[auth[1]] = {}; } }
       if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(JSON.stringify(USUARIO)));
+      const rr = respuestaRecetas(u, (b, st) => json(JSON.stringify(b), st));
+      if (rr) return req.respond(rr);
       if (u.includes('/rest/v1/')) return req.respond(json('[]'));
       return req.respond(json('{}'));
     }
@@ -230,6 +273,7 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
       }
       if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(usuario));
       if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR]));
+      { const rr = respuestaRecetas(u, json); if (rr) return req.respond(rr); }
       if (u.includes('/rest/v1/vehiculos?patente=eq.SMK001')) return req.respond(json([{ id: VEH_ID }]));
       if (u.includes(`/rest/v1/servicios?id=eq.${SVC_ID}`)) {
         if (req.method() === 'PATCH') {
@@ -318,13 +362,27 @@ const TAREAS_RC = [
   'Revisión de escobillas limpiaparabrisas y lavadores', 'Prueba de batería con analizador (estado de salud y carga)', 'Escaneo completo de fallas (Star Diagnosis)',
   'Prueba de ruta: caja, dirección, frenado y ruidos',
 ];
+// feat/recetas-astra (decisión 8): en un ELÉCTRICO, RC usa RC_EV y RG usa RG_EV (sin
+// escape ni faja, con alta tensión, puerto de carga y refrigeración). Textos de la base.
+const EV_HV = 'Inspección visual del compartimento delantero y de los componentes de alta tensión (cables naranja, conectores)';
+const EV_SOP = 'Revisión de soportes del motor eléctrico / eATS';
+const EV_MAS = ['Puerto y cable de carga: estado y prueba de carga', 'Lectura del estado de la batería HV con XENTRY (anotar valor y método)', 'Circuitos de refrigeración de batería y motor eléctrico: nivel y fugas'];
+const aEV = (lista) => lista
+  .filter((t) => !/sistema de escape|faja de accesorios/.test(t))
+  .map((t) => t === 'Inspección visual del motor — fugas, correas, mangueras' ? EV_HV : t === 'Revisión de soportes de motor y transmisión' ? EV_SOP : t)
+  .concat(EV_MAS);
+const TAREAS_RC_EV = aEV(TAREAS_RC);
+const TAREAS_RG_EV = aEV(TAREAS_RG);
 const ITEMS_C = [
   { clave: '1', label: 'Inspección A (menor)', icon: '🔍', orden: 1, out_of_assyst: false, tasks: ['Inspección menor'] },
   { clave: '3', label: 'Aceite y filtro de motor', icon: '🛢️', orden: 3, out_of_assyst: false, tasks: ['Cambio de aceite y filtro'] },
   { clave: 'RC', label: 'Revisión de compra', icon: '📋', orden: 90, out_of_assyst: true, tasks: TAREAS_RC },
   { clave: 'RG_PTS', label: 'Revisión general', icon: '📋', orden: 91, out_of_assyst: true, tasks: TAREAS_RG },
+  { clave: 'RC_EV', label: 'Revisión de compra — eléctrico', icon: '🔍', orden: 100, out_of_assyst: true, tasks: TAREAS_RC_EV },
+  { clave: 'RG_EV', label: 'Revisión general — eléctrico', icon: '🩺', orden: 98, out_of_assyst: true, tasks: TAREAS_RG_EV },
   { clave: 'EV_A', label: 'Inspección A Eléctrico (menor EV)', icon: '⚡', orden: 95, out_of_assyst: false, tasks: ['Cambio de filtro de habitáculo'] },
 ];
+const ITEMS_SMOKE = [...ITEMS_SMOKE_BASE, ...ITEMS_C.filter((i) => !ITEMS_SMOKE_BASE.some((b) => b.clave === i.clave))];
 
 async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, usuario = USUARIO }) {
   const context = await browser.createBrowserContext();
@@ -414,6 +472,7 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
     }
     const t3 = await page.evaluate(() => document.body.innerText);
     for (const t of tareas) if (!t3.includes(t)) errores.push(`falta la tarea "${t}"`);
+    for (const t of ['Inspección de sistema de escape', 'Inspección de faja de accesorios']) if (t3.includes(t)) errores.push(`un eléctrico muestra "${t}"`);
     // "FUERA DEL ASSYST" es la etiqueta legítima de los ítems fuera del ASSYST (RC y RG lo son).
     const sospechosos = [...t3.matchAll(/.{0,50}(aceite|ASSYST).{0,50}/gi)].map((m) => m[0].replace(/\s+/g, ' ')).filter((t) => !/FUERA DEL ASSYST/.test(t));
     if (sospechosos.length) errores.push('el paso 3 de la revisión menciona aceite o ASSYST: ' + JSON.stringify(sospechosos));
@@ -458,7 +517,9 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
 // y avisa. modo 'link' entra como desde Taller (?placa=&modelo=), llega al paso 2, elige el
 // código y devuelve las tareas del paso 3; modo 'borrador' abre ?servicio= y mira el aviso.
 const CAT_COMB = FILA_SELECTOR.categoria;
-async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', combVehiculo, manual = null, codigo = 'A3', esperado, bloqueado, fila = null, aviso = false }) {
+async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', combVehiculo, manual = null, codigo = 'A3', esperado, bloqueado, fila = null, aviso = false,
+  es4matic = false, adicional = null, presentes = [], ausentes = [], cuatroMatic = null, candado = null, recetasCaidas = false }) {
+  let intentosRecetas = 0;
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   await page.setViewport({ width: 1280, height: 900 });
@@ -484,12 +545,13 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
     if (SUPA && u.startsWith(SUPA)) {
       if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(USUARIO));
       if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR, FILA_EV]));
+      { const rr = respuestaRecetas(u, json, { fallar: recetasCaidas && intentosRecetas++ < 2 }); if (rr) return req.respond(rr); }
       if (u.includes('/rest/v1/vehiculos?patente=eq.SMK010')) return req.respond(json([{ id: VEH_ID, modelo: CAT_COMB, combustible: combVehiculo }]));
       if (row && u.includes(`/rest/v1/servicios?id=eq.${SVC_ID}`)) {
         if (req.method() === 'PATCH') { const body = JSON.parse(req.postData() || '{}'); patches.push(body); return req.respond(json([{ ...row, ...body }])); }
         return req.respond(json([row]));
       }
-      if (u.includes('/functions/v1/resolver-aceite')) return req.respond(json(RESP.sinDato));
+      if (u.includes('/functions/v1/resolver-aceite')) return req.respond(json({ ...RESP.sinDato, traccion: { es_4matic: es4matic ? true : null, origen: es4matic ? 'tarjeta' : null, etiqueta: null } }));
       if (u.includes('/rest/v1/')) return req.respond(json([]));
       return req.respond(json({}));
     }
@@ -520,6 +582,17 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
     } else {
       await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
       await new Promise((r) => setTimeout(r, 900));
+      if (recetasCaidas) {
+        // La apertura por ?servicio= ESPERA las recetas: con la lectura caída el error
+        // (con Reintentar) tiene que verse ya en el paso 1, y al reintentar se abre el servicio.
+        const e = await page.evaluate(() => ({ estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null, paso1: document.body.innerText.includes('PASO 1') }));
+        if (e.estado !== 'error') errores.push(`recetas caídas con ?servicio=: el paso 1 no muestra el error (${e.estado})`);
+        if (!e.paso1) errores.push('recetas caídas con ?servicio=: no se quedó en el paso 1');
+        await page.click('button[data-accion="reintentar-recetas"]').catch(() => errores.push('no está el botón Reintentar en el paso 1'));
+        await new Promise((r) => setTimeout(r, 1200));
+        const e2 = await page.evaluate(() => ({ estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null, paso1: document.body.innerText.includes('PASO 1') }));
+        if (e2.estado || e2.paso1) errores.push(`tras Reintentar no se abrió el servicio (${JSON.stringify(e2)})`);
+      }
       const a3 = await page.evaluate(() => document.querySelector('[data-combustible-aviso]')?.innerText ?? null);
       if (aviso && !a3) errores.push('el paso 3 del borrador no muestra el aviso de la diferencia');
       await clic(/editar$/, '✏️ editar');
@@ -537,10 +610,48 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
     if (manual) { await page.click(`button[data-combustible="${manual}"]`); await new Promise((r) => setTimeout(r, 300)); }
     const s2 = await selector();
     if (s2.activo !== esperado) errores.push(`combustible seleccionado = ${s2.activo}, esperaba ${esperado}`);
+    if (recetasCaidas && modo === 'link') {
+      // Falla cerrado: error con Reintentar, sin códigos, INICIAR deshabilitado; Reintentar recupera.
+      const e = await page.evaluate(() => ({
+        estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null,
+        codigos: document.querySelectorAll('button.svc-btn').length,
+        iniciar: [...document.querySelectorAll('button')].find((x) => /INICIAR INSPECCIÓN/.test(x.textContent))?.disabled ?? null,
+      }));
+      if (e.estado !== 'error') errores.push(`recetas caídas: no muestra el error (${e.estado})`);
+      if (e.codigos !== 0) errores.push(`recetas caídas: ofrece ${e.codigos} códigos (debería ninguno)`);
+      if (e.iniciar !== true) errores.push('recetas caídas: INICIAR INSPECCIÓN no está deshabilitado');
+      await page.click('button[data-accion="reintentar-recetas"]').catch(() => errores.push('no está el botón Reintentar'));
+      await new Promise((r) => setTimeout(r, 500));
+      const e2 = await page.evaluate(() => ({ estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null, codigos: document.querySelectorAll('button.svc-btn').length }));
+      if (e2.estado || e2.codigos === 0) errores.push(`tras Reintentar no cargaron las recetas (${JSON.stringify(e2)})`);
+    }
+    if (candado) {
+      const c = await page.evaluate((k) => { const b = document.querySelector(`button[data-codigo="${k}"]`); return b ? { dis: b.disabled, txt: b.textContent } : null; }, candado);
+      if (!c) errores.push(`no está el botón del código ${candado}`);
+      else if (!c.dis || !/🔒/.test(c.txt)) errores.push(`el código ${candado} no quedó deshabilitado con 🔒 (${JSON.stringify(c)})`);
+    }
+    if (cuatroMatic) {
+      const q = await page.evaluate(() => ({ on: document.querySelector('button[data-4matic]')?.dataset['4matic'] ?? null, bloq: document.querySelector('button[data-4matic]')?.disabled ?? null, txt: document.querySelector('[data-4matic-segun-vehiculo]')?.innerText ?? null }));
+      if (q.on !== (cuatroMatic.on ? '1' : '0')) errores.push(`4MATIC = ${q.on}, esperaba ${cuatroMatic.on ? '1' : '0'}`);
+      if (q.bloq !== cuatroMatic.bloqueado) errores.push(`4MATIC bloqueado = ${q.bloq}, esperaba ${cuatroMatic.bloqueado}`);
+      if (cuatroMatic.bloqueado && !/Según el vehículo/.test(q.txt || '')) errores.push('4MATIC bloqueado sin la línea "Según el vehículo"');
+    }
     if (modo === 'link') {
       await clic(new RegExp(`^${codigo}$`), codigo);
+      if (adicional) {
+        const hay = await page.evaluate((k) => !!document.querySelector(`[data-adicional="${k}"] input`), adicional);
+        if (!hay) errores.push(`no está la casilla del adicional ${adicional}`);
+        else {
+          const marcada = await page.evaluate((k) => document.querySelector(`[data-adicional="${k}"] input`).checked, adicional);
+          if (marcada) errores.push(`la casilla ${adicional} vino marcada (debe arrancar apagada)`);
+          await page.click(`[data-adicional="${adicional}"] input`); await new Promise((r) => setTimeout(r, 200));
+        }
+      }
       await clic(/INICIAR INSPECCIÓN/, 'INICIAR INSPECCIÓN');
       tareas = await page.evaluate(() => document.body.innerText.split('\n').map((l) => l.trim()).filter((l) => l.length > 12 && !/^(✓|✗|N\/A|—)/.test(l)));
+      const t3 = tareas.join('\n');
+      for (const t of presentes) if (!t3.includes(t)) errores.push(`el paso 3 no tiene "${t}"`);
+      for (const t of ausentes) if (t3.includes(t)) errores.push(`el paso 3 tiene "${t}" y no debía`);
     } else {
       await new Promise((r) => setTimeout(r, 3500));          // el autosave (2 s): no debe reescribir el combustible
       const mal = patches.filter((p) => 'combustible' in p && p.combustible !== esperado);
@@ -598,8 +709,8 @@ try {
     esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true, sinPatch: true, sinResolver: true, ausentes: ['6 L'],
   }));
   const rC = [];
-  rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) de punta a punta: 21 tareas, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC }));
-  rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión general (RG) de punta a punta: 19 tareas, dictamen y guardado', codigo: 'RG', tareas: TAREAS_RG }));
+  rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) con RC_EV de punta a punta: 22 tareas, sin escape ni faja, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC_EV }));
+  rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión general (RG) con RG_EV de punta a punta: 20 tareas, sin escape ni faja, dictamen y guardado', codigo: 'RG', tareas: TAREAS_RG_EV }));
   const rF = [];
   const fGas  = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: vehículo gasolina por el link → autoseleccionado y bloqueado', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true });
   const fDie  = await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: vehículo diésel por el link → autoseleccionado y bloqueado', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true });
@@ -613,7 +724,19 @@ try {
   if (JSON.stringify(fDie.tareas) === JSON.stringify(fGas.tareas)) { console.log('FAIL  combustible: diésel y gasolina dan el mismo paso 3 (el A3 debería cambiar)'); rF.push(false); }
   rF.push((await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: borrador guardado con gasolina y vehículo diésel → se muestra gasolina, aviso, libre, sin reescribir', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'gasolina' }, esperado: 'gasolina', bloqueado: false, aviso: true })).ok);
   rF.push((await escenarioCombustible(browser, baseUrl, { nombre: 'combustible: borrador guardado con diésel y vehículo diésel → bloqueado, sin aviso', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'diesel' }, esperado: 'diesel', bloqueado: true })).ok);
-  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) ? 0 : 1;
+  // feat/recetas-astra (13-14/10): agregados automáticos, adicionales, 4MATIC del vehículo,
+  // candado de combustible y recetas que fallan cerradas.
+  const rR = [];
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: diésel A → GLOW_TEST (la prueba) y SIN GLOW; la casilla de bujías arranca apagada', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true, codigo: 'A', presentes: [T_GLOW_TEST], ausentes: [T_GLOW_0] })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: diésel A + casilla "Cambio de bujías de precalentamiento" → suma GLOW', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true, codigo: 'A', adicional: 'glow', presentes: [T_GLOW_TEST, T_GLOW_0] })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: vehículo 4MATIC (tarjeta) → interruptor prendido y bloqueado, 4M_INSP sin el cambio de diferenciales', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'B', es4matic: true, cuatroMatic: { on: true, bloqueado: true }, presentes: [T_4M_INSP], ausentes: [T_4M_DIFF] })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: 4MATIC + casilla "Cambio de aceite de diferenciales" → suma 4M_DIFF', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'B', es4matic: true, adicional: 'diferenciales', cuatroMatic: { on: true, bloqueado: true }, presentes: [T_4M_INSP, T_4M_DIFF] })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: sin dato de 4MATIC → interruptor libre y apagado', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'B', cuatroMatic: { on: false, bloqueado: false }, ausentes: [T_4M_INSP] })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: código diésel (BD) deshabilitado con 🔒 en un gasolina', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'A', candado: 'BD' })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: código gasolina (BF) deshabilitado con 🔒 en un diésel', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true, codigo: 'A', candado: 'BF' })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: la lectura de recetas falla → error con Reintentar, sin códigos ni INICIAR; Reintentar las carga', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'A', recetasCaidas: true })).ok);
+  rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: con ?servicio= y la lectura caída, el paso 1 muestra el error con Reintentar y al reintentar se abre el servicio', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'diesel' }, esperado: 'diesel', bloqueado: true, recetasCaidas: true })).ok);
+  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) && rR.every(Boolean) ? 0 : 1;
   console.log(code === 0 ? 'smoke OK: la app carga sin errores en todos los escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);

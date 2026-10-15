@@ -20,8 +20,10 @@ import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDes
 import { autorInicial, campoMecanico } from './lib/autorServicio.js';
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
 import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from './lib/combustibleVehiculo.js';
+import { buildTasks, stripInterna, adicionalesDeTareas, idsDeRevisiones, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
+import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
 const ACEITE_VACIO = { litros: null, spec: null };
-const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null };
+const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null, traccion: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
 // corregía vehiculos_modelos, que ya no es fuente. Se rehace en otra rama.
 const CORRECCION_ACEITE_ACTIVA = false;
@@ -50,188 +52,12 @@ async function resolverAceiteDeVehiculo({ ordenId, placa }) {
 }
 import { formatearTel, telValido, telE164, soloDigitos, esErrorCanal, mapearErrorOtp, CANAL_OTP, CANAL_FALLBACK, TEXTOS_CANAL, MENSAJE_RECHAZO, emailValido, normalizarEmail, canalLoginGuardado, guardarCanalLogin, textoRechazo } from './lib/authOtp.js';
 
-// ─── ÍTEMS ASSYST ─────────────────────────────────────────────────────────
-const DEFAULT_ITEMS = {
-  "1": { label:"Inspección A (menor)", icon:"🔍", tasks:[
-    "Inspección visual del motor — fugas, correas, mangueras",
-    "Revisión y corrección de todos los niveles de fluidos",
-    "Inspección de pastillas y discos de freno",
-    "Inspección de presión de llantas (Incluida llanta de repuesto)",
-    "Inspección visual de llantas — desgaste y daños",
-    "Revisión de luces exteriores e interiores",
-    "Revisión de limpiaparabrisas y lavadores",
-    "Escaneo de fallas (Star Diagnosis / OBD)",
-    "Reiniciar intervalo de mantenimiento",
-  ]},
-  "2": { label:"Inspección B (mayor)", icon:"🔍", tasks:[
-    "Inspección visual del motor — fugas, correas, mangueras",
-    "Revisión y corrección de todos los niveles de fluidos",
-    "Inspección de pastillas y discos de freno (todos los ejes)",
-    "Revisión del freno de estacionamiento",
-    "Inspección de presión de llantas (Incluida llanta de repuesto)",
-    "Inspección visual de llantas — desgaste y daños",
-    "Reemplazo del filtro de habitáculo / carbón activo",
-    "Revisión de luces, alertas y sensores",
-    "Revisión de escobillas limpiaparabrisas y lavadores",
-    "Inspección de sistema de escape",
-    "Inspección de suspensión y dirección",
-    "Inspección de faja de accesorios",
-    "Prueba de batería con analizador de batería (Anotar estado de salud y carga)",
-    "Escaneo completo de fallas (Star Diagnosis)",
-    "Prueba en carretera",
-    "Reiniciar intervalo de mantenimiento",
-  ]},
-  "3": { label:"Aceite y filtro de motor", icon:"⚙️", tasks:[
-    "Drenaje del aceite de motor",
-    "Reemplazo del filtro de aceite",
-    "Carga de aceite nuevo — especificación MB aprobada",
-    "Verificación de nivel y ausencia de fugas",
-  ]},
-  "4": { label:"Líquido de frenos", icon:"🛑", tasks:[
-    "Extracción del líquido de frenos antiguo",
-    "Carga de líquido de frenos nuevo DOT 4+ (MB 331.0)",
-    "Purga del sistema de frenos — purga en los 4 tornillos de purga",
-    "Verificación de hermeticidad del circuito",
-  ]},
-  "8": { label:"Filtro de aire del motor", icon:"🌀", tasks:[
-    "Extracción del filtro de aire del motor",
-    "Limpieza del alojamiento del filtro",
-    "Instalación del filtro de aire nuevo",
-  ]},
-  "10": { label:"Techo corredizo", icon:"🏠", tasks:[
-    "Limpieza de guías y canales de drenaje del techo",
-    "Lubricación de guías con grasa MB especificada",
-    "Verificación del funcionamiento del techo corredizo",
-  ]},
-  "11": { label:"Filtro de combustible — Diesel", icon:"⛽", tasks:[
-    "Extracción del filtro de combustible diesel",
-    "Instalación del filtro de combustible nuevo",
-    "Purga del sistema de combustible si aplica",
-    "Verificación de ausencia de fugas",
-  ]},
-  "12": { label:"Bujías de encendido — gasolina", icon:"⚡", tasks:[
-    "Retiro de bobinas de encendido",
-    "Extracción de bujías (inspección visual de electrodos)",
-    "Instalación de bujías nuevas con torque especificado",
-    "Reinstalación de bobinas de encendido",
-    "Prueba de encendido en marcha",
-  ]},
-  "13": { label:"Líquido refrigerante", icon:"❄️", tasks:[
-    "Drenaje completo del líquido refrigerante",
-    "Enjuague del sistema de refrigeración",
-    "Inspección de mangueras, conexiones y radiador",
-    "Carga de refrigerante MB 325.0 — mezcla correcta",
-    "Purga del sistema de refrigeración",
-    "Verificación de temperatura operativa en marcha",
-  ]},
-  "15": { label:"Enganche de remolque", icon:"🔗", tasks:[
-    "Lubricación del enganche de remolque",
-    "Inspección visual del sistema de enganche",
-    "Verificación del cableado eléctrico del enganche",
-  ]},
-  "20": { label:"Caja automática ATF", icon:"🔧", tasks:[
-    "Verificación de nivel y ausencia de fugas",
-    "Drenaje del aceite de caja automática",
-    "Reemplazo del filtro de caja y empaque del cárter",
-    "Carga de aceite ATF — especificación MB aprobada",
-    "Adaptación de la caja automática (Star Diagnosis)",
-    "Prueba de carretera — verificación de cambios",
-  ]},
-  "24": { label:"Correa de distribución", icon:"⛓️", tasks:[
-    "Inspección visual de la correa de distribución",
-    "Medición del desgaste según especificación MB",
-    "Reemplazo de correa, bomba de agua, tensores y poleas",
-    "Verificación de sincronización post-instalación",
-  ]},
-  // ── EV (100% eléctricos) — usados por la serie EV (AEV/BEV) ──
-  "EV_A": { label:"Inspección A Eléctrico (menor EV)", icon:"⚡", tasks:[
-    "Cambio de filtro de habitáculo (combinado / HEPA según modelo)",
-    "Inspección visual sistema de alto voltaje (cables y conectores)",
-    "Chequeo de batería 12V (test de carga)",
-    "Chequeo de estado de salud (SoH) de batería HV con XENTRY",
-    "Revisión de frenos (discos, pastillas, oxidación)",
-    "Revisión de llantas y rotación",
-    "Revisión de suspensión y dirección",
-    "Luces, escobillas limpiaparabrisas y nivel de lavaparabrisas",
-    "Verificación de nivel y condición de refrigerante (circuitos térmicos)",
-    "Reset de ASSYST y verificación de actualizaciones de software",
-  ]},
-  "EV_B": { label:"Adicionales B Eléctrico", icon:"🔌", tasks:[
-    "Servicio de mordazas (limpieza y lubricación de pines/guías)",
-    "Prueba de resistencia de aislamiento HV con XENTRY",
-    "Chequeo de sistema A/C y bomba de calor",
-    "Inspección de eATS (motor eléctrico/reductora): fugas y ruidos",
-  ]},
-  // Fuera del ASSYST — siempre al final del checklist principal
-  "GLOW": { label:"Bujías de precalentamiento — Solo diesel", icon:"🌡️", outOfAssyst:true, tasks:[
-    "~Extracción de bujías de precalentamiento",
-    "~Verificación eléctrica de cada bujía (resistencia con multímetro)",
-    "~Inspección del controlador de bujías (glow plug relay/module)",
-    "~Descarbonar los alojamientos antes de extraer (motor caliente)",
-    "~Aplicar pasta cerámica en el cuerpo — NO en rosca ni punta",
-    "~Instalación con torque especificado según WIS del motor",
-    "Verificación con Star Diagnosis (test de precalentamiento)",
-  ]},
-  "4M_DIFF": { label:"Diferencial trasero 4MATIC", icon:"🔩", outOfAssyst:true, tasks:[
-    "~⚠ No pertenece al ASSYST — inspección recomendada ~100.000 km",
-    "Drenaje del aceite del diferencial trasero",
-    "Carga de aceite hypoid 75w-90 aprobado MB",
-    "Inspección de sellos y retenes del diferencial",
-    "Verificación de ausencia de fugas post-servicio",
-  ]},
-  "4M_FDIFF": { label:"Diferencial delantero 4MATIC", icon:"🔩", outOfAssyst:true, tasks:[
-    "~⚠ No pertenece al ASSYST — verificar si es serviceable (consultar WIS)",
-    "Drenaje del aceite del diferencial delantero si aplica",
-    "Carga de aceite hypoid aprobado MB",
-    "Inspección de sellos y retenes",
-  ]},
-};
-
-// ─── CÓDIGOS ASSYST PLUS ──────────────────────────────────────────────────
-const DEFAULT_CODES = {
-  "A":  { color:"#C8A96E", desc:"Inspección menor + aceite",                              items:["1","3"] },
-  "A0": { color:"#C8A96E", desc:"A + techo corredizo",                                    items:["1","3","10"] },
-  "A1": { color:"#D4A030", desc:"A + líquido de frenos",                                  items:["1","3","4"] },
-  "A2": { color:"#C8A020", desc:"A + frenos + techo corredizo",                           items:["1","3","4","10"] },
-  "A3": { color:"#B88A00", desc:"A + filtro aire + combustible/bujías",                   items:["1","3","8","FUEL"] },
-  "A4": { color:"#A07800", desc:"A + filtro aire + techo + combustible/bujías",           items:["1","3","8","10","FUEL"] },
-  "A5": { color:"#C8A96E", desc:"A + frenos + filtro aire + combustible/bujías",          items:["1","3","4","8","FUEL"] },
-  "A6": { color:"#C8A96E", desc:"A + frenos + filtro aire + techo + comb./bujías",        items:["1","3","4","8","10","FUEL"] },
-  "A7": { color:"#E8B820", desc:"A + ATF caja automática",                                items:["1","3","20"] },
-  "A8": { color:"#D4A030", desc:"A + techo + ATF",                                       items:["1","3","10","20"] },
-  "A9": { color:"#C08010", desc:"A + frenos + ATF",                                      items:["1","3","4","20"] },
-  "AC": { color:"#C8A96E", desc:"A + frenos + techo + ATF",                              items:["1","3","4","10","20"] },
-  "AF": { color:"#B88A00", desc:"A + frenos + filtro aire + bujías + ATF",               items:["1","3","4","8","12","20"], fuelLock:"gasolina" },
-  "AG": { color:"#A07800", desc:"A + frenos + filtro aire + techo + comb. + ATF",        items:["1","3","4","8","10","11","20"], fuelLock:"diesel" },
-  "AH": { color:"#FF8C42", desc:"A + refrigerante + correa distribución",                 items:["1","3","13","24"] },
-  "AK": { color:"#FF8C42", desc:"A + refrigerante",                                      items:["1","3","13"] },
-  "B":  { color:"#7EB8F7", desc:"Inspección mayor + aceite + filtro habitáculo",          items:["2","3"] },
-  "B0": { color:"#7EB8F7", desc:"B + filtro de aire",                                    items:["2","3","8"] },
-  "B1": { color:"#5AA0E8", desc:"B + líquido de frenos",                                 items:["2","3","4"] },
-  "B2": { color:"#4488D4", desc:"B + frenos + techo corredizo",                          items:["2","3","4","10"] },
-  "B3": { color:"#3878C0", desc:"B + filtro aire + combustible/bujías",                  items:["2","3","8","FUEL"] },
-  "B4": { color:"#2868AC", desc:"B + filtro aire + techo + combustible/bujías",          items:["2","3","8","10","FUEL"] },
-  "B5": { color:"#3878C0", desc:"B + frenos + filtro aire + combustible/bujías",         items:["2","3","4","8","FUEL"] },
-  "B6": { color:"#1858A0", desc:"B + frenos + aire + techo + combustible/bujías",        items:["2","3","4","8","10","FUEL"] },
-  "B7": { color:"#A0C8FF", desc:"B + ATF caja automática",                               items:["2","3","20"] },
-  "B8": { color:"#80A8E8", desc:"B + techo + ATF",                                       items:["2","3","10","20"] },
-  "B9": { color:"#6090D0", desc:"B + frenos + ATF",                                      items:["2","3","4","20"] },
-  "BC": { color:"#FF6B6B", desc:"B + frenos + aire + techo + bujías + ATF (AMG gasolina)",  items:["2","3","4","8","10","12","20"], fuelLock:"gasolina" },
-  "BD": { color:"#4878B8", desc:"B + filtro aire + combustible + ATF",                   items:["2","3","8","11","20"], fuelLock:"diesel" },
-  "BE": { color:"#3060A0", desc:"B + filtro aire + techo + combustible + ATF",           items:["2","3","8","10","11","20"], fuelLock:"diesel" },
-  "BF": { color:"#B88A00", desc:"B + frenos + filtro aire + bujías + ATF",               items:["2","3","4","8","12","20"], fuelLock:"gasolina" },
-  "BH": { color:"#34D399", desc:"B + refrigerante",                                      items:["2","3","13"] },
-  "BK": { color:"#10B981", desc:"B + frenos + refrigerante",                             items:["2","3","4","13"] },
-  "BS": { color:"#059669", desc:"B + techo + refrigerante + ATF",                        items:["2","3","10","13","20"] },
-  // Serie EV — 100% eléctricos. "AE"/"BE" no se pudieron usar: BE ya es un código ASSYST diesel real.
-  // ev:true → buildTasks NO suma GLOW ni diferenciales 4MATIC. BEV duplica los items de AEV + extras.
-  "AEV": { color:"#4ade80", desc:"Servicio A Eléctrico — filtro habitáculo + inspección HV + SoH batería", items:["EV_A"], ev:true, fuelLock:"electrico" },
-  "BEV": { color:"#22c55e", desc:"Servicio B Eléctrico — AEV + líq. frenos + aislamiento HV + eATS",       items:["EV_A","4","EV_B"], ev:true, fuelLock:"electrico" },
-};
-
-const DEFAULT_A_KEYS = ["A","A0","A1","A2","A3","A4","A5","A6","A7","A8","A9","AC","AF","AG","AH","AK"];
-const DEFAULT_B_KEYS = ["B","B0","B1","B2","B3","B4","B5","B6","B7","B8","B9","BC","BD","BE","BF","BH","BK","BS"];
-const DEFAULT_EV_KEYS = ["AEV","BEV"];
+// ─── RECETAS E ÍTEMS ASSYST ───────────────────────────────────────────────
+// ⚠⚠ FUENTE ÚNICA: mant_recetas + mant_items (feat/recetas-astra, decisión del
+// dueño del 13/10/2026). Se retiraron DEFAULT_ITEMS y DEFAULT_CODES: si la
+// lectura falla, la app FALLA CERRADO (error con Reintentar, no se puede iniciar
+// un servicio nuevo), nunca una receta vieja. La regla del checklist vive en
+// src/lib/checklistReceta.js (la misma que resolverItemsReceta de Taller).
 
 // ─── REVISIONES ADICIONALES FUERA DEL ASSYST ─────────────────────────────
 // fuel: "all" | "gasolina" | "diesel"
@@ -1597,47 +1423,7 @@ function smartSearch(query, modelGroups = MODEL_GROUPS) {
   return results;
 }
 // ─── BUILD FUNCTIONS ──────────────────────────────────────────────────────
-
-// Prefijo "~" en mant_items.tasks = procedimiento interno del mecánico.
-// Acá se muestra la task NORMAL (sin el símbolo); es Taller quien la filtra de
-// las viñetas de documentos al cliente. El strip se hace al ENTRAR al runtime
-// (buildTasks y textToId): render, borradores e informes trabajan siempre con
-// el texto limpio, así los snapshots de `servicios` no arrastran el ~ y el
-// re-mapeo por texto sigue matcheando borradores guardados antes del marcado.
-const stripInterna = t => String(t || "").replace(/^~\s*/, "");
-
-function buildTasks(code, fuel, is4m, codes, items) {
-  const def = codes[code];
-  if (!def) return [];
-  const fuelItem = fuel === "diesel" ? "11" : "12";
-  const result = [];
-  def.items.forEach(id => {
-    const resolved = id === "FUEL" ? fuelItem : id;
-    const block = items[resolved];
-    if (block) block.tasks.forEach((text, i) =>
-      result.push({ id:`${resolved}_${i}`, grp:block.label, icon:block.icon, text: stripInterna(text), outOfAssyst:!!block.outOfAssyst })
-    );
-  });
-  // Serie EV / combustible eléctrico: sin bujías glow ni servicio de diferenciales 4MATIC
-  if (def.ev || fuel === "electrico") return result;
-  // Bujías de precalentamiento — SOLO diesel
-  if (fuel === "diesel") {
-    const glow = items["GLOW"];
-    if (glow) glow.tasks.forEach((text, i) =>
-      result.push({ id:`GLOW_${i}`, grp:glow.label, icon:glow.icon, text: stripInterna(text), outOfAssyst:true })
-    );
-  }
-  // 4MATIC — diferencial
-  if (is4m) {
-    ["4M_DIFF","4M_FDIFF"].forEach(key => {
-      const block = items[key];
-      if (block) block.tasks.forEach((text, i) =>
-        result.push({ id:`${key}_${i}`, grp:block.label, icon:block.icon, text: stripInterna(text), outOfAssyst:true })
-      );
-    });
-  }
-  return result;
-}
+// buildTasks y stripInterna viven en src/lib/checklistReceta.js (puro, con tests).
 
 function getExtras(fuel) {
   return EXTRAS.filter(e => e.fuel === "all" || e.fuel === fuel);
@@ -2069,6 +1855,7 @@ function MainApp({ session, onLogout }) {
   // servicio abierto ya guardado con combustible (combGuardado) no se reescribe.
   const [vehComb, setVehComb]           = useState({ placa: "", valor: null });
   const [combGuardado, setCombGuardado] = useState(null);
+  const [tracGuardada, setTracGuardada] = useState(null);   // tracción de la fila cargada (manda sobre el vehículo); "" = cargada sin tracción guardada
   const placaComb = (plate || "").trim().toUpperCase();
   useEffect(() => {
     if (placaComb.length < 3) { setVehComb({ placa: "", valor: null }); return; }
@@ -2156,34 +1943,42 @@ function MainApp({ session, onLogout }) {
   const conflictoRef  = useRef(false);
   const deepLinkRef   = useRef(false);
 
-  const [activeItems, setActiveItems] = useState(DEFAULT_ITEMS);
-  const [activeCodes, setActiveCodes] = useState(DEFAULT_CODES);
-  const [activeAKeys, setActiveAKeys] = useState(DEFAULT_A_KEYS);
-  const [activeBKeys, setActiveBKeys] = useState(DEFAULT_B_KEYS);
+  const [activeItems, setActiveItems] = useState({});
+  const [activeCodes, setActiveCodes] = useState({});
+  const [activeAKeys, setActiveAKeys] = useState([]);
+  const [activeBKeys, setActiveBKeys] = useState([]);
   const [activeCKeys, setActiveCKeys] = useState([]);          // serie 'C' — Revisión de Compra
-  const [activeEVKeys, setActiveEVKeys] = useState(DEFAULT_EV_KEYS); // serie 'EV' — eléctricos
+  const [activeEVKeys, setActiveEVKeys] = useState([]);       // serie 'EV' — eléctricos
+  // Error de la lectura de recetas (null = sin error) y el reintento manual.
+  const [recetasError, setRecetasError] = useState(null);
+  const [recetasNonce, setRecetasNonce] = useState(0);
+  // Adicionales elegidos en el paso 2 (decisión 11): apagados por defecto. En un
+  // servicio guardado se deducen de sus tareas (aplicarRevisiones).
+  const [adicionales, setAdicionales] = useState(SIN_ADICIONALES);
+  // Ítems que el servicio cargado tiene guardados: en uno que ya no es borrador
+  // se muestran solo esos (lo que se hizo), aunque la receta de hoy sume algo.
+  const [itemsGuardados, setItemsGuardados] = useState(null);
   const [dictamenRec,  setDictamenRec]  = useState("");        // clave del dictamen — RC: apto/apto_reparaciones/no_recomendable · RG: excelente/bueno/requiere_reparaciones/critico
   const [reparaciones, setReparaciones] = useState([]);        // [{ descripcion, costo_estimado }]
 
   useEffect(() => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
     const SKEY = import.meta.env.VITE_SUPABASE_KEY;
-    if (!SURL || !SKEY) { setRecetasReady(true); return; }
+    if (!SURL || !SKEY) { setRecetasError("Falta la configuración de la base."); return; }
+    setRecetasError(null);
     Promise.all([
       apiFetch(`${SURL}/rest/v1/mant_recetas?select=*&order=serie,orden`).then(r => r.json()),
       apiFetch(`${SURL}/rest/v1/mant_items?select=*&order=orden`).then(r => r.json()),
     ]).then(([recetas, itemsArr]) => {
-      if (!Array.isArray(recetas) || !Array.isArray(itemsArr)) {
-        console.warn("[mant] fetch returned non-array", { recetas, itemsArr }); return;
-      }
-      if (recetas.length === 0 || itemsArr.length === 0) {
-        console.warn("[mant] fetch returned empty arrays — keeping defaults"); return;
+      if (!Array.isArray(recetas) || !Array.isArray(itemsArr) || recetas.length === 0 || itemsArr.length === 0) {
+        console.warn("[mant] recetas/ítems vacíos o inválidos", { recetas, itemsArr });
+        setRecetasError("La base no devolvió las recetas de mantenimiento."); return;
       }
       const newItems = Object.fromEntries(
         itemsArr.map(i => [i.clave, { label: i.label, icon: i.icon, tasks: i.tasks, outOfAssyst: !!i.out_of_assyst }])
       );
       const newCodes = Object.fromEntries(
-        recetas.map(r => [r.codigo, { color: r.color, desc: r.descripcion, items: r.items, fuelLock: r.fuel_lock || null, ev: r.serie === 'EV' }])
+        recetas.map(r => [r.codigo, { color: r.color, desc: r.descripcion, items: r.items, fuelLock: r.fuel_lock || null, ev: r.serie === 'EV', serie: r.serie }])
       );
       const newAKeys = recetas.filter(r => r.serie === 'A').map(r => r.codigo);
       const newBKeys = recetas.filter(r => r.serie === 'B').map(r => r.codigo);
@@ -2195,12 +1990,15 @@ function MainApp({ session, onLogout }) {
       setActiveBKeys(newBKeys);
       setActiveCKeys(newCKeys);
       setActiveEVKeys(newEVKeys);
+      setRecetasReady(true);
     })
-      .catch(e => console.warn("[mant] error cargando recetas/items de Supabase:", e))
-      // Aunque falle, los DEFAULT_* ya están montados: el catálogo está "listo"
-      // igual y la apertura por ?servicio= puede seguir (nunca queda colgada).
-      .finally(() => setRecetasReady(true));
-  }, []);
+      .catch(e => {
+        console.warn("[mant] error cargando recetas/items de Supabase:", e);
+        setRecetasError(e?.tipo === 'red' ? "Sin conexión: no se pudieron leer las recetas." : "No se pudieron leer las recetas de mantenimiento.");
+      });
+    // Sin recetas NO hay "listo": la apertura por ?servicio= espera (sin catálogo
+    // las tareas vendrían vacías) y no se puede iniciar un servicio nuevo.
+  }, [recetasNonce]);
 
   const [dbModels, setDbModels] = useState(null);
   useEffect(() => {
@@ -2242,7 +2040,7 @@ function MainApp({ session, onLogout }) {
     const t = setTimeout(async () => {
       const r = await resolverAceiteDeVehiculo({ ordenId: ordenUuidAc, placa: placaAc });
       if (!vivo) return;
-      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo });
+      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo, traccion: r.ok ? es4maticDeRespuesta(r.datos) : null });
     }, ordenUuidAc ? 0 : 700);
     return () => { vivo = false; clearTimeout(t); };
   }, [claveAc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2250,6 +2048,14 @@ function MainApp({ session, onLogout }) {
   const resAc      = resolverAc.clave === claveAc ? resolverAc.res : null;
   const cargandoAc = !!claveAc && (resolverAc.clave !== claveAc || resolverAc.estado === 'cargando');
   const elegidaAc  = aceiteElegido.clave === claveAc ? aceiteElegido.litros : null;
+  // 4MATIC del vehículo (feat/recetas-astra, decisión 10): con un "sí" de
+  // resolver-aceite el interruptor se prende solo y queda bloqueado; sin dato,
+  // libre. En un servicio guardado manda lo guardado (aviso si difiere).
+  const es4maticVeh = resolverAc.clave === claveAc ? resolverAc.traccion : null;
+  const estTrac = estadoTraccion({ es4maticVehiculo: es4maticVeh, is4mActual: is4m, servicioExistente: tracGuardada != null });
+  useEffect(() => {
+    if (estTrac.autoseleccionar) setIs4m(true);
+  }, [estTrac.autoseleccionar]);
   const calcAc     = aceiteCalculadoDeResolver(resAc, { elegida: elegidaAc, guardado: aceiteFila });
   const oilLiters  = calcAc.litros;   // el "cálculo" de hoy para lib/aceiteServicio.js
   const oilSpec    = calcAc.spec;
@@ -2299,7 +2105,19 @@ function MainApp({ session, onLogout }) {
     setEngine("");
     resetCorreccionAceite();
   };
-  const tasks        = buildTasks(sel, fuel, is4m, activeCodes, activeItems);
+  const congeladoChecklist = estadoOriginal !== 'borrador' && itemsGuardados && itemsGuardados.size > 0;
+  const tasks        = buildTasks(sel, fuel, is4m, activeCodes, activeItems, { adicionales, soloItems: congeladoChecklist ? itemsGuardados : null });
+  // Las casillas de adicionales que corresponden a este código y vehículo.
+  const adicOfrecidos = adicionalesOfrecidos(activeCodes[sel], { fuel, is4m });   // sin código (o sin recetas), ninguno
+  const alternarAdicional = (k) => setAdicionales(p => ({ ...p, [k]: !p[k], legado: false }));
+  // Candado de combustible (decisión 5): el combustible ya no se puede cambiar a mano.
+  const fuelFijo = estComb.bloqueado || combGuardado != null;
+  const elegirCodigo = (k) => {
+    const cand = estadoCandado({ fuelLock: activeCodes[k]?.fuelLock || null, fuel, fuelFijo });
+    if (cand.deshabilitado) return;
+    setSel(k);
+    if (cand.ponerFuel) setFuel(cand.ponerFuel);
+  };
   const extras       = getExtras(fuel);
   const trackable   = tasks.filter(t => !t.text?.startsWith("⚠"));
   const doneN  = trackable.filter(t => checked[t.id] || taskStatus[t.id]).length;
@@ -2362,6 +2180,9 @@ function MainApp({ session, onLogout }) {
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
     setEstadoOriginal('borrador');   // arranca de cero: es un borrador nuevo
     setCombGuardado(null);
+    setTracGuardada(null);
+    setAdicionales(SIN_ADICIONALES);
+    setItemsGuardados(null);
     setAceiteFila(ACEITE_VACIO);
     setModoEdicionJefe(false);
     editadoPorRef.current = null;
@@ -2462,7 +2283,10 @@ function MainApp({ session, onLogout }) {
     if (!sel || editingId) return;
     if (activeCKeys.includes(sel)) return;
     const esSelEV = !!activeCodes[sel]?.ev;
-    if ((fuel === "electrico") !== esSelEV) setSel(null);
+    if ((fuel === "electrico") !== esSelEV) { setSel(null); return; }
+    // Candado de combustible (decisión 5): un código de otro combustible se suelta.
+    const fl = activeCodes[sel]?.fuelLock;
+    if (fl && fl !== fuel) setSel(null);
   }, [fuel, sel, activeCodes, activeCKeys, editingId]);
 
   // On mount: check for an unfinished draft from today
@@ -2589,6 +2413,9 @@ function MainApp({ session, onLogout }) {
     if (!ordenId) return;
     if (!pendingDrafts.length) return;
     if (editingId) return; // already loaded a draft, don't double-load
+    // Espera al catálogo, como la apertura por ?servicio=: sin recetas el
+    // checklist sale vacío (y con la lectura caída quedaría así, sin explicación).
+    if (!recetasReady) return;
 
     const exactMatch = pendingDrafts.find(d => d.orden_id === ordenId);
     if (exactMatch) {
@@ -2602,7 +2429,7 @@ function MainApp({ session, onLogout }) {
     if (samePlacaDifferentOrden.length > 0) {
       setDifferentOrdenPrompt({ drafts: samePlacaDifferentOrden, currentOrden: ordenNumero });
     }
-  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId, recetasReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ¿El ítem lo marcó alguien distinto del mecánico de la orden? Ese es el caso
   // que interesa mostrar: la intervención de un jefe sobre el checklist ajeno.
@@ -2978,6 +2805,13 @@ function MainApp({ session, onLogout }) {
     Object.keys(activeItems).forEach(k => {
       activeItems[k].tasks.forEach((t, i) => { textToId[stripInterna(t)] = `${k}_${i}`; });
     });
+    // En un servicio guardado manda lo guardado: los adicionales elegidos y los
+    // ítems que tiene salen de sus tareas (por id; el ítem se saca quitando el
+    // último "_n", nunca por prefijo: GLOW_TEST_0 empieza con "GLOW_").
+    const idsGuardados = idsDeRevisiones(revisiones).length ? idsDeRevisiones(revisiones)
+      : Object.values(revisiones).flat().map(it => textToId[stripInterna(it?.text)]).filter(Boolean);
+    setAdicionales(adicionalesDeTareas(idsGuardados));
+    setItemsGuardados(new Set(idsGuardados.map(itemDeTareaId).filter(Boolean)));
     const newPhotos = {};
     Object.values(revisiones).flat().forEach(item => {
       const taskId = item.id || textToId[stripInterna(item.text)] || null;
@@ -3037,6 +2871,11 @@ function MainApp({ session, onLogout }) {
     setFuel(combustible); setIs4m(traccion === "4MATIC");
     // Lo guardado manda sobre el vehículo: si difiere se avisa, no se cambia.
     setCombGuardado(v.combustible || s.combustible || null);
+    // "" y no null: una fila sin tracción guardada también es un servicio
+    // existente, y en uno existente el 4MATIC del vehículo solo avisa (si se
+    // tratara como nuevo, se prendería solo y el modo edición lo reescribiría).
+    setTracGuardada(traccion || "");
+    if (!revisiones) { setAdicionales(SIN_ADICIONALES); setItemsGuardados(null); }
     // ?? y no ||: si la fila tiene null, el campo queda VACÍO — no debe
     // conservarse el año/versión del vehículo que estaba antes en memoria.
     setVehAnio(s.anio ?? "");
@@ -3386,6 +3225,27 @@ function MainApp({ session, onLogout }) {
     </div>
   ) : null;
 
+  // Recetas (feat/recetas-astra): sin mant_recetas + mant_items la app falla
+  // cerrado. En el paso 2 el aviso vive junto a los códigos; este es el de los
+  // pasos 1 y 3, porque ahí también se espera a las recetas: la apertura por
+  // ?servicio= no avanza sin ellas, y un borrador abierto desde la lista muestra
+  // el checklist vacío hasta que lleguen. Ninguna de las dos esperas puede quedar
+  // muda. En el paso 1 solo el error (cargar tarda un instante); en el 3 también
+  // el "Cargando…".
+  const recetasBanner = (!recetasReady && step !== 2 && (recetasError || step === 3)) ? (
+    <div data-recetas-estado={recetasError ? "error" : "cargando"} style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, fontFamily:"monospace", fontSize:11, lineHeight:1.6,
+      border:`1px solid ${recetasError ? '#f8717150' : line}`, background: recetasError ? '#1a0808' : 'transparent', color: recetasError ? '#f87171' : '#888',
+      display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+      <span style={{ flex:1, minWidth:0 }}>{recetasError ? `⚠ ${recetasError} Sin recetas no se puede iniciar ni continuar un servicio.` : "Cargando las recetas…"}</span>
+      {recetasError && (
+        <button data-accion="reintentar-recetas" onClick={() => setRecetasNonce(n => n + 1)}
+          style={{ padding:"7px 12px", borderRadius:6, border:"1px solid #f87171", background:"transparent", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+          Reintentar
+        </button>
+      )}
+    </div>
+  ) : null;
+
   // El autosave escribe la fila completa: si alguien más guardó desde que
   // abrimos, se frena ANTES de pisar y decide la persona. Sin merge ni realtime.
   // (`conflictoModal` se renderiza en las tres pantallas; el modal del draft
@@ -3504,7 +3364,7 @@ function MainApp({ session, onLogout }) {
                 </div>
               ))}
               <div style={{ marginTop:4, padding:"10px 12px", borderRadius:6, background:"#101113", border:`1px solid ${line}`, fontSize:10, color:"#555", lineHeight:1.6 }}>
-                ℹ️ Los vehículos diesel suman <span style={{ color:"#7dd3fc" }}>GLOW</span> (bujías de precalentamiento) y los 4MATIC suman los diferenciales automáticamente; no aparecen en la receta.
+                ℹ️ Los vehículos diesel suman <span style={{ color:"#7dd3fc" }}>GLOW_TEST</span> (prueba de bujías de precalentamiento) y los 4MATIC suman <span style={{ color:"#7dd3fc" }}>4M_INSP</span> (inspección de diferenciales) automáticamente; el cambio (GLOW, diferenciales) es adicional y se elige en el paso 2. No aparecen en la receta.
               </div>
             </>
           )}
@@ -4138,6 +3998,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {completedPanel}
       {borradoresPanel}
       {deepLinkBanner}
+      {recetasBanner}
       {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
@@ -4447,6 +4308,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         </div>
 
         <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 2 · TIPO DE SERVICIO</div>
+        {!recetasReady && (
+          <div data-recetas-estado={recetasError ? "error" : "cargando"} style={{ marginBottom:16, padding:"10px 12px", borderRadius:6, border:`1px solid ${recetasError ? "#f8717160" : line}`, color:recetasError ? "#f87171" : "#888", fontSize:11, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            <span style={{ flex:1, minWidth:0 }}>{recetasError ? `⚠ ${recetasError} Sin recetas no se puede iniciar un servicio.` : "Cargando las recetas…"}</span>
+            {recetasError && (
+              <button data-accion="reintentar-recetas" onClick={() => setRecetasNonce(n => n + 1)}
+                style={{ padding:"7px 12px", borderRadius:6, border:"1px solid #f87171", background:"transparent", color:"#f87171", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
+                Reintentar
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Selector de código de servicio */}
         <div style={{ marginBottom:20 }}>
@@ -4454,19 +4326,21 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           {fuel !== "electrico" && (<>
           <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
-            {activeAKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
-              <button key={k} onClick={()=>setSel(k)} className="svc-btn"
-                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
-                {k}
+            {activeAKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
+              <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
+                title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
+                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
+                {k}{cand.deshabilitado ? " 🔒" : ""}
               </button>
             );})}
           </div>
           <div style={{ fontSize:9, color:"#7EB8F780", letterSpacing:2, marginBottom:6 }}>SERIE B — INSPECCIÓN MAYOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {activeBKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
-              <button key={k} onClick={()=>setSel(k)} className="svc-btn"
-                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
-                {k}
+            {activeBKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
+              <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
+                title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
+                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
+                {k}{cand.deshabilitado ? " 🔒" : ""}
               </button>
             );})}
           </div>
@@ -4475,10 +4349,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             <>
               <div style={{ fontSize:9, color:"#4ade8080", letterSpacing:2, margin:"12px 0 6px" }}>SERIE EV — ELÉCTRICOS</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {activeEVKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
-                  <button key={k} onClick={()=>setSel(k)} className="svc-btn"
-                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
-                    {k}
+                {activeEVKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
+                  <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
+                    title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
+                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
+                    {k}{cand.deshabilitado ? " 🔒" : ""}
                   </button>
                 );})}
               </div>
@@ -4489,10 +4364,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             <>
               <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {activeCKeys.map(k => { const s=activeCodes[k]||{},on=sel===k; return (
-                  <button key={k} onClick={()=>setSel(k)} className="svc-btn"
-                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:on?"bold":"normal" }}>
-                    {k}
+                {activeCKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
+                  <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
+                    title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
+                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:"#555", fontFamily:"monospace", fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
+                    {k}{cand.deshabilitado ? " 🔒" : ""}
                   </button>
                 );})}
               </div>
@@ -4519,16 +4395,38 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           {estComb.aviso && <div data-combustible-aviso style={{ marginTop:6, fontSize:10, color:"#d97706" }}>⚠ {estComb.aviso}</div>}
         </div>
 
-        {/* 4MATIC */}
-        <div style={{ marginBottom:28 }}>
-          <button onClick={()=>setIs4m(p=>!p)}
-            style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${is4m?"#4ade8050":line}`, background:is4m?"#4ade8010":"transparent", color:is4m?"#4ade80":"#555", fontFamily:"monospace", fontSize:11, cursor:"pointer", textAlign:"left" }}>
+        {/* 4MATIC (decisión 10: con un "sí" del vehículo, prendido y bloqueado) */}
+        <div style={{ marginBottom:16 }}>
+          <button onClick={()=>{ if (!estTrac.bloqueado) setIs4m(p=>!p); }} disabled={estTrac.bloqueado} data-4matic={is4m?"1":"0"} data-4matic-bloqueado={estTrac.bloqueado?"1":"0"}
+            style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${is4m?"#4ade8050":line}`, background:is4m?"#4ade8010":"transparent", color:is4m?"#4ade80":"#555", fontFamily:"monospace", fontSize:11, cursor:estTrac.bloqueado?"not-allowed":"pointer", textAlign:"left" }}>
             {is4m?"✓":"○"} Tracción 4MATIC
           </button>
+          {estTrac.bloqueado && <div data-4matic-segun-vehiculo style={{ marginTop:6, fontSize:10, color:"#888" }}>🔒 {TEXTO_TRACCION_SEGUN_VEHICULO}</div>}
+          {estTrac.aviso && <div data-4matic-aviso style={{ marginTop:6, fontSize:10, color:"#d97706" }}>⚠ {estTrac.aviso}</div>}
         </div>
 
+        {/* Adicionales (decisión 11): apagados por defecto */}
+        {(adicOfrecidos.glow || adicOfrecidos.diferenciales) && (
+          <div style={{ marginBottom:28, display:"flex", flexDirection:"column", gap:6 }}>
+            <div style={{ fontSize:10, color:"#555" }}>ADICIONALES (fuera del ASSYST)</div>
+            {adicOfrecidos.glow && (
+              <label data-adicional="glow" style={{ display:"flex", alignItems:"center", gap:8, padding:"10px", borderRadius:6, border:`1px solid ${adicionales.glow?"#7dd3fc50":line}`, color:adicionales.glow?"#7dd3fc":"#888", fontSize:11, cursor:"pointer" }}>
+                <input type="checkbox" checked={!!adicionales.glow} onChange={() => alternarAdicional("glow")} style={{ accentColor:"#7dd3fc" }} />
+                ＋ Cambio de bujías de precalentamiento
+              </label>
+            )}
+            {adicOfrecidos.diferenciales && (
+              <label data-adicional="diferenciales" style={{ display:"flex", alignItems:"center", gap:8, padding:"10px", borderRadius:6, border:`1px solid ${adicionales.diferenciales?"#7dd3fc50":line}`, color:adicionales.diferenciales?"#7dd3fc":"#888", fontSize:11, cursor:"pointer" }}>
+                <input type="checkbox" checked={!!adicionales.diferenciales} onChange={() => alternarAdicional("diferenciales")} style={{ accentColor:"#7dd3fc" }} />
+                ＋ Cambio de aceite de diferenciales
+              </label>
+            )}
+          </div>
+        )}
+        {!(adicOfrecidos.glow || adicOfrecidos.diferenciales) && <div style={{ marginBottom:12 }} />}
+
         <div className="sticky-action">
-          <button onClick={()=>{ if (activeCodes[sel]) setStep(3); }} disabled={!activeCodes[sel]}
+          <button onClick={()=>{ if (recetasReady && activeCodes[sel]) setStep(3); }} disabled={!recetasReady || !activeCodes[sel]}
             style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:"monospace", fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:activeCodes[sel]?"pointer":"not-allowed", opacity:activeCodes[sel]?1:0.4 }}>
             INICIAR INSPECCIÓN →
           </button>
@@ -4701,6 +4599,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {completedPanel}
       {borradoresPanel}
       {deepLinkBanner}
+      {recetasBanner}
       {conflictoModal}
       {centroMandoPanel}
       {verTodosPanel}
