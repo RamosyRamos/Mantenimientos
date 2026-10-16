@@ -390,6 +390,7 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
   await page.setViewport({ width: 1280, height: 900 });
   const errores = [];
   const posts = [];
+  const pushes = [];
   page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (!['error', 'warning'].includes(m.type())) return;
@@ -416,6 +417,11 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
         return req.respond(json([{ id: '00000000-0000-4000-8000-0000000000a9', ...body }], 201));
       }
       if (u.includes('/functions/v1/resolver-aceite')) return req.respond(json(RESP.sinDato));
+      // feat/push-aprobadores-admin (16/10): el aviso "pendiente de aprobación" se graba.
+      if (u.includes('/functions/v1/send-push')) {
+        try { pushes.push(JSON.parse(req.postData() || '{}')); } catch { /* */ }
+        return req.respond(json({ sent: 1 }));
+      }
       if (u.includes('/rest/v1/')) return req.respond(json([]));
       return req.respond(json({}));
     }
@@ -488,7 +494,14 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
     if (/Gustavo Ramos|Fabián Araya/.test(await page.evaluate(() => document.body.innerText))) errores.push('siguen los botones de la firma');
     await clicTexto(/CONFIRMAR Y GUARDAR/, 'CONFIRMAR Y GUARDAR');
     for (let i = 0; i < 60 && !posts.length; i++) await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 40 && !pushes.length; i++) await new Promise((r) => setTimeout(r, 100));
   } catch (e) { errores.push(`flujo: ${e.message}`); }
+  // feat/push-aprobadores-admin (16/10): "pendiente de aprobación" va a los tres jefes y al admin.
+  const avisoPendiente = pushes.find((x) => /pendiente de aprobación/.test(x?.title || ''));
+  if (!avisoPendiente) errores.push('no salió el aviso "pendiente de aprobación"');
+  else if (JSON.stringify(avisoPendiente.to_user_nombres) !== JSON.stringify(['Otto Ramos', 'Gustavo Ramos', 'Arturo Ramos', 'Joseline Guzman'])) {
+    errores.push('el aviso "pendiente de aprobación" va a ' + JSON.stringify(avisoPendiente.to_user_nombres) + ', esperaba los tres jefes y Joseline Guzman');
+  }
   const p = posts[0] || null;
   if (!p) errores.push('no hubo POST a servicios');
   else {

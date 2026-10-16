@@ -20,6 +20,7 @@ import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDes
 import { autorInicial, campoMecanico } from './lib/autorServicio.js';
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
 import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from './lib/combustibleVehiculo.js';
+import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
 import { buildTasks, stripInterna, adicionalesDeTareas, idsDeRevisiones, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
 const ACEITE_VACIO = { litros: null, spec: null };
@@ -3823,7 +3824,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       // después alguien limpie sigDate (que es lo que hace loadService).
       setEstadoOriginal('pendiente');
       notifyPush(
-        ["Otto Ramos","Gustavo Ramos","Arturo Ramos"],
+        APROBADORES_Y_ADMIN,
         esRC ? `${revisionLabel} pendiente de aprobación` : "Servicio pendiente de aprobación",
         `${autorServicioActual} — ${plate} (${model})`
       );
