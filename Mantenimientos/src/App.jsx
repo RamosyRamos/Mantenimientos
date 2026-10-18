@@ -1662,6 +1662,30 @@ function ResolviendoSesion() {
   );
 }
 
+// Indicador de pasos del tema B: el número en Plex Mono (el paso hecho, con
+// un check), el actual con el borde del acento y la barra de avance de 3 px en
+// el acento.
+function IndicadorPasos({ actual }) {
+  const circulo = (n) => {
+    const hecho = n < actual, activo = n === actual;
+    return (
+      <div key={'c' + n} aria-current={activo ? 'step' : undefined} aria-label={`Paso ${n}${hecho ? ' (hecho)' : ''}`}
+        style={{ ...monoB, width:28, height:28, borderRadius:'50%', flexShrink:0, boxSizing:'border-box', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12.5, fontWeight:600,
+          background: hecho ? T.accent + '1F' : activo ? T.card : 'transparent',
+          border: `1px solid ${hecho ? T.accent + '66' : activo ? T.accent + '73' : T.borderDefault}`,
+          color: hecho ? T.accent : activo ? T.text : T.textMuted }}>
+        {hecho ? <Ic.Check size={14} /> : n}
+      </div>
+    );
+  };
+  const barra = (n) => <div key={'b' + n} style={{ flex:1, height:3, borderRadius:2, background: n < actual ? T.accent : T.border }} />;
+  return (
+    <div data-indicador-pasos={actual} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:24 }}>
+      {circulo(1)}{barra(1)}{circulo(2)}{barra(2)}{circulo(3)}
+    </div>
+  );
+}
+
 function useIsMobile(breakpoint = 600) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
   useEffect(() => {
@@ -4192,13 +4216,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
         {/* Indicador de pasos */}
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:28 }}>
-          <div style={{ width:28, height:28, borderRadius:"50%", background:G, color:T.plateText, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold" }}>1</div>
-          <div style={{ flex:1, height:2, background:line }} />
-          <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:T.textDisabled, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>2</div>
-          <div style={{ flex:1, height:2, background:line }} />
-          <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:T.textDisabled, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>3</div>
-        </div>
+        <IndicadorPasos actual={1} />
 
         <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 1 · DATOS DEL VEHÍCULO</div>
 
@@ -4436,13 +4454,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       <div style={{ padding:"24px 16px", maxWidth:480, margin:"0 auto", width:"100%" }}>
         {/* Indicador de pasos */}
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:28 }}>
-          <div style={{ width:28, height:28, borderRadius:"50%", background:T.ok, color:T.plateText, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold" }}>✓</div>
-          <div style={{ flex:1, height:2, background:G }} />
-          <div style={{ width:28, height:28, borderRadius:"50%", background:G, color:T.plateText, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold" }}>2</div>
-          <div style={{ flex:1, height:2, background:line }} />
-          <div style={{ width:28, height:28, borderRadius:"50%", border:`2px solid ${line}`, color:T.textDisabled, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>3</div>
-        </div>
+        <IndicadorPasos actual={2} />
 
         <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 2 · TIPO DE SERVICIO</div>
         {!recetasReady && (
