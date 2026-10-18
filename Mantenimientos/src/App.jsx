@@ -3691,6 +3691,53 @@ function MainApp({ session, onLogout }) {
     </div>
   ) : null;
 
+  // Cabecera del tema B, la misma en los tres pasos: fondo shell, el logo,
+  // "Ramos y Ramos" con el nombre de quien entró debajo (antes iba en una tira
+  // aparte) y los botones de 44 con ícono. `extra` va primero entre los
+  // botones (paso 2: volver al vehículo; paso 3: editando / avance). En el
+  // teléfono, si no entran, los botones bajan a una segunda línea: no se corta
+  // ningún texto.
+  const alternarTema = () => {
+    const root = document.getElementById('root');
+    const isLight = root.style.filter.includes('invert');
+    if (isLight) {
+      root.style.filter = '';
+      root.querySelectorAll('img, canvas').forEach(el => el.style.filter = '');
+      try { localStorage.setItem('theme', 'dark'); } catch(e) {}
+    } else {
+      root.style.filter = 'invert(1) hue-rotate(180deg)';
+      root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)');
+      try { localStorage.setItem('theme', 'light'); } catch(e) {}
+    }
+  };
+  const cabecera = (extra = null) => (
+    <div data-cabecera style={{ background:T.shell, borderBottom:`1px solid ${T.borderSubtle}`, padding:"10px 8px 10px 16px", display:"flex", alignItems:"center", flexWrap:"wrap", columnGap:12, rowGap:2, position:"sticky", top:0, zIndex:9 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:12, flex:"1 1 150px", minWidth:0, minHeight:44 }}>
+        <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover", flexShrink:0 }} />
+        <div style={{ minWidth:0 }}>
+          <div style={{ color:T.text, fontSize:15, fontWeight:600, lineHeight:1.25, whiteSpace:"nowrap" }}>Ramos y Ramos</div>
+          <div data-sesion-nombre style={{ color:T.textSoft, fontSize:12, lineHeight:1.3, marginTop:2, overflowWrap:"anywhere" }}>{session.nombre}</div>
+        </div>
+      </div>
+      <div style={{ display:"flex", alignItems:"center", gap:2, flexWrap:"wrap", justifyContent:"flex-end", marginLeft:"auto" }}>
+        {extra}
+        {pendingDrafts.length > 0 && (
+          <BotonIcono icono={Ic.NotebookPen} title="Ver mis servicios no finalizados" contador={pendingDrafts.length} onClick={() => setDraftPrompt(true)} />
+        )}
+        {showAdminButtons && (<>
+          <BotonIcono icono={Ic.Bell} title="Pendientes de aprobación" contador={notifCount} onClick={() => { setShowNotifications(true); fetchNotifications(); }} />
+          <BotonIcono icono={Ic.ClipboardCheck} title="Servicios realizados" onClick={() => { setShowCompleted(true); fetchCompleted(); }} />
+          <BotonIcono icono={Ic.Wrench} title="Centro de Mando de Mantenimientos" onClick={() => setShowCentroMando(true)} />
+          {esJefeReal && (
+            <BotonIcono icono={Ic.Inbox} title="Borradores sin finalizar" contador={adminDrafts.length} onClick={() => { setShowBorradores(true); fetchBorradores(); }} />
+          )}
+        </>)}
+        <BotonIcono icono={Ic.Sun} title="Cambiar tema claro / oscuro" onClick={alternarTema} data-tema-toggle />
+        <BotonIcono icono={Ic.LogOut} title="Cerrar sesión" onClick={onLogout} />
+      </div>
+    </div>
+  );
+
   const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
   const buildServiceData = () => {
@@ -4045,7 +4092,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   /* ── PASO 1: DATOS DEL VEHÍCULO ── */
   if (step === 1) return (
-    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:T.sans, color:"var(--text)" }}>
+    <div style={{ background:T.bg, minHeight:"100vh", fontFamily:T.sans, color:T.text }}>
 
       {/* Borradores panel */}
       {draftPrompt && (
@@ -4132,58 +4179,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {/* Overlay para cerrar el buscador — PRIMERO para que quede detrás */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40, background:"transparent" }} />}
 
-      {/* Header */}
-      <div style={{ background:"var(--header)", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
-        <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
-        <div style={{ flex:1 }}>
-          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
-          <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
-        </div>
-        {pendingDrafts.length > 0 && (
-          <button onClick={() => setDraftPrompt(true)} title="Ver mis servicios no finalizados"
-            style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:T.sans, flexShrink:0 }}>
-            📝 {pendingDrafts.length}
-          </button>
-        )}
-        {showAdminButtons && (<>
-          <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
-            style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            🔔
-            {notifCount > 0 && (
-              <span style={{ position:"absolute", top:-5, right:-5, background:T.crit, color:T.text, borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.sans, fontWeight:"bold", padding:"0 2px" }}>
-                {notifCount > 9 ? "9+" : notifCount}
-              </span>
-            )}
-          </button>
-          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Servicios realizados"
-            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            📋
-          </button>
-          <button onClick={() => setShowCentroMando(true)} title="Centro de Mando de Mantenimientos"
-            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            🛠
-          </button>
-          {esJefeReal && (
-            <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
-              style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-              🗂
-              {adminDrafts.length > 0 && (
-                <span style={{ position:"absolute", top:-5, right:-5, background:T.textMuted, color:T.text, borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.sans, fontWeight:"bold", padding:"0 2px" }}>
-                  {adminDrafts.length > 9 ? "9+" : adminDrafts.length}
-                </span>
-              )}
-            </button>
-          )}
-        </>)}
-        <button className="theme-toggle" onClick={() => {
-          const root = document.getElementById('root');
-          const isLight = root.style.filter.includes('invert');
-          if (isLight) { root.style.filter = ''; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = ''); try { localStorage.setItem('theme', 'dark'); } catch(e) {} }
-          else { root.style.filter = 'invert(1) hue-rotate(180deg)'; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)'); try { localStorage.setItem('theme', 'light'); } catch(e) {} }
-        }}>☀️</button>
-        <button onClick={onLogout} title="Cerrar sesión" style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:11, cursor:"pointer", fontFamily:T.sans, lineHeight:1, flexShrink:0 }}>→|</button>
-      </div>
-      <div style={{ padding:"3px 16px", background:T.bg, borderBottom:`1px solid ${line}`, fontSize:9, color:T.textMuted, letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
+      {cabecera()}
 
       {notificationsPanel}
       {completedPanel}
@@ -4414,60 +4410,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   /* ── PASO 2: TIPO DE SERVICIO ── */
   if (step === 2) return (
-    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:T.sans, color:"var(--text)" }}>
-      {/* Header con resumen del vehículo */}
-      <div style={{ background:"var(--header)", borderBottom:`1px solid ${line}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
-        <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", objectFit:"cover" }} />
-        <div style={{ flex:1 }}>
-          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
-          <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
-        </div>
-        <button onClick={()=>setStep(1)} style={{ fontSize:10, color:T.textMuted, background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"4px 8px", cursor:"pointer", fontFamily:T.sans }}>← Vehículo</button>
-        {pendingDrafts.length > 0 && (
-          <button onClick={() => setDraftPrompt(true)} title="Ver mis servicios no finalizados"
-            style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:T.sans, flexShrink:0 }}>
-            📝 {pendingDrafts.length}
-          </button>
-        )}
-        {showAdminButtons && (<>
-          <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
-            style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            🔔
-            {notifCount > 0 && (
-              <span style={{ position:"absolute", top:-5, right:-5, background:T.crit, color:T.text, borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.sans, fontWeight:"bold", padding:"0 2px" }}>
-                {notifCount > 9 ? "9+" : notifCount}
-              </span>
-            )}
-          </button>
-          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Servicios realizados"
-            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            📋
-          </button>
-          <button onClick={() => setShowCentroMando(true)} title="Centro de Mando de Mantenimientos"
-            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            🛠
-          </button>
-          {esJefeReal && (
-            <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
-              style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-              🗂
-              {adminDrafts.length > 0 && (
-                <span style={{ position:"absolute", top:-5, right:-5, background:T.textMuted, color:T.text, borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.sans, fontWeight:"bold", padding:"0 2px" }}>
-                  {adminDrafts.length > 9 ? "9+" : adminDrafts.length}
-                </span>
-              )}
-            </button>
-          )}
-        </>)}
-        <button className="theme-toggle" onClick={() => {
-          const root = document.getElementById('root');
-          const isLight = root.style.filter.includes('invert');
-          if (isLight) { root.style.filter = ''; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = ''); try { localStorage.setItem('theme', 'dark'); } catch(e) {} }
-          else { root.style.filter = 'invert(1) hue-rotate(180deg)'; root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)'); try { localStorage.setItem('theme', 'light'); } catch(e) {} }
-        }}>☀️</button>
-        <button onClick={onLogout} title="Cerrar sesión" style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:11, cursor:"pointer", fontFamily:T.sans, lineHeight:1, flexShrink:0 }}>→|</button>
-      </div>
-      <div style={{ padding:"3px 16px", background:T.bg, borderBottom:`1px solid ${line}`, fontSize:9, color:T.textMuted, letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
+    <div style={{ background:T.bg, minHeight:"100vh", fontFamily:T.sans, color:T.text }}>
+      {cabecera(
+        <Boton icono={Ic.ChevronLeft} onClick={()=>setStep(1)} style={{ padding:"0 12px 0 8px", marginRight:4 }}>Vehículo</Boton>
+      )}
 
       {notificationsPanel}
       {completedPanel}
@@ -4641,7 +4587,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   );
 
   return (
-    <div style={{ background:"var(--bg)", minHeight:"100vh", fontFamily:T.sans, color:"var(--text)" }}>
+    <div style={{ background:T.bg, minHeight:"100vh", fontFamily:T.sans, color:T.text }}>
       {/* Borradores panel (step 3) */}
       {draftPrompt && (
         <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
@@ -4727,77 +4673,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {/* Overlay para cerrar el buscador */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40 }} />}
 
-      {/* HEADER */}
-      <div style={{ background:"var(--header)", borderBottom:`1px solid var(--line)`, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:9 }}>
-        <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:36, height:36, borderRadius:"50%", flexShrink:0, objectFit:"cover" }} />
-        <div style={{ flex:1 }}>
-          <div style={{ fontWeight:"bold", letterSpacing:2, fontSize:13, color:"var(--text)" }}>RAMOS Y RAMOS</div>
-          <div style={{ fontSize:9, color:"var(--sub)", letterSpacing:3 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
-        </div>
-        {editingId && (
-          <div style={{ fontSize:9, padding:"3px 8px", borderRadius:10, background:"#1a1a0a", border:`1px solid ${T.accent}50`, color:T.accent, letterSpacing:1 }}>
-            ✏️ EDITANDO
-          </div>
-        )}
+      {cabecera(<>
+        {editingId && <Insignia color={T.accent} icono={Ic.PenLine} style={{ marginRight:4 }}>Editando</Insignia>}
         {!editingId && doneN > 0 && (
-          <div style={{ fontSize:10, padding:"3px 11px", borderRadius:20, border:`1px solid ${isComplete?T.ok:G}`, color:isComplete?T.ok:G, background:isComplete?"#14532d":T.panel }}>
-            {isComplete ? "✓ COMPLETO" : pct+"%"}
-          </div>
+          <Insignia color={isComplete ? T.ok : T.neutral} icono={isComplete ? Ic.Check : null} style={{ marginRight:4 }}>
+            {isComplete ? "Completo" : <Num>{pct}%</Num>}
+          </Insignia>
         )}
-        {pendingDrafts.length > 0 && (
-          <button onClick={() => setDraftPrompt(true)} title="Ver mis servicios no finalizados"
-            style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 8px", borderRadius:8, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontSize:11, fontWeight:"bold", cursor:"pointer", lineHeight:1, fontFamily:T.sans, flexShrink:0 }}>
-            📝 {pendingDrafts.length}
-          </button>
-        )}
-        {showAdminButtons && (<>
-          <button onClick={() => { setShowNotifications(true); fetchNotifications(); }} title="Pendientes de aprobación"
-            style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            🔔
-            {notifCount > 0 && (
-              <span style={{ position:"absolute", top:-5, right:-5, background:T.crit, color:T.text, borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.sans, fontWeight:"bold", padding:"0 2px" }}>
-                {notifCount > 9 ? "9+" : notifCount}
-              </span>
-            )}
-          </button>
-          <button onClick={() => { setShowCompleted(true); fetchCompleted(); }} title="Servicios realizados"
-            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            📋
-          </button>
-          <button onClick={() => setShowCentroMando(true)} title="Centro de Mando de Mantenimientos"
-            style={{ padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-            🛠
-          </button>
-          {esJefeReal && (
-            <button onClick={() => { setShowBorradores(true); fetchBorradores(); }} title="Borradores sin finalizar"
-              style={{ position:"relative", padding:"5px 8px", borderRadius:8, border:`1px solid ${line}`, background:card, color:T.textMuted, fontSize:13, cursor:"pointer", lineHeight:1 }}>
-              🗂
-              {adminDrafts.length > 0 && (
-                <span style={{ position:"absolute", top:-5, right:-5, background:T.textMuted, color:T.text, borderRadius:"50%", fontSize:9, minWidth:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:T.sans, fontWeight:"bold", padding:"0 2px" }}>
-                  {adminDrafts.length > 9 ? "9+" : adminDrafts.length}
-                </span>
-              )}
-            </button>
-          )}
-        </>)}
-        <button className="theme-toggle" onClick={() => {
-          const root = document.getElementById('root');
-          const isLight = root.style.filter.includes('invert');
-          if (isLight) {
-            root.style.filter = '';
-            root.querySelectorAll('img, canvas').forEach(el => el.style.filter = '');
-            try { localStorage.setItem('theme', 'dark'); } catch(e) {}
-          } else {
-            root.style.filter = 'invert(1) hue-rotate(180deg)';
-            root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)');
-            try { localStorage.setItem('theme', 'light'); } catch(e) {}
-          }
-        }}>
-          ☀️
-        </button>
-        <button onClick={onLogout} title="Cerrar sesión" style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:11, cursor:"pointer", fontFamily:T.sans, lineHeight:1, flexShrink:0 }}>→|</button>
-      </div>
-      <div style={{ padding:"3px 16px", background:T.bg, borderBottom:`1px solid ${line}`, fontSize:9, color:T.textMuted, letterSpacing:1, textAlign:"right" }}>👤 {session.nombre}</div>
+      </>)}
 
       {notificationsPanel}
       {completedPanel}
