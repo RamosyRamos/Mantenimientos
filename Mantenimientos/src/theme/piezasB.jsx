@@ -3,6 +3,7 @@
 // CajaModalB, la placa del tema): se arman con los tokens gemelos (tokensB.js)
 // y los estilos copiados de Taller (estilosB.js). Solo dibujo: ninguna pieza
 // guarda estado propio ni decide nada.
+import { forwardRef } from 'react'
 import { T } from './tokensB.js'
 import { monoB, botonB, hoverBotonB, insigniaB, cerrarB, sobretituloB, etiquetaB, campoTactilB, segmentoB } from './estilosB.js'
 import { X, TriangleAlert, Info, CircleAlert, CircleCheck } from './iconos.jsx'
@@ -39,7 +40,7 @@ export function Insignia({ color = T.neutral, icono: Icono, children, title, sty
 // Botón del tema B. jerarquia: 'principal' (uno por pantalla), 'secundario',
 // 'peligro' (texto crit, nunca rojo sólido). tam: 'movil' 44 · 'modal' 40.
 // `color` pinta solo el texto (y el borde si es semántico) de un secundario.
-export function Boton({ jerarquia = 'secundario', tam = 'movil', icono: Icono, iconoFin: IconoFin, color, ancho, children, style, disabled, type = 'button', ...rest }) {
+export const Boton = forwardRef(function Boton({ jerarquia = 'secundario', tam = 'movil', icono: Icono, iconoFin: IconoFin, color, ancho, children, style, disabled, type = 'button', ...rest }, ref) {
   const base = botonB(jerarquia, tam)
   const semantico = color && color !== T.textSoft && color !== T.text
   const st = {
@@ -51,13 +52,13 @@ export function Boton({ jerarquia = 'secundario', tam = 'movil', icono: Icono, i
     ...style,
   }
   return (
-    <button type={type} disabled={disabled} {...(disabled ? null : hoverBotonB)} {...rest} style={st}>
+    <button ref={ref} type={type} disabled={disabled} {...(disabled ? null : hoverBotonB)} {...rest} style={st}>
       {Icono && <Icono size={16} />}
       {children}
       {IconoFin && <IconoFin size={16} />}
     </button>
   )
-}
+})
 
 // Botón cuadrado de 44 con un ícono (cabecera, cerrar, quitar). `contador`
 // dibuja la pastilla del acento arriba a la derecha.

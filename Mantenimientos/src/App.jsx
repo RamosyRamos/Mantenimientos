@@ -2127,21 +2127,23 @@ function MainApp({ session, onLogout }) {
   // en el servicio (nunca null encima). En un aprobado, siempre lo guardado.
   const aceite = aceiteDelServicio({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: congeladoAc });
   const origenAc = aceite.origen === 'calculo' ? calcAc.origen : null;
+  // Tema B: la etiqueta del aceite (guardado en el servicio / origen) es una
+  // insignia neutra: dice de dónde sale el dato, no un estado.
   const etiquetaAceite = aceite.etiqueta
-    ? <span data-aceite-guardado style={{ fontSize:9, color:T.textMuted, border:`1px solid ${T.textDisabled}88`, borderRadius:4, padding:"0 5px", marginLeft:6 }}>{aceite.etiqueta}</span>
+    ? <Insignia data-aceite-guardado color={T.neutral} style={{ marginLeft:6 }}>{aceite.etiqueta}</Insignia>
     : origenAc
-      ? <span data-aceite-origen title={resAc?.etiquetaOrigen || undefined} style={{ fontSize:9, color:T.accent, border:`1px solid ${T.accent}55`, borderRadius:4, padding:"0 5px", marginLeft:6 }}>{origenAc}</span>
+      ? <Insignia data-aceite-origen title={resAc?.etiquetaOrigen || undefined} color={T.neutral} style={{ marginLeft:6 }}>{origenAc}</Insignia>
       : null;
   // Varias cantidades documentadas y el mecánico todavía puede elegir.
   const opcionesAc = !congeladoAc && llevaAceite && resAc?.tipo === 'opciones' ? resAc.opciones : [];
   const sinDatoAc  = llevaAceite && !aceite.litros && !cargandoAc && !opcionesAc.length;
   // Selector de cantidad (paso 1 y paso 3): cada opción con su condición.
   const selectorAceite = opcionesAc.length ? (
-    <div data-aceite-opciones style={{ marginTop:6, display:"flex", flexDirection:"column", gap:4 }}>
-      <div style={{ fontSize:10, color:T.textMuted }}>{calcAc.elegida == null ? "Hay varias cantidades: elegí la que corresponde a este vehículo" : "Cantidad elegida (podés cambiarla)"}</div>
+    <div data-aceite-opciones style={{ marginTop:8, display:"flex", flexDirection:"column", gap:6 }}>
+      <div style={{ fontSize:12, color: calcAc.elegida == null ? T.warn : T.textMuted }}>{calcAc.elegida == null ? "Hay varias cantidades: elegí la que corresponde a este vehículo" : "Cantidad elegida (podés cambiarla)"}</div>
       <select data-elegir-aceite value={calcAc.elegida ?? ""} onChange={e => elegirAceite(e.target.value)}
-        style={{ padding:"7px 9px", borderRadius:6, border:`1px solid ${T.accent}40`, background:T.field, color:T.accent, fontFamily:T.sans, fontSize:11 }}>
-        <option value="">— Elegir cantidad —</option>
+        style={{ ...campoMB, ...(calcAc.elegida == null ? { border:`1px solid ${T.warn}A6` } : null) }}>
+        <option value="">Elegir cantidad</option>
         {opcionesAc.map(o => (
           <option key={o.litros} value={o.litros}>{o.litros} L{o.spec ? ` · ${o.spec}` : ""} — {o.condicion || "sin condición"} ({o.origen})</option>
         ))}
@@ -2149,7 +2151,7 @@ function MainApp({ session, onLogout }) {
     </div>
   ) : null;
   const avisoSinAceite = sinDatoAc
-    ? <div data-aceite-sin-dato style={{ fontSize:10, color:T.warn }}>🛢️ {MENSAJE_SIN_DATO}</div>
+    ? <div data-aceite-sin-dato style={{ display:"flex", alignItems:"flex-start", gap:6, fontSize:12.5, color:T.warn, lineHeight:1.45 }}><Ic.TriangleAlert size={14} style={{ marginTop:2 }} /><span>{MENSAJE_SIN_DATO}</span></div>
     : null;
 
   // Auto-set fuel when engine selected
@@ -4106,13 +4108,20 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     return a;
   }, {});
 
-  const pill = (active, color, fn, label) => (
-    <button onClick={fn} style={{ padding:"5px 13px", borderRadius:20, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:active?"bold":"normal", border:active?`1.5px solid ${color}`:`1px solid ${line}`, background:active?color+"22":card, color:active?color:T.textMuted }}>
-      {label}
-    </button>
-  );
+  // Botón de un código de servicio (paso 2), del tema B: Plex Mono, 44 de
+  // alto, el elegido con fondo card y el borde del acento; el que el candado
+  // de combustible deja afuera, apagado y con el candado SVG.
+  const botonCodigo = (k) => {
+    const s = activeCodes[k] || {}, on = sel === k, cand = estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo });
+    return (
+      <button key={k} type="button" onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined} aria-pressed={on}
+        title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
+        style={{ ...monoB, minWidth:48, minHeight:44, padding:"0 10px", borderRadius:8, boxSizing:"border-box", display:"inline-flex", alignItems:"center", justifyContent:"center", gap:4, fontSize:13, fontWeight:on?600:500, border:`1px solid ${on ? T.accent + '73' : T.borderDefault}`, background:on?T.card:"transparent", color:cand.deshabilitado ? T.textDisabled : on ? T.text : T.textSoft, cursor:cand.deshabilitado?"not-allowed":"pointer", opacity:cand.deshabilitado?0.6:1 }}>
+        {k}{cand.deshabilitado && <Ic.Lock size={12} />}
+      </button>
+    );
+  };
 
-  const inp = { background:card, border:`1px solid ${line}`, color:T.text, borderRadius:6, padding:"10px 12px", fontSize:16, fontFamily:T.sans, outline:"none" };
 
   /* ── PASO 1: DATOS DEL VEHÍCULO ── */
   if (step === 1) return (
@@ -4218,24 +4227,29 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         {/* Indicador de pasos */}
         <IndicadorPasos actual={1} />
 
-        <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 1 · DATOS DEL VEHÍCULO</div>
+        <Sobretitulo style={{ marginBottom:4 }}>Paso 1</Sobretitulo>
+        <h2 style={{ ...tituloB, fontSize:18, marginBottom:18 }}>Datos del vehículo</h2>
 
         {/* Buscador de modelo */}
-        <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:T.textMuted, marginBottom:5 }}>MODELO <span style={{ color:T.crit }}>*</span></div>
+        <div style={{ marginBottom:16 }}>
+          <Etiqueta requerido>Modelo</Etiqueta>
           <div style={{ position:"relative", zIndex:50 }}>
+            <Ic.Search size={16} color={T.textMuted} style={{ position:"absolute", left:13, top:14, pointerEvents:"none", zIndex:1 }} />
             <input
+              data-buscar-modelo
               value={modelSearch}
               onChange={e => { setModelSearch(e.target.value); setModelOpen(true); }}
               onFocus={() => setModelOpen(true)}
-              placeholder="🔍 Buscar — ej: C300, clase s, W204..."
-              style={{ ...inp, width:"100%", boxSizing:"border-box" }}
+              placeholder="Buscar: C300, clase S, W204…"
+              style={{ ...campoMB, paddingLeft:38 }}
             />
             {model && !modelOpen && (
-              <div style={{ marginTop:4, fontSize:10, color:T.accent }}>✓ {model}</div>
+              <div data-modelo-elegido style={{ marginTop:6, display:"flex", alignItems:"flex-start", gap:6, fontSize:12.5, color:T.textSoft, lineHeight:1.4 }}>
+                <Ic.Check size={14} color={T.ok} style={{ marginTop:1 }} /><span style={{ minWidth:0, overflowWrap:"anywhere" }}>{model}</span>
+              </div>
             )}
             {modelOpen && (
-              <div style={{ position:"absolute", top:"100%", left:0, right:0, background:card, border:`1px solid ${line}`, borderRadius:6, zIndex:50, maxHeight:260, overflowY:"auto", marginTop:2, boxShadow:`0 8px 24px ${T.plateText}80` }}>
+              <div data-lista-modelos style={{ position:"absolute", top:"100%", left:0, right:0, background:T.raised, border:"1px solid rgba(255,255,255,0.10)", borderRadius:10, zIndex:50, maxHeight:300, overflowY:"auto", marginTop:4, padding:4, boxShadow:"0 14px 32px rgba(0,0,0,0.45)" }}>
                 {(() => {
                   const q = normalize(modelSearch);
                   const flat = []
@@ -4249,19 +4263,19 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                         normalize(e.clase).includes(q)
                       )
                     : flat
-                  if (!filtered.length) return <div style={{ padding:"12px", fontSize:11, color:T.textDisabled, textAlign:"center" }}>Sin resultados</div>;
+                  if (!filtered.length) return <Vacio style={{ padding:"16px 12px" }}>Sin resultados</Vacio>;
                   let lastClase = null;
                   return filtered.map((entry, i) => {
                     const showHeader = entry.clase !== lastClase;
                     lastClase = entry.clase;
+                    const elegido = engine===entry.motor && model===entry.categoria;
                     return (
                       <div key={`${entry.categoria}-${entry.version}-${i}`}>
                         {showHeader && (
-                          <div style={{ padding:"4px 10px 2px", fontSize:8, color:T.textDisabled, letterSpacing:2, background:T.card }}>
-                            {entry.clase.toUpperCase()}
-                          </div>
+                          <Sobretitulo style={{ padding:"10px 10px 4px" }}>{entry.clase}</Sobretitulo>
                         )}
                         <div
+                          data-modelo-opcion
                           onClick={() => {
                             setModel(entry.categoria);
                             setModelSearch(entry.display);
@@ -4270,9 +4284,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                             if (!estComb.bloqueado) setFuel(entry.combustible);
                             setModelOpen(false);
                           }}
-                          style={{ padding:"7px 12px", cursor:"pointer", borderBottom:`1px solid ${line}20`, fontSize:11, display:"flex", alignItems:"center", gap:8, color:engine===entry.motor&&model===entry.categoria?T.accent:T.textSoft, background:engine===entry.motor&&model===entry.categoria?T.accent+'08':"transparent" }}
+                          onMouseEnter={e => { e.currentTarget.style.background = T.raisedHover; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = elegido ? T.card : "transparent"; }}
+                          style={{ minHeight:44, padding:"8px 10px", borderRadius:6, cursor:"pointer", fontSize:13, lineHeight:1.35, display:"flex", alignItems:"center", gap:8, color:elegido?T.text:T.textSoft, background:elegido?T.card:"transparent" }}
                         >
-                          <span style={{ flex:1 }}>{entry.display}</span>
+                          <span style={{ flex:1, minWidth:0 }}>{entry.display}</span>
+                          {elegido && <Ic.Check size={14} color={T.accent} />}
                         </div>
                       </div>
                     );
@@ -4285,10 +4302,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
         {/* Motor */}
         {model && availableEngines.length > 0 && (
-          <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:10, color:T.textMuted, marginBottom:5 }}>MOTOR</div>
-            <select value={engine} onChange={e=>setEngine(e.target.value)} style={{ ...inp, width:"100%", boxSizing:"border-box" }}>
-              <option value="">— Seleccionar motor —</option>
+          <div style={{ marginBottom:16 }}>
+            <Etiqueta>Motor</Etiqueta>
+            <select value={engine} onChange={e=>setEngine(e.target.value)} style={{ ...campoMB, ...monoB }}>
+              <option value="">Elegir motor</option>
               {availableEngines.map(e => (
                 <option key={e.name} value={e.name}>{e.name}</option>
               ))}
@@ -4300,18 +4317,20 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             elegido en el selector), con su origen; varias cantidades → elegir;
             sin dato → aviso. */}
         {!isEV && (aceite.litros > 0 || opcionesAc.length > 0 || sinDatoAc || (cargandoAc && llevaAceite)) && (
-          <div data-aceite-capacidad style={{ marginBottom:12, padding:"12px 14px", borderRadius:8, background:T.accent+'12', border:`1px solid ${T.accent}40` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <span style={{ fontSize:22 }}>🛢️</span>
+          <div data-aceite-capacidad style={{ marginBottom:16, padding:"12px 14px", borderRadius:12, background:T.panel, border:`1px solid ${T.borderDefault}` }}>
+            <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+              <Ic.Droplet size={20} color={T.accentMuted} style={{ marginTop:1 }} />
               <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:11, color:T.textMuted, letterSpacing:1, marginBottom:2 }}>CAPACIDAD DE ACEITE{etiquetaAceite}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:4 }}>
+                  <Sobretitulo>Capacidad de aceite</Sobretitulo>{etiquetaAceite}
+                </div>
                 {aceite.litros > 0 ? (
                   <>
-                    <div style={{ fontSize:20, fontWeight:"bold", color:T.accent, lineHeight:1 }}>{aceite.litros} L</div>
-                    <div style={{ fontSize:10, color:T.textMuted, marginTop:3 }}>{aceite.spec}</div>
+                    <div style={{ ...monoB, fontSize:20, fontWeight:600, color:T.text, lineHeight:1.15 }}>{aceite.litros} L</div>
+                    <div style={{ ...monoB, fontSize:12, color:T.textSoft, marginTop:3 }}>{aceite.spec}</div>
                   </>
                 ) : cargandoAc ? (
-                  <div style={{ fontSize:10, color:T.textMuted }}>Buscando el aceite de este vehículo…</div>
+                  <div style={{ fontSize:12.5, color:T.textMuted }}>Buscando el aceite de este vehículo…</div>
                 ) : avisoSinAceite}
                 {selectorAceite}
               </div>
@@ -4320,46 +4339,39 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 corregía vehiculos_modelos, que ya no es fuente del aceite. Se
                 rehace en otra rama. La tabla y la RPC no se tocan. */}
             {!CORRECCION_ACEITE_ACTIVA ? null : corrEnviada ? (
-              <div style={{ marginTop:8, fontSize:10, color:T.accent }}>⏳ corrección propuesta</div>
+              <div style={{ marginTop:8, fontSize:12, color:T.textMuted }}>Corrección propuesta</div>
             ) : !corrOpen ? (
               <button onClick={() => { setCorrOpen(true); setCorrLitros(""); setCorrComentario(""); setCorrError(""); }}
-                style={{ marginTop:8, padding:0, background:"none", border:"none", color:T.accent+'88', fontSize:10, fontFamily:T.sans, cursor:"pointer", textDecoration:"underline" }}>
+                style={{ marginTop:8, padding:0, background:"none", border:"none", color:T.textSoft, fontSize:12, fontFamily:T.sans, cursor:"pointer", textDecoration:"underline" }}>
                 ¿Valor incorrecto?
               </button>
             ) : (
-              <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${T.accent}30` }}>
-                <div style={{ fontSize:10, color:T.textMuted, marginBottom:6 }}>Proponer corrección (la revisa un jefe antes de aplicarse):</div>
+              <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${T.borderSubtle}` }}>
+                <div style={{ fontSize:12, color:T.textMuted, marginBottom:6 }}>Proponer corrección (la revisa un jefe antes de aplicarse):</div>
                 <div style={{ display:"flex", gap:6, marginBottom:6 }}>
                   <input type="number" step="0.1" min="0" value={corrLitros} onChange={e => setCorrLitros(e.target.value)} placeholder="Litros"
-                    style={{ width:90, padding:"7px 9px", borderRadius:6, border:`1px solid ${T.accent}40`, background:T.field, color:T.accent, fontFamily:T.sans, fontSize:12 }} />
+                    style={{ ...campoMB, ...monoB, width:96 }} />
                   <input value={corrComentario} onChange={e => setCorrComentario(e.target.value)} placeholder="Comentario (opcional)"
-                    style={{ flex:1, padding:"7px 9px", borderRadius:6, border:`1px solid ${T.accent}40`, background:T.field, color:T.text, fontFamily:T.sans, fontSize:11 }} />
+                    style={{ ...campoMB, flex:1, minWidth:0 }} />
                 </div>
-                {corrError && <div style={{ fontSize:10, color:T.crit, marginBottom:6 }}>{corrError}</div>}
-                <div style={{ display:"flex", gap:6 }}>
-                  <button onClick={proponerCorreccionAceite} disabled={corrSending}
-                    style={{ flex:1, padding:"7px", borderRadius:6, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontFamily:T.sans, fontSize:10, fontWeight:"bold", cursor:"pointer", letterSpacing:1, opacity:corrSending ? 0.5 : 1 }}>
+                {corrError && <MensajeCampo error>{corrError}</MensajeCampo>}
+                <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                  <Boton onClick={() => { setCorrOpen(false); setCorrError(""); }}>Cancelar</Boton>
+                  <Boton onClick={proponerCorreccionAceite} disabled={corrSending} style={{ flex:1 }}>
                     {corrSending ? "Enviando…" : "Proponer"}
-                  </button>
-                  <button onClick={() => { setCorrOpen(false); setCorrError(""); }}
-                    style={{ padding:"7px 12px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.textMuted, fontFamily:T.sans, fontSize:10, cursor:"pointer" }}>
-                    Cancelar
-                  </button>
+                  </Boton>
                 </div>
               </div>
             )}
           </div>
         )}
         {isEV && engine && (
-          <div style={{ marginBottom:12, padding:"10px 14px", borderRadius:8, background:T.ok+'10', border:`1px solid ${T.ok}30`, display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:18 }}>⚡</span>
-            <div style={{ fontSize:11, color:T.ok }}>Vehículo eléctrico — sin aceite de motor</div>
-          </div>
+          <Aviso color={T.ok} icono={Ic.Zap} style={{ marginBottom:16 }}>Vehículo eléctrico: sin aceite de motor</Aviso>
         )}
 
         {/* Año */}
-        <div style={{ marginBottom:14 }}>
-          <label style={{ display:"block", fontSize:11, color:T.textMuted, letterSpacing:1.5, textTransform:"uppercase", marginBottom:6 }}>AÑO</label>
+        <div style={{ marginBottom:16 }}>
+          <Etiqueta>Año</Etiqueta>
           <input
             value={vehAnio}
             onChange={e => setVehAnio(e.target.value.replace(/\D/g, ""))}
@@ -4367,60 +4379,69 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             type="text"
             inputMode="numeric"
             maxLength={4}
-            style={{ ...inp, width:"100%", boxSizing:"border-box" }}
+            style={{ ...campoMB, ...monoB }}
           />
         </div>
 
         {/* Versión */}
-        <div style={{ marginBottom:14 }}>
-          <label style={{ display:"block", fontSize:11, color:T.textMuted, letterSpacing:1.5, textTransform:"uppercase", marginBottom:6 }}>VERSIÓN</label>
+        <div style={{ marginBottom:16 }}>
+          <Etiqueta>Versión</Etiqueta>
           <input
             value={vehVersion}
             onChange={e => setVehVersion(e.target.value)}
             placeholder="Ej: B 180 CDI BlueEfficiency"
             type="text"
-            style={{ ...inp, width:"100%", boxSizing:"border-box" }}
+            style={campoMB}
           />
         </div>
 
         {/* Placa */}
-        <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:T.textMuted, marginBottom:5 }}>PLACA</div>
-          <input value={plate} onChange={e=>setPlate(e.target.value.replace(/[^A-Z0-9]/gi,"").toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
-            onFocus={() => { placaAlEnfocarRef.current = plate; }}
-            onBlur={e => {
-              // Si el foco se va al botón Continuar, la verificación la hace el botón,
-              // una sola vez: un confirm acá se comía el toque (ver blurVaAContinuar).
-              if (blurVaAContinuar({ relatedTarget: e.relatedTarget, botonContinuar: continuarRef.current, continuarPresionado: continuarPresionadoRef.current })) return;
-              confirmarPlacaConOrden();
-            }}
-            style={{ ...inp, width:"100%", boxSizing:"border-box", letterSpacing:2, textTransform:"uppercase" }} />
-          {ordenId && ordenPlaca?.placa && (
-            <div data-orden-vinculada data-placa-coincide={String(normalizarPlaca(plate) === ordenPlaca.placa)}
-              style={{ fontSize:10, marginTop:5, color: normalizarPlaca(plate) && normalizarPlaca(plate) !== ordenPlaca.placa ? T.crit : T.textMuted }}>
-              Orden {ordenNumero || ordenPlaca.numero ? `#${String(ordenNumero || ordenPlaca.numero).replace(/^#/, "")}` : "vinculada"} · placa {ordenPlaca.placa}
-              {normalizarPlaca(plate) && normalizarPlaca(plate) !== ordenPlaca.placa ? " · ⚠ no coincide" : ""}
+        {(() => {
+          const placaDistinta = !!(ordenId && ordenPlaca?.placa && normalizarPlaca(plate) && normalizarPlaca(plate) !== ordenPlaca.placa);
+          return (
+            <div style={{ marginBottom:16 }}>
+              <Etiqueta>Placa</Etiqueta>
+              <input value={plate} onChange={e=>setPlate(e.target.value.replace(/[^A-Z0-9]/gi,"").toUpperCase())} placeholder="Ej: ABC123" maxLength={8}
+                aria-invalid={placaDistinta}
+                onFocus={() => { placaAlEnfocarRef.current = plate; }}
+                onBlur={e => {
+                  // Si el foco se va al botón Continuar, la verificación la hace el botón,
+                  // una sola vez: un confirm acá se comía el toque (ver blurVaAContinuar).
+                  if (blurVaAContinuar({ relatedTarget: e.relatedTarget, botonContinuar: continuarRef.current, continuarPresionado: continuarPresionadoRef.current })) return;
+                  confirmarPlacaConOrden();
+                }}
+                style={{ ...campoMB, ...monoB, letterSpacing:1, textTransform:"uppercase", ...(placaDistinta ? { border:`1px solid ${T.crit}A6` } : null) }} />
+              {ordenId && ordenPlaca?.placa && (
+                <MensajeCampo error={placaDistinta} data-orden-vinculada data-placa-coincide={String(normalizarPlaca(plate) === ordenPlaca.placa)}>
+                  Orden <Num>{ordenNumero || ordenPlaca.numero ? `#${String(ordenNumero || ordenPlaca.numero).replace(/^#/, "")}` : "vinculada"}</Num> · placa <Num>{ordenPlaca.placa}</Num>
+                  {placaDistinta ? " · no coincide" : ""}
+                </MensajeCampo>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Kilometraje */}
-        <div style={{ marginBottom:28 }}>
-          <div style={{ fontSize:10, color:T.textMuted, marginBottom:5 }}>KILOMETRAJE</div>
+        <div style={{ marginBottom:24 }}>
+          <Etiqueta>Kilometraje</Etiqueta>
           <input value={km} onChange={e=>setKm(e.target.value.replace(/\D/g,""))} placeholder="Ej: 85000" type="text" inputMode="numeric"
-            style={{ ...inp, width:"100%", boxSizing:"border-box" }} />
+            style={{ ...campoMB, ...monoB }} />
         </div>
 
         <div className="sticky-action">
-          <button
+          <Boton
             ref={continuarRef}
+            jerarquia="principal"
+            ancho
+            iconoFin={Ic.ArrowRight}
+            data-continuar-paso1
             onPointerDown={() => { continuarPresionadoRef.current = true; setTimeout(() => { continuarPresionadoRef.current = false; }, 600); }}
             onClick={() => { continuarPresionadoRef.current = false; if (!model) return; if (!confirmarPlacaConOrden()) return; setModelOpen(false); setStep(2); }}
             disabled={!model}
-            style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${model?G+"60":T.border}`, background:model?G+"18":"transparent", color:model?G:T.border, fontFamily:T.sans, fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:model?"pointer":"default" }}>
-            CONTINUAR → TIPO DE SERVICIO
-          </button>
-          {!model && <div style={{ textAlign:"center", fontSize:10, color:T.textDisabled, marginTop:8 }}>Seleccioná un modelo para continuar</div>}
+            style={{ minHeight:48 }}>
+            Continuar al tipo de servicio
+          </Boton>
+          {!model && <div style={{ textAlign:"center", fontSize:12, color:T.textMuted, marginTop:8 }}>Seleccioná un modelo para continuar</div>}
         </div>
       </div>
     </div>
@@ -4442,13 +4463,13 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {verTodosPanel}
 
       {/* Resumen vehículo seleccionado */}
-      <div style={{ padding:"10px 16px", background:T.card, borderBottom:`1px solid ${line}` }}>
-        <div style={{ fontSize:9, color:T.textDisabled, letterSpacing:2, marginBottom:4 }}>VEHÍCULO SELECCIONADO</div>
-        <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-          <span style={{ color:T.accent, fontWeight:"bold", fontSize:12 }}>{model.split("(")[0].trim()}</span>
-          {engine && <span style={{ fontSize:10, color:T.textMuted }}>· {engine}</span>}
-          {plate && <span style={{ fontSize:10, background:T.panel, border:`1px solid ${line}`, borderRadius:4, padding:"1px 7px", letterSpacing:2, color:T.textSoft }}>{plate}</span>}
-          {km && <span style={{ fontSize:10, color:T.textMuted }}>{parseInt(km).toLocaleString()} km</span>}
+      <div data-vehiculo-resumen style={{ padding:"10px 16px", background:T.panel, borderBottom:`1px solid ${T.borderSubtle}` }}>
+        <Sobretitulo style={{ marginBottom:4 }}>Vehículo seleccionado</Sobretitulo>
+        <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+          <span style={{ color:T.text, fontWeight:600, fontSize:14 }}>{model.split("(")[0].trim()}</span>
+          {engine && <Num style={{ fontSize:12, color:T.textMuted }}>{engine}</Num>}
+          {plate && <Placa placa={plate} />}
+          {km && <Num style={{ fontSize:12, color:T.textMuted }}>{parseInt(km).toLocaleString()} km</Num>}
         </div>
       </div>
 
@@ -4456,131 +4477,105 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         {/* Indicador de pasos */}
         <IndicadorPasos actual={2} />
 
-        <div style={{ fontSize:11, color:G, letterSpacing:3, marginBottom:16 }}>PASO 2 · TIPO DE SERVICIO</div>
+        <Sobretitulo style={{ marginBottom:4 }}>Paso 2</Sobretitulo>
+        <h2 style={{ ...tituloB, fontSize:18, marginBottom:18 }}>Tipo de servicio</h2>
         {!recetasReady && (
-          <div data-recetas-estado={recetasError ? "error" : "cargando"} style={{ marginBottom:16, padding:"10px 12px", borderRadius:6, border:`1px solid ${recetasError ? T.crit+'60' : line}`, color:recetasError ? T.crit : T.textMuted, fontSize:11, display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
-            <span style={{ flex:1, minWidth:0 }}>{recetasError ? `⚠ ${recetasError} Sin recetas no se puede iniciar un servicio.` : "Cargando las recetas…"}</span>
-            {recetasError && (
-              <button data-accion="reintentar-recetas" onClick={() => setRecetasNonce(n => n + 1)}
-                style={{ padding:"7px 12px", borderRadius:6, border:`1px solid ${T.crit}`, background:"transparent", color:T.crit, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-                Reintentar
-              </button>
-            )}
-          </div>
+          recetasError ? (
+            <Aviso data-recetas-estado="error" color={T.crit} style={{ marginBottom:16 }}
+              accion={<Boton data-accion="reintentar-recetas" color={T.crit} icono={Ic.RefreshCw} onClick={() => setRecetasNonce(n => n + 1)}>Reintentar</Boton>}>
+              {recetasError} Sin recetas no se puede iniciar un servicio.
+            </Aviso>
+          ) : (
+            <div data-recetas-estado="cargando" style={{ marginBottom:16, fontSize:12.5, color:T.textMuted }}>Cargando las recetas…</div>
+          )
         )}
 
         {/* Selector de código de servicio */}
         <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:10, color:T.textMuted, marginBottom:10 }}>{fuel === "electrico" ? "CÓDIGO DE SERVICIO" : "CÓDIGO DE SERVICIO ASSYST"} <span style={{ color:T.crit }}>*</span></div>
+          <Etiqueta requerido style={{ marginBottom:10 }}>{fuel === "electrico" ? "Código de servicio" : "Código de servicio ASSYST"}</Etiqueta>
           {/* Elección que trajo el link de Taller ("Iniciar revisión" / "Iniciar
               mantenimiento"): se muestra solo esa serie, con salida a todas. */}
           {tipoLink && !verTodasSeries && (
-            <div data-tipo-link={tipoLink} style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:10, padding:"7px 10px", borderRadius:6, border:`1px solid ${line}`, background:T.card }}>
-              <span style={{ flex:1, minWidth:0, fontSize:10, color:T.textSoft }}>
-                Elegido en Taller: <strong style={{ color:T.accent }}>{tipoLink === TIPO.REVISION ? "Revisión" : "Mantenimiento"}</strong>
+            <div data-tipo-link={tipoLink} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:12, padding:"8px 8px 8px 12px", borderRadius:10, border:`1px solid ${T.borderDefault}`, background:T.card }}>
+              <span style={{ flex:"1 1 160px", minWidth:0, fontSize:12.5, color:T.textSoft }}>
+                Elegido en Taller: <strong style={{ color:T.text, fontWeight:600 }}>{tipoLink === TIPO.REVISION ? "Revisión" : "Mantenimiento"}</strong>
               </span>
-              <button data-ver-todas-series onClick={() => setVerTodasSeries(true)}
-                style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontFamily:T.sans, fontSize:10, cursor:"pointer" }}>
-                Ver todas las series
-              </button>
+              <Boton data-ver-todas-series onClick={() => setVerTodasSeries(true)}>Ver todas las series</Boton>
             </div>
           )}
           {seriesVisibles(tipoLink, { verTodas: verTodasSeries }).mantenimiento && fuel !== "electrico" && (<>
-          <div style={{ fontSize:9, color:T.accent+'80', letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
-            {activeAKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
-              <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
-                title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
-                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:T.textMuted, fontFamily:T.sans, fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
-                {k}{cand.deshabilitado ? " 🔒" : ""}
-              </button>
-            );})}
+          <Sobretitulo style={{ marginBottom:8 }}>Serie A — inspección menor</Sobretitulo>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:14 }}>
+            {activeAKeys.map(k => botonCodigo(k))}
           </div>
-          <div style={{ fontSize:9, color:"#7EB8F780", letterSpacing:2, marginBottom:6 }}>SERIE B — INSPECCIÓN MAYOR</div>
+          <Sobretitulo style={{ marginBottom:8 }}>Serie B — inspección mayor</Sobretitulo>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-            {activeBKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
-              <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
-                title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
-                style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:T.textMuted, fontFamily:T.sans, fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
-                {k}{cand.deshabilitado ? " 🔒" : ""}
-              </button>
-            );})}
+            {activeBKeys.map(k => botonCodigo(k))}
           </div>
           </>)}
           {seriesVisibles(tipoLink, { verTodas: verTodasSeries }).mantenimiento && fuel === "electrico" && activeEVKeys.length > 0 && (
             <>
-              <div style={{ fontSize:9, color:T.ok+'80', letterSpacing:2, margin:"12px 0 6px" }}>SERIE EV — ELÉCTRICOS</div>
+              <Sobretitulo style={{ margin:"14px 0 8px" }}>Serie EV — eléctricos</Sobretitulo>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {activeEVKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
-                  <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
-                    title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
-                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:T.textMuted, fontFamily:T.sans, fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
-                    {k}{cand.deshabilitado ? " 🔒" : ""}
-                  </button>
-                );})}
+                {activeEVKeys.map(k => botonCodigo(k))}
               </div>
             </>
           )}
           {/* Serie C (RC / RG): para CUALQUIER combustible, eléctricos incluidos (decisión del dueño, 7/10/2026). */}
           {seriesVisibles(tipoLink, { verTodas: verTodasSeries }).revision && activeCKeys.length > 0 && (
             <>
-              <div style={{ fontSize:9, color:T.estado.listo+'80', letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
+              <Sobretitulo style={{ margin:"14px 0 8px" }}>Revisiones</Sobretitulo>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                {activeCKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
-                  <button key={k} onClick={()=>elegirCodigo(k)} className="svc-btn" data-codigo={k} disabled={cand.deshabilitado} data-candado={s.fuelLock || undefined}
-                    title={cand.deshabilitado ? `Solo ${s.fuelLock}` : undefined}
-                    style={{ padding:"7px 12px", borderRadius:6, border:on?`1.5px solid ${s.color}`:`1px solid ${line}`, background:on?s.color+"22":"transparent", color:on?s.color:T.textMuted, fontFamily:T.sans, fontSize:11, cursor:cand.deshabilitado?"not-allowed":"pointer", fontWeight:on?"bold":"normal", opacity:cand.deshabilitado?0.35:1 }}>
-                    {k}{cand.deshabilitado ? " 🔒" : ""}
-                  </button>
-                );})}
+                {activeCKeys.map(k => botonCodigo(k))}
               </div>
             </>
           )}
-          {svc && <div style={{ marginTop:8, fontSize:10, color:T.textMuted }}>{svc.desc}</div>}
+          {svc && svc.desc && <div style={{ marginTop:10, fontSize:12.5, color:T.textSoft }}>{svc.desc}</div>}
         </div>
 
         {/* Combustible */}
         <div style={{ marginBottom:16 }}>
-          <div style={{ fontSize:10, color:T.textMuted, marginBottom:8 }}>COMBUSTIBLE</div>
-          <div style={{ display:"flex", gap:8 }}>
-            {[["gasolina","⛽ Gasolina"],["diesel","🛢️ Diesel"],["electrico","⚡ Eléctrico"]].map(([v,lbl])=>{
-              const acc = v === "electrico" ? T.ok : T.accent;
+          <Etiqueta>Combustible</Etiqueta>
+          <div style={{ display:"flex", gap:6 }}>
+            {[["gasolina","Gasolina",Ic.Fuel],["diesel","Diesel",Ic.Droplet],["electrico","Eléctrico",Ic.Zap]].map(([v,lbl,IconoComb])=>{
+              const on = fuel===v;
               return (
-                <button key={v} onClick={()=>setFuel(v)} disabled={estComb.bloqueado} data-combustible={v} data-activo={fuel===v?"1":"0"}
-                  style={{ flex:1, padding:"10px 4px", borderRadius:6, border:`1px solid ${fuel===v?acc+"60":line}`, background:fuel===v?acc+"15":"transparent", color:fuel===v?acc:T.textMuted, fontFamily:T.sans, fontSize:11, cursor:estComb.bloqueado?"not-allowed":"pointer", fontWeight:fuel===v?"bold":"normal", opacity:estComb.bloqueado&&fuel!==v?0.4:1 }}>
-                  {lbl}
+                <button key={v} type="button" onClick={()=>setFuel(v)} disabled={estComb.bloqueado} data-combustible={v} data-activo={on?"1":"0"} aria-pressed={on}
+                  style={{ ...opcionB(on), flex:1, minWidth:0, justifyContent:"center", gap:6, padding:"0 6px", fontWeight:on?600:500, cursor:estComb.bloqueado?"not-allowed":"pointer", opacity:estComb.bloqueado&&!on?0.45:1 }}>
+                  <IconoComb size={15} />{lbl}
                 </button>
               );
             })}
           </div>
-          {estComb.bloqueado && <div data-combustible-bloqueado style={{ marginTop:6, fontSize:10, color:T.textMuted }}>🔒 {TEXTO_SEGUN_VEHICULO}</div>}
-          {estComb.aviso && <div data-combustible-aviso style={{ marginTop:6, fontSize:10, color:T.warn }}>⚠ {estComb.aviso}</div>}
+          {estComb.bloqueado && <MensajeCampo data-combustible-bloqueado><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Ic.Lock size={12} />{TEXTO_SEGUN_VEHICULO}</span></MensajeCampo>}
+          {estComb.aviso && <MensajeCampo data-combustible-aviso style={{ color:T.warn }}><span style={{ display:"inline-flex", alignItems:"flex-start", gap:5 }}><Ic.TriangleAlert size={13} style={{ marginTop:1 }} />{estComb.aviso}</span></MensajeCampo>}
         </div>
 
         {/* 4MATIC (decisión 10: con un "sí" del vehículo, prendido y bloqueado) */}
         <div style={{ marginBottom:16 }}>
-          <button onClick={()=>{ if (!estTrac.bloqueado) setIs4m(p=>!p); }} disabled={estTrac.bloqueado} data-4matic={is4m?"1":"0"} data-4matic-bloqueado={estTrac.bloqueado?"1":"0"}
-            style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${is4m?T.ok+'50':line}`, background:is4m?T.ok+'10':"transparent", color:is4m?T.ok:T.textMuted, fontFamily:T.sans, fontSize:11, cursor:estTrac.bloqueado?"not-allowed":"pointer", textAlign:"left" }}>
-            {is4m?"✓":"○"} Tracción 4MATIC
+          <button type="button" onClick={()=>{ if (!estTrac.bloqueado) setIs4m(p=>!p); }} disabled={estTrac.bloqueado} data-4matic={is4m?"1":"0"} data-4matic-bloqueado={estTrac.bloqueado?"1":"0"} aria-pressed={is4m}
+            style={{ ...opcionB(is4m), width:"100%", cursor:estTrac.bloqueado?"not-allowed":"pointer" }}>
+            {is4m ? <Ic.SquareCheck size={22} color={T.ok} /> : <Ic.Square size={22} color={T.textMuted} />}
+            Tracción 4MATIC
           </button>
-          {estTrac.bloqueado && <div data-4matic-segun-vehiculo style={{ marginTop:6, fontSize:10, color:T.textMuted }}>🔒 {TEXTO_TRACCION_SEGUN_VEHICULO}</div>}
-          {estTrac.aviso && <div data-4matic-aviso style={{ marginTop:6, fontSize:10, color:T.warn }}>⚠ {estTrac.aviso}</div>}
+          {estTrac.bloqueado && <MensajeCampo data-4matic-segun-vehiculo><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Ic.Lock size={12} />{TEXTO_TRACCION_SEGUN_VEHICULO}</span></MensajeCampo>}
+          {estTrac.aviso && <MensajeCampo data-4matic-aviso style={{ color:T.warn }}><span style={{ display:"inline-flex", alignItems:"flex-start", gap:5 }}><Ic.TriangleAlert size={13} style={{ marginTop:1 }} />{estTrac.aviso}</span></MensajeCampo>}
         </div>
 
         {/* Adicionales (decisión 11): apagados por defecto */}
         {(adicOfrecidos.glow || adicOfrecidos.diferenciales) && (
-          <div style={{ marginBottom:28, display:"flex", flexDirection:"column", gap:6 }}>
-            <div style={{ fontSize:10, color:T.textMuted }}>ADICIONALES (fuera del ASSYST)</div>
+          <div style={{ marginBottom:24, display:"flex", flexDirection:"column", gap:6 }}>
+            <Sobretitulo style={{ marginBottom:2 }}>Adicionales (fuera del ASSYST)</Sobretitulo>
             {adicOfrecidos.glow && (
-              <label data-adicional="glow" style={{ display:"flex", alignItems:"center", gap:8, padding:"10px", borderRadius:6, border:`1px solid ${adicionales.glow?T.info+'50':line}`, color:adicionales.glow?T.info:T.textMuted, fontSize:11, cursor:"pointer" }}>
-                <input type="checkbox" checked={!!adicionales.glow} onChange={() => alternarAdicional("glow")} style={{ accentColor:T.info }} />
-                ＋ Cambio de bujías de precalentamiento
+              <label data-adicional="glow" style={{ ...opcionB(!!adicionales.glow), cursor:"pointer" }}>
+                <input type="checkbox" checked={!!adicionales.glow} onChange={() => alternarAdicional("glow")} style={{ width:22, height:22, minHeight:22, margin:0, flexShrink:0, accentColor:T.ok, cursor:"pointer" }} />
+                Cambio de bujías de precalentamiento
               </label>
             )}
             {adicOfrecidos.diferenciales && (
-              <label data-adicional="diferenciales" style={{ display:"flex", alignItems:"center", gap:8, padding:"10px", borderRadius:6, border:`1px solid ${adicionales.diferenciales?T.info+'50':line}`, color:adicionales.diferenciales?T.info:T.textMuted, fontSize:11, cursor:"pointer" }}>
-                <input type="checkbox" checked={!!adicionales.diferenciales} onChange={() => alternarAdicional("diferenciales")} style={{ accentColor:T.info }} />
-                ＋ Cambio de aceite de diferenciales
+              <label data-adicional="diferenciales" style={{ ...opcionB(!!adicionales.diferenciales), cursor:"pointer" }}>
+                <input type="checkbox" checked={!!adicionales.diferenciales} onChange={() => alternarAdicional("diferenciales")} style={{ width:22, height:22, minHeight:22, margin:0, flexShrink:0, accentColor:T.ok, cursor:"pointer" }} />
+                Cambio de aceite de diferenciales
               </label>
             )}
           </div>
@@ -4588,11 +4583,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         {!(adicOfrecidos.glow || adicOfrecidos.diferenciales) && <div style={{ marginBottom:12 }} />}
 
         <div className="sticky-action">
-          <button onClick={()=>{ if (recetasReady && activeCodes[sel]) setStep(3); }} disabled={!recetasReady || !activeCodes[sel]}
-            style={{ width:"100%", padding:"14px", borderRadius:8, border:`1px solid ${G}60`, background:G+"18", color:G, fontFamily:T.sans, fontSize:13, fontWeight:"bold", letterSpacing:2, cursor:activeCodes[sel]?"pointer":"not-allowed", opacity:activeCodes[sel]?1:0.4 }}>
-            INICIAR INSPECCIÓN →
-          </button>
-          {!activeCodes[sel] && <div style={{ textAlign:"center", fontSize:10, color:T.textDisabled, marginTop:8 }}>Seleccioná un código de servicio para continuar</div>}
+          <Boton jerarquia="principal" ancho iconoFin={Ic.ArrowRight} data-iniciar-inspeccion
+            onClick={()=>{ if (recetasReady && activeCodes[sel]) setStep(3); }} disabled={!recetasReady || !activeCodes[sel]}
+            style={{ minHeight:48 }}>
+            Iniciar inspección
+          </Boton>
+          {!activeCodes[sel] && <div style={{ textAlign:"center", fontSize:12, color:T.textMuted, marginTop:8 }}>Seleccioná un código de servicio para continuar</div>}
         </div>
       </div>
     </div>
