@@ -23,7 +23,7 @@ import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from '
 import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
 import { buildTasks, stripInterna, adicionalesDeTareas, idsDeRevisiones, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
-import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, marcasParaPasar, claveChoque, TIPO } from './lib/servicioVigente.js';
+import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, marcasParaPasar, claveChoque, TIPO, LIMPIAR_RECHAZO } from './lib/servicioVigente.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null, traccion: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -2744,9 +2744,12 @@ function MainApp({ session, onLogout }) {
       };
       if (d.modoEdicionJefe) {
         // Modo edición: estado/aprobado/slug NO viajan — el PATCH parcial
-        // preserva estado:'aprobado', aprobado, aprobado_por, slug y
-        // rechazado_*. Solo se suma el sello de edición (convención
-        // primer-editor de Taller: editado_por no se pisa si ya existe).
+        // preserva estado:'aprobado', aprobado, aprobado_por, slug y el
+        // historial del rechazo (motivo, quién, cuándo). La MARCA se limpia:
+        // un aprobado nunca la lleva (decisión de Tavo, 18/10). Se suma el
+        // sello de edición (convención primer-editor de Taller: editado_por
+        // no se pisa si ya existe).
+        Object.assign(payload, LIMPIAR_RECHAZO);
         payload.editado_at = new Date().toISOString();
         if (!editadoPorRef.current) payload.editado_por = session?.nombre || null;
       } else {
@@ -3851,6 +3854,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
             revisiones: svcData.revisiones, observaciones: svcData.observaciones,
             pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: taskPhotos,
+            // Toda aprobación limpia la marca de rechazo; el motivo queda de historial.
+            ...LIMPIAR_RECHAZO,
             orden_id: ordenId || null, orden_numero: ordenNumero || null,
           }),
         }
@@ -3862,7 +3867,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       setClientUrl(finalClientUrl);
       if (!editingId && savedId) setEditingId(savedId);
       setEstadoOriginal('aprobado');   // idem confirmSig: fila fuera de borrador
-      setServicioCargado(p => (p ? { ...p, estado: 'aprobado' } : p));
+      setServicioCargado(p => (p ? { ...p, estado: 'aprobado', rechazado: false } : p));
 
       // 3. PATCH ordenes.informe_mantenimiento
       const markdown = buildInformeMarkdown();
@@ -5332,7 +5337,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                             await apiFetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}`, {
                               method: "PATCH",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ aprobado: true, aprobado_por: nombre }),
+                              // Limpia la marca de rechazo (18/10); motivo, quién y cuándo quedan.
+                              body: JSON.stringify({ aprobado: true, aprobado_por: nombre, ...LIMPIAR_RECHAZO }),
                             });
                           } catch(e) {
                             console.error('[aprobar]', e);

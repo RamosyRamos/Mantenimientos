@@ -46,17 +46,26 @@ export function esAjeno(servicio, nombreSesion) {
   return autor !== norm(nombreSesion);
 }
 
+// ── La marca de rechazo (decisión de Tavo, 18/10/2026) ──
+// `rechazado` cuenta SOLO mientras el servicio está en borrador: al rechazar,
+// la fila vuelve a 'borrador'; corregido y confirmado queda pendiente con la
+// marca (es la corrección de un rechazo) y toda aprobación la limpia con
+// LIMPIAR_RECHAZO. motivo_rechazo, rechazado_por y rechazado_at quedan como
+// historial interno; las vistas del cliente nunca los muestran.
+export const rechazoVigente = (s) => !!s && s.rechazado === true && s.estado === "borrador";
+export const LIMPIAR_RECHAZO = Object.freeze({ rechazado: false });
+
 // Qué hacer con el servicio vigente de la orden al abrir el link.
-// `rechazado` es un flag que vale solo sobre un borrador (al rechazar, la fila
-// vuelve a 'borrador'). Un estado desconocido se trata como "Por aprobar":
-// solo lectura, nunca se edita ni se crea otro.
+// La marca de rechazo vale solo sobre un borrador (rechazoVigente). Un estado
+// desconocido se trata como "Por aprobar": solo lectura, nunca se edita ni se
+// crea otro.
 export function accionAlAbrir(servicio, { nombreSesion } = {}) {
   if (!esVigente(servicio)) return { accion: ACCION.NUEVO, servicio: null, ajeno: false, lleva: null };
   const ajeno = esAjeno(servicio, nombreSesion);
   const lleva = String(servicio.mecanico || "").trim() || null;
   const base = { servicio, ajeno, lleva };
   if (servicio.estado === "borrador") {
-    if (servicio.rechazado) {
+    if (rechazoVigente(servicio)) {
       return {
         ...base,
         accion: ACCION.CORREGIR,

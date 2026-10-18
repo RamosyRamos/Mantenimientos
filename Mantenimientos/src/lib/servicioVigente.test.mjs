@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico,
   tipoDelLink, seriesVisibles, esChoqueVigente, marcasParaPasar, claveChoque,
+  rechazoVigente, LIMPIAR_RECHAZO,
 } from "./servicioVigente.js";
 
 const s = (o) => ({ id: "s1", estado: "borrador", mecanico: "Fabián Araya", created_at: "2026-10-13T10:00:00Z", ...o });
@@ -111,4 +112,37 @@ test("marcasParaPasar: solo lo que tiene contenido, existe en el destino y no pi
 test("claveChoque", () => {
   assert.equal(claveChoque("abc"), "ryr_mant_choque_abc");
   assert.equal(claveChoque(""), null);
+});
+
+// ── La marca de rechazo cuenta solo en borrador (decisión de Tavo, 18/10) ──
+const conRechazo = (o) => s({ rechazado: true, motivo_rechazo: "Falta la foto del filtro.", rechazado_por: "Gustavo Ramos", rechazado_at: "2026-10-14T12:00:00Z", ...o });
+
+test("marca de rechazo: borrador → corregir con el motivo", () => {
+  const r = accionAlAbrir(conRechazo({ estado: "borrador" }));
+  assert.equal(r.accion, ACCION.CORREGIR);
+  assert.equal(r.motivo, "Falta la foto del filtro.");
+});
+
+test("marca de rechazo: pendiente (corregido y confirmado) → por aprobar, nunca corregir", () => {
+  assert.equal(accionAlAbrir(conRechazo({ estado: "pendiente" })).accion, ACCION.POR_APROBAR);
+});
+
+test("marca de rechazo: aprobado (dato viejo con la marca) → informe", () => {
+  assert.equal(accionAlAbrir(conRechazo({ estado: "aprobado", aprobado: true })).accion, ACCION.APROBADO);
+});
+
+test("rechazoVigente: solo borrador con la marca en true", () => {
+  assert.equal(rechazoVigente(conRechazo({ estado: "borrador" })), true);
+  assert.equal(rechazoVigente(conRechazo({ estado: "pendiente" })), false);
+  assert.equal(rechazoVigente(conRechazo({ estado: "aprobado" })), false);
+  assert.equal(rechazoVigente(conRechazo({ rechazado: false })), false);
+  assert.equal(rechazoVigente(null), false);
+});
+
+test("LIMPIAR_RECHAZO: la aprobación limpia la marca y deja el historial", () => {
+  assert.deepEqual({ ...LIMPIAR_RECHAZO }, { rechazado: false });
+  const aprobado = { ...conRechazo({ estado: "pendiente" }), aprobado: true, estado: "aprobado", ...LIMPIAR_RECHAZO };
+  assert.equal(aprobado.rechazado, false);
+  assert.equal(aprobado.motivo_rechazo, "Falta la foto del filtro.");
+  assert.equal(aprobado.rechazado_por, "Gustavo Ramos");
 });

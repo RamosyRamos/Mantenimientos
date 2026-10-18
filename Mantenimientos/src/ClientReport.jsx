@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 // paleta y fuentes viven en temaCliente.js, compartidas con ClientHistory.
 import { T, OK, CRIT, WARN, FONT, SERIF, FONTS_HREF } from "./temaCliente.js";
 import Lightbox from "./Lightbox.jsx";
+import { sinRechazo } from "./lib/vistaCliente.js";
 
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -67,7 +68,8 @@ export default function ClientReport({ binId }) {
         const json = await res.json();
         if (json?.[0]) {
           // Mapear columnas de Supabase al formato que espera ReportView
-          const r = json[0];
+          // El rechazo es historial interno: la fila llega sin él (lib/vistaCliente.js).
+          const r = sinRechazo(json[0]);
           // La fecha se deriva de created_at (timestamp confiable); la columna
           // `fecha` ya no se escribe. Fallback a r.fecha por compatibilidad; si
           // ambos faltan queda undefined y el Row muestra "—".
@@ -102,9 +104,6 @@ export default function ClientReport({ binId }) {
             observaciones:  r.observaciones,
             pendientes:     (tieneStatus || pendientesDerivados.length > 0) ? pendientesDerivados : r.pendientes,
             progreso:       r.progreso,
-            rechazado:      r.rechazado,
-            rechazado_por:  r.rechazado_por,
-            motivo_rechazo: r.motivo_rechazo,
             dictamen:       r.dictamen || null,
           });
         } else {
@@ -151,7 +150,7 @@ function ReportView({ data }) {
   const {
     taller, fecha, mecanico, aprobado_por, servicio, vehiculo,
     aceite, revisiones, observaciones, pendientes, progreso,
-    rechazado, rechazado_por, motivo_rechazo, dictamen,
+    dictamen,
   } = data;
 
   const RECO_MAP = {
@@ -254,19 +253,6 @@ function ReportView({ data }) {
                   <span style={{ fontSize:16, color:T.texto, fontWeight:700 }}>₡{Number(dictamen.total_estimado || 0).toLocaleString("es-CR")}</span>
                 </div>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* RECHAZADO */}
-        {rechazado === true && (
-          <div style={{ margin:"16px 0", background:CRIT.bg, border:`1px solid ${CRIT.border}`, borderRadius:10, padding:"14px 16px" }}>
-            <div style={{ color:CRIT.text, fontWeight:700, fontSize:13, marginBottom:6 }}>❌ {rc ? `${revLabel} rechazada` : "Servicio rechazado"}</div>
-            {rechazado_por && (
-              <div style={{ color:T.dim, fontSize:12 }}>Por: <strong style={{ color:T.texto }}>{rechazado_por}</strong></div>
-            )}
-            {motivo_rechazo && (
-              <div style={{ color:T.dim, fontSize:12, marginTop:4 }}>Motivo: <em>{motivo_rechazo}</em></div>
             )}
           </div>
         )}
