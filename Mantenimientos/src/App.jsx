@@ -4806,7 +4806,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                                 style={{ width:22, height:22, minHeight:22, margin:0, accentColor:T.ok, cursor:"pointer" }} />
                             </label>
                           )}
-                          <span style={{ flex:1, minWidth:0, padding:"4px 2px", fontSize:14, lineHeight:1.4, overflowWrap:"anywhere", color: hecho || isInfo ? T.textMuted : T.text, textDecoration: hecho ? "line-through" : "none" }}>
+                          <span data-texto-tarea={text} style={{ flex:1, minWidth:0, padding:"4px 2px", fontSize:14, lineHeight:1.4, overflowWrap:"anywhere", color: hecho || isInfo ? T.textMuted : T.text, textDecoration: hecho ? "line-through" : "none" }}>
                             {isInfo ? text.replace(/^⚠\uFE0F?\s*/, "") : text}
                             {/* Sello de autoría: solo cuando lo marcó alguien
                                 distinto del mecánico de la orden (un jefe que

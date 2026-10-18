@@ -438,61 +438,69 @@ async function escenarioRevisionEV(browser, baseUrl, { nombre, codigo, tareas, u
     await new Promise((r) => setTimeout(r, 350));
     return ok;
   };
+  // Tema B (18/10): los botones con texto pasaron a frase y los principales llevan data-*.
+  const clicSel = async (sel, desc) => {
+    const ok = await page.evaluate((q) => { const b = document.querySelector(q); if (!b || b.disabled) return false; b.click(); return true; }, sel);
+    if (!ok) errores.push(`no encontré el botón ${desc}`);
+    await new Promise((r) => setTimeout(r, 350));
+    return ok;
+  };
   try {
     await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 30000 });
     // Paso 1: modelo eléctrico del selector
-    await page.waitForSelector('input[placeholder^="🔍 Buscar"]', { timeout: 8000 });
-    await page.type('input[placeholder^="🔍 Buscar"]', 'EQB');
+    await page.waitForSelector('[data-buscar-modelo]', { timeout: 8000 });
+    await page.type('[data-buscar-modelo]', 'EQB');
     await new Promise((r) => setTimeout(r, 400));
     const eligio = await page.evaluate(() => {
-      const d = [...document.querySelectorAll('div')].find((x) => x.children.length <= 1 && /EQB 300/.test(x.textContent) && x.style.cursor === 'pointer');
+      const d = [...document.querySelectorAll('[data-modelo-opcion]')].find((x) => /EQB 300/.test(x.textContent));
       if (!d) return false; d.click(); return true;
     });
     if (!eligio) errores.push('el selector no ofreció el EQB 300 eléctrico');
     await new Promise((r) => setTimeout(r, 300));
     const t1 = await page.evaluate(() => document.body.innerText);
-    if (!/✓ ?EQB/.test(t1)) errores.push('el paso 1 no confirmó el modelo eléctrico (texto: ' + (t1.match(/✓[^\n]{0,60}/) || ['sin ✓'])[0] + ')');
-    await clicTexto(/^CONTINUAR → TIPO DE SERVICIO$/, 'CONTINUAR → TIPO DE SERVICIO');
+    const elegido = await page.evaluate(() => document.querySelector('[data-modelo-elegido]')?.innerText || '');
+    if (!/EQB/.test(elegido)) errores.push('el paso 1 no confirmó el modelo eléctrico (texto: ' + JSON.stringify(elegido.slice(0, 60) || t1.slice(0, 60)) + ')');
+    await clicSel('[data-continuar-paso1]', 'Continuar al tipo de servicio');
     // Paso 2: el bloque REVISIONES está, se elige el código y no se deselecciona
     const t2 = await page.evaluate(() => document.body.innerText);
-    if (!/PASO 2 · TIPO DE SERVICIO/.test(t2)) errores.push('no llegó al paso 2');
+    if (!/PASO 2\s*Tipo de servicio/i.test(t2)) errores.push('no llegó al paso 2');
     if (!/REVISIONES/.test(t2)) errores.push('el paso 2 de un eléctrico NO muestra el bloque REVISIONES');
-    if (!/⚡ Eléctrico/.test(t2)) errores.push('el paso 2 no muestra el selector de combustible');
-    if (!/CÓDIGO DE SERVICIO\s*\*/.test(t2) || /ASSYST/.test(t2)) errores.push('el paso 2 no está en modo eléctrico (debería decir CÓDIGO DE SERVICIO, sin ASSYST)');
+    if (!(await page.$('button[data-combustible="electrico"]'))) errores.push('el paso 2 no muestra el selector de combustible');
+    if (!/c[óo]digo de servicio\s*\*/i.test(t2) || /ASSYST/.test(t2)) errores.push('el paso 2 no está en modo eléctrico (debería decir Código de servicio, sin ASSYST)');
     await clicTexto(new RegExp(`^${codigo}$`), codigo);
     await new Promise((r) => setTimeout(r, 600));
     const seleccionado = await page.evaluate((c) => {
       const b = [...document.querySelectorAll('button.svc-btn')].find((x) => x.textContent.trim() === c);
-      return b ? (b.style.border || '').startsWith('1.5px') : null;
+      return b ? b.getAttribute('aria-pressed') === 'true' : null;
     }, codigo);
-    if (seleccionado !== true) errores.push(`${codigo} no quedó seleccionado en un eléctrico (border: ${seleccionado})`);
-    const iniciar = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /INICIAR INSPECCIÓN/.test(x.textContent)); return b ? !b.disabled : null; });
-    if (iniciar !== true) errores.push(`"INICIAR INSPECCIÓN" no está habilitado (${iniciar})`);
-    await clicTexto(/INICIAR INSPECCIÓN/, 'INICIAR INSPECCIÓN');
+    if (seleccionado !== true) errores.push(`${codigo} no quedó seleccionado en un eléctrico (aria-pressed: ${seleccionado})`);
+    const iniciar = await page.evaluate(() => { const b = document.querySelector('[data-iniciar-inspeccion]'); return b ? !b.disabled : null; });
+    if (iniciar !== true) errores.push(`"Iniciar inspección" no está habilitado (${iniciar})`);
+    await clicSel('[data-iniciar-inspeccion]', 'Iniciar inspección');
     // Paso 3: todas las tareas de la receta, en OK
-    const nOk = await page.evaluate(() => [...document.querySelectorAll('button.chk-btn')].filter((b) => /✓ OK/.test(b.textContent)).length);
+    const nOk = await page.evaluate(() => document.querySelectorAll('[data-marcar="ok"] input').length);
     if (nOk !== tareas.length) errores.push(`el checklist tiene ${nOk} tareas, esperaba ${tareas.length}`);
     for (let i = 0; i < nOk; i++) {
-      await page.evaluate((i) => { [...document.querySelectorAll('button.chk-btn')].filter((b) => /✓ OK/.test(b.textContent))[i].click(); }, i);
+      await page.evaluate((i) => { document.querySelectorAll('[data-marcar="ok"] input')[i].click(); }, i);
       await new Promise((r) => setTimeout(r, 60));
     }
     const t3 = await page.evaluate(() => document.body.innerText);
     for (const t of tareas) if (!t3.includes(t)) errores.push(`falta la tarea "${t}"`);
     for (const t of ['Inspección de sistema de escape', 'Inspección de faja de accesorios']) if (t3.includes(t)) errores.push(`un eléctrico muestra "${t}"`);
     // "FUERA DEL ASSYST" es la etiqueta legítima de los ítems fuera del ASSYST (RC y RG lo son).
-    const sospechosos = [...t3.matchAll(/.{0,50}(aceite|ASSYST).{0,50}/gi)].map((m) => m[0].replace(/\s+/g, ' ')).filter((t) => !/FUERA DEL ASSYST/.test(t));
+    const sospechosos = [...t3.matchAll(/.{0,50}(aceite|ASSYST).{0,50}/gi)].map((m) => m[0].replace(/\s+/g, ' ')).filter((t) => !/FUERA DEL ASSYST/i.test(t));
     if (sospechosos.length) errores.push('el paso 3 de la revisión menciona aceite o ASSYST: ' + JSON.stringify(sospechosos));
     // feat/autor-sin-firma (8/10): ya no hay firma; el bloque se llama NOTAS Y CIERRE y el
     // ENCARGADO es el de la sesión (no se elige).
-    await clicTexto(/CONTINUAR → NOTAS Y CIERRE/, 'CONTINUAR → NOTAS Y CIERRE');
+    await clicSel('[data-continuar-notas]', 'Continuar a notas y cierre');
     // Dictamen, encargado y guardar
     const t4 = await page.evaluate(() => document.body.innerText);
-    if (!/DICTAMEN DE REVISIÓN/.test(t4)) errores.push('no aparece el bloque DICTAMEN');
-    await clicTexto(/^○/, 'la primera opción del dictamen');
+    if (!/Dictamen de revisi[óo]n/i.test(t4)) errores.push('no aparece el bloque Dictamen');
+    await clicSel('[data-dictamen-opcion]', 'la primera opción del dictamen');
     const encargado = await page.evaluate(() => document.querySelector('[data-encargado]')?.innerText || '');
     if (!/Smoke Test/.test(encargado)) errores.push('el ENCARGADO no es el de la sesión: ' + JSON.stringify(encargado));
     if (/Gustavo Ramos|Fabián Araya/.test(await page.evaluate(() => document.body.innerText))) errores.push('siguen los botones de la firma');
-    await clicTexto(/CONFIRMAR Y GUARDAR/, 'CONFIRMAR Y GUARDAR');
+    await clicSel('[data-confirmar-guardar]', 'Confirmar y guardar');
     for (let i = 0; i < 60 && !posts.length; i++) await new Promise((r) => setTimeout(r, 100));
     for (let i = 0; i < 40 && !pushes.length; i++) await new Promise((r) => setTimeout(r, 100));
   } catch (e) { errores.push(`flujo: ${e.message}`); }
@@ -591,7 +599,8 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
     if (modo === 'link') {
       await page.goto(`${baseUrl}?placa=SMK010&modelo=${encodeURIComponent(CAT_COMB)}`, { waitUntil: 'networkidle0', timeout: 30000 });
       await new Promise((r) => setTimeout(r, 900));          // el debounce de la placa (400 ms) + la lectura
-      await clic(/^CONTINUAR → TIPO DE SERVICIO$/, 'CONTINUAR → TIPO DE SERVICIO');
+      await page.click('[data-continuar-paso1]').catch(() => errores.push('no encontré el botón Continuar al tipo de servicio'));
+      await new Promise((r) => setTimeout(r, 350));
     } else {
       await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
       await new Promise((r) => setTimeout(r, 900));
@@ -608,7 +617,7 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
       }
       const a3 = await page.evaluate(() => document.querySelector('[data-combustible-aviso]')?.innerText ?? null);
       if (aviso && !a3) errores.push('el paso 3 del borrador no muestra el aviso de la diferencia');
-      await clic(/editar$/, '✏️ editar');
+      await clic(/^Editar$/, 'Editar');   // clic() no pasa los flags del regex
     }
     const s = await selector();
     if (s.total !== 3) errores.push(`el paso 2 no muestra los tres botones de combustible (${s.total})`);
@@ -628,20 +637,21 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
       const e = await page.evaluate(() => ({
         estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null,
         codigos: document.querySelectorAll('button.svc-btn').length,
-        iniciar: [...document.querySelectorAll('button')].find((x) => /INICIAR INSPECCIÓN/.test(x.textContent))?.disabled ?? null,
+        iniciar: document.querySelector('[data-iniciar-inspeccion]')?.disabled ?? null,
       }));
       if (e.estado !== 'error') errores.push(`recetas caídas: no muestra el error (${e.estado})`);
       if (e.codigos !== 0) errores.push(`recetas caídas: ofrece ${e.codigos} códigos (debería ninguno)`);
-      if (e.iniciar !== true) errores.push('recetas caídas: INICIAR INSPECCIÓN no está deshabilitado');
+      if (e.iniciar !== true) errores.push('recetas caídas: "Iniciar inspección" no está deshabilitado');
       await page.click('button[data-accion="reintentar-recetas"]').catch(() => errores.push('no está el botón Reintentar'));
       await new Promise((r) => setTimeout(r, 500));
       const e2 = await page.evaluate(() => ({ estado: document.querySelector('[data-recetas-estado]')?.dataset.recetasEstado ?? null, codigos: document.querySelectorAll('button.svc-btn').length }));
       if (e2.estado || e2.codigos === 0) errores.push(`tras Reintentar no cargaron las recetas (${JSON.stringify(e2)})`);
     }
     if (candado) {
-      const c = await page.evaluate((k) => { const b = document.querySelector(`button[data-codigo="${k}"]`); return b ? { dis: b.disabled, txt: b.textContent } : null; }, candado);
+      // Tema B: el candado es el ícono SVG del candado (antes el emoji 🔒).
+      const c = await page.evaluate((k) => { const b = document.querySelector(`button[data-codigo="${k}"]`); return b ? { dis: b.disabled, txt: b.textContent, candado: !!b.querySelector('svg') } : null; }, candado);
       if (!c) errores.push(`no está el botón del código ${candado}`);
-      else if (!c.dis || !/🔒/.test(c.txt)) errores.push(`el código ${candado} no quedó deshabilitado con 🔒 (${JSON.stringify(c)})`);
+      else if (!c.dis || !c.candado) errores.push(`el código ${candado} no quedó deshabilitado con el candado (${JSON.stringify(c)})`);
     }
     if (cuatroMatic) {
       const q = await page.evaluate(() => ({ on: document.querySelector('button[data-4matic]')?.dataset['4matic'] ?? null, bloq: document.querySelector('button[data-4matic]')?.disabled ?? null, txt: document.querySelector('[data-4matic-segun-vehiculo]')?.innerText ?? null }));
@@ -660,8 +670,10 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
           await page.click(`[data-adicional="${adicional}"] input`); await new Promise((r) => setTimeout(r, 200));
         }
       }
-      await clic(/INICIAR INSPECCIÓN/, 'INICIAR INSPECCIÓN');
-      tareas = await page.evaluate(() => document.body.innerText.split('\n').map((l) => l.trim()).filter((l) => l.length > 12 && !/^(✓|✗|N\/A|—)/.test(l)));
+      await page.click('[data-iniciar-inspeccion]').catch(() => errores.push('no encontré el botón Iniciar inspección'));
+      await new Promise((r) => setTimeout(r, 350));
+      // Tema B: los títulos de grupo y el texto de cada tarea (antes, las líneas del innerText).
+      tareas = await page.evaluate(() => [...document.querySelectorAll('[data-grupo-checklist] h3, [data-texto-tarea]')].map((e) => (e.dataset.textoTarea ?? e.textContent).trim()));
       const t3 = tareas.join('\n');
       for (const t of presentes) if (!t3.includes(t)) errores.push(`el paso 3 no tiene "${t}"`);
       for (const t of ausentes) if (t3.includes(t)) errores.push(`el paso 3 tiene "${t}" y no debía`);
