@@ -2,6 +2,29 @@
 
 App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL: mantenimientos.ramosyramoscr.com. Mismo backend Supabase que el sistema Taller. El contexto general del ecosistema vive en el CLAUDE.md del repo Taller (`C:\Users\gusta\Taller`).
 
+## ⚠⚠ Un servicio vigente por orden y la marca de rechazo solo en borrador (18/10/2026, rama `feat/boton-estado-mantenimiento`, merge `cfd3d61`; en Taller, merge `6006a64`)
+
+- **Decisiones de Tavo del 8/10 y del 18/10.** Mergeada sin preview por su decisión: la cobertura es el demo (`taller-harness\demo-mecanico\boton_estado.mjs`, 116/116 a 718×626 y 344×882) y el smoke. La parte de Taller (índice, `BloqueMantenimiento`, tabla estado → botón, la #3058) está en el CLAUDE.md de Taller, "UN SERVICIO VIGENTE POR ORDEN Y UN BOTÓN POR ESTADO".
+- **REGLA: una orden tiene a lo sumo UN servicio vigente (no descartado).** El candado es el índice único parcial `servicios_un_vigente_por_orden` (migración `20261018000001` de Taller, aplicada el 18/10). Fuera del índice: los descartados y los servicios sin orden.
+- **Al abrir el link de una orden** (`?orden_id=`), `accionAlAbrir` (`src/lib/servicioVigente.js`, puro, con tests en `npm test`) busca el servicio de ESA orden, de cualquier mecánico, y lo abre según su estado. **Nunca crea otro.**
+  - Borrador propio o ajeno: se continúa; si es de otro, aviso fijo "Este servicio lo lleva X" (`data-lo-lleva`, sin ✕) y el autor (`servicios.mecanico`) no cambia.
+  - Borrador rechazado: se continúa con el motivo completo arriba del checklist.
+  - Pendiente: solo lectura "Por aprobar", sin Confirmar (`data-por-aprobar`, `data-sin-accion`).
+  - Aprobado: el informe público (`urlInformePublico`).
+- **El choque con el índice (409 / 23505, `esChoqueVigente`)**: un guardado que choca no muestra éxito.
+  - Lo cargado queda en el dispositivo (`localStorage['ryr_mant_choque_<orden>']`, `claveChoque`), aparte del draft de siempre.
+  - Se abre el servicio vigente de la orden con el aviso (`data-choque`).
+  - **"Pasar mis marcas"** (`data-pasar-marcas`, `marcasParaPasar`) copia solo los ítems con contenido que existen en el destino y nunca pisa una marca que el destino ya tiene. La copia local se borra al pasarlas o descartarlas.
+- **`?tipo=revision|mantenimiento`** (`tipoDelLink`, `seriesVisibles`): lo mandan los botones "Iniciar revisión" / "Iniciar mantenimiento" de Taller. El paso 2 muestra solo esa serie (revisión = la serie C, RC/RG, sin preelegir código), con "Ver todas las series" (`data-ver-todas-series`) de salida. Sin `tipo`, todas, como siempre.
+- **⚠⚠ LA MARCA DE RECHAZO cuenta SOLO en borrador** (`rechazoVigente`).
+  - Corregido y confirmado, el servicio queda pendiente con la marca puesta: es "Por aprobar", nunca "Corregir".
+  - **Toda aprobación la limpia en la misma escritura** con `LIMPIAR_RECHAZO` (`{ rechazado: false }`): `enviarAOrden`, el botón "✅ Revisión de aprobación" y el modo edición del jefe. En Taller, `handleAprobar` con `camposAprobacion`.
+  - **`motivo_rechazo`, `rechazado_por` y `rechazado_at` se conservan como historial interno.**
+  - **Las vistas del cliente nunca muestran un rechazo**: `ClientReport` (`/servicio/:slug`) y `ClientHistory` (`/historial`) pasan cada fila por **`sinRechazo`** (`src/lib/vistaCliente.js`, con `vistaCliente.test.mjs`) y ya no dibujan el bloque "❌ Servicio rechazado" ni el badge "❌ Rechazado".
+  - **REGLA: todo camino nuevo que apruebe un servicio escribe `rechazado = false`.**
+- **Calidad**: `npm test` **86** (servicioVigente con los casos de la marca y `vistaCliente`), build OK y `npm run smoke` **36 escenarios**. Los 3 nuevos abren las vistas públicas con un aprobado que tuvo un rechazo: con la marca limpia, con una fila vieja con la marca en `true` y en el historial por placa. Exigen que no aparezca "rechaz…", el motivo, quién rechazó ni un ❌. Control: con las vistas de `main`, los dos con la marca en `true` fallan ("❌ Servicio rechazado", el motivo y "Otto Ramos").
+- **⚠ El smoke necesita el `.env.local`**: en un worktree recién creado no existe (está en `.gitignore`) y todos los escenarios fallan con "supabaseUrl is required". Se copia del repo principal antes de correrlo.
+
 ## ⚠⚠ El aviso "pendiente de aprobación" llega también al admin (16/10/2026, rama `feat/push-aprobadores-admin`, merge `df21051`; en Taller, merge `56f49a0`)
 
 - **Decisión de Tavo del 16/10**: el admin aprueba también en Gestión de taller (en Taller, `canGestionTaller`), y acá ya veía los botones de aprobación (`showAdminButtons`). Mergeada sin preview por instrucción de Tavo.
@@ -112,7 +135,7 @@ App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL
 
 ## Apertura por id: jefes continuando un servicio en progreso (ago 2026)
 
-- **`?servicio=<uuid>`** — segundo camino de entrada, además del link de mecánicos (`?placa=&orden_id=&mecanico=`, que arranca uno NUEVO; desde F4 ya NO sintetiza sesión: también exige login y `mecanico` es solo el técnico asignado). El de jefes NO lleva `mecanico`: exige estar logueado y abre la fila existente (`select=*` → `loadService`) para continuarla. Lo dispara el botón "🔧 Abrir mantenimiento" de `OrdenDetail` en Taller (gate `canManageTaller`). `cameFromTaller` sigue en false con este parámetro, así que el jefe conserva sus botones de admin. Espera a `recetasReady` antes de cargar: sin catálogo `tasks` viene vacío y el autosave escribiría un checklist en blanco. Si el servicio no existe, o su `estado` no es `borrador`, no carga nada y muestra un banner (un servicio aprobado no se continúa acá: el autosave lo devolvería a borrador y le quitaría la aprobación).
+- **`?servicio=<uuid>`** — segundo camino de entrada, además del link de mecánicos (`?placa=&orden_id=&mecanico=`, que arranca uno NUEVO —**desde el 18/10 solo si la orden no tiene servicio vigente**: si lo tiene, lo abre según su estado (ver "Un servicio vigente por orden")—; desde F4 ya NO sintetiza sesión: también exige login y `mecanico` es solo el técnico asignado). El de jefes NO lleva `mecanico`: exige estar logueado y abre la fila existente (`select=*` → `loadService`) para continuarla. Lo dispara el botón "🔧 Abrir mantenimiento" de `OrdenDetail` en Taller (gate `canManageTaller`). `cameFromTaller` sigue en false con este parámetro, así que el jefe conserva sus botones de admin. Espera a `recetasReady` antes de cargar: sin catálogo `tasks` viene vacío y el autosave escribiría un checklist en blanco. Si el servicio no existe, o su `estado` no es `borrador`, no carga nada y muestra un banner (un servicio aprobado no se continúa acá: el autosave lo devolvería a borrador y le quitaría la aprobación).
 
 ## ⚠ Concurrencia del autosave — overwrite total (ago 2026)
 
