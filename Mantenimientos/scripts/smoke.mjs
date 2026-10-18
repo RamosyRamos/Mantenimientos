@@ -678,6 +678,61 @@ async function escenarioCombustible(browser, baseUrl, { nombre, modo = 'link', c
   return { ok, tareas };
 }
 
+// Vistas del cliente (decisión de Tavo, 18/10/2026): un servicio que se rechazó,
+// se corrigió y se aprobó conserva motivo_rechazo, rechazado_por y rechazado_at
+// como historial interno. El informe público (/servicio/:slug) y el historial
+// por placa (/historial) NUNCA muestran nada del rechazo: ni la palabra, ni el
+// motivo, ni quién lo rechazó. Se prueba con la marca limpia (lo que deja toda
+// aprobación desde el 18/10) y con una fila vieja que todavía la tiene en true.
+const MOTIVO_SMOKE = 'Falta la foto del filtro de aire y el nivel de refrigerante';
+const RECHAZO_SMOKE = { motivo_rechazo: MOTIVO_SMOKE, rechazado_por: 'Otto Ramos', rechazado_at: '2026-10-14T12:00:00Z' };
+const filaAprobadaSmoke = (o) => ({
+  id: '00000000-0000-4000-8000-0000000000e1', slug: 'SMK123-B-14102026-AB1', placa: 'SMK123', modelo: 'C-Class', motor: 'M274',
+  mecanico: 'Fabián Araya', aprobado_por: 'Gustavo Ramos', estado: 'aprobado', aprobado: true, servicio_codigo: 'B',
+  servicio_desc: 'Servicio B', km: 82000, combustible: 'gasolina', traccion: 'RWD', created_at: '2026-10-15T15:00:00Z',
+  revisiones: { MOTOR: [{ id: '3_0', text: 'Cambio de aceite de motor', status: 'ok' }] }, observaciones: '', pendientes: [], progreso: { completadas: 1, total: 1 },
+  fotos: {}, ...RECHAZO_SMOKE, ...o,
+});
+async function escenarioVistaCliente(browser, baseUrl, { nombre, ruta, filas, placa = null }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  const errores = [];
+  page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => { if (['error', 'warning'].includes(m.type()) && !IGNORAR.some((re) => re.test(m.text()))) errores.push(`console.${m.type()}: ${m.text().slice(0, 200)}`); });
+  page.on('dialog', (d) => { errores.push(`dialog: ${d.message().slice(0, 200)}`); d.dismiss().catch(() => {}); });
+  const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const u = req.url();
+    if (u.startsWith(baseUrl)) return req.continue();
+    if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
+    if (SUPA && u.startsWith(SUPA) && u.includes('/rest/v1/servicios')) return req.respond({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(filas) });
+    if (SUPA && u.startsWith(SUPA)) return req.respond({ status: 200, contentType: 'application/json', headers: CORS, body: u.includes('/rest/v1/') ? '[]' : '{}' });
+    return req.respond({ status: 204, headers: CORS, body: '' });
+  });
+  let texto = '';
+  try {
+    await page.goto(baseUrl.replace(/\/$/, '') + ruta, { waitUntil: 'networkidle0', timeout: 30000 });
+    if (placa) {
+      await page.type('input', placa);
+      await page.keyboard.press('Enter');
+    }
+    await page.waitForFunction(() => document.body.innerText.includes('Gustavo Ramos'), { timeout: 8000 })
+      .catch(() => errores.push('no apareció el servicio aprobado (falta "Gustavo Ramos" de Aprobado por)'));
+    await new Promise((r) => setTimeout(r, 400));
+    texto = await page.evaluate(() => document.body.innerText);
+    if (/rechaz/i.test(texto)) errores.push(`la vista muestra "rechaz…": ${(texto.match(/.{0,40}rechaz.{0,40}/i) || [''])[0]}`);
+    if (texto.includes(MOTIVO_SMOKE)) errores.push('la vista muestra el motivo del rechazo');
+    if (texto.includes(RECHAZO_SMOKE.rechazado_por)) errores.push(`la vista muestra a quien rechazó (${RECHAZO_SMOKE.rechazado_por})`);
+    if (/❌/.test(texto)) errores.push('la vista muestra un ❌');
+  } catch (e) { errores.push(`flujo: ${e.message}`); }
+  await context.close();
+  const ok = errores.length === 0;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}`);
+  for (const e of errores) console.log(`  - ${e}`);
+  return ok;
+}
+
 let server, browser, code = 1;
 try {
   console.log('smoke: vite build…');
@@ -749,7 +804,12 @@ try {
   rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: código gasolina (BF) deshabilitado con 🔒 en un diésel', combVehiculo: 'diesel', esperado: 'diesel', bloqueado: true, codigo: 'A', candado: 'BF' })).ok);
   rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: la lectura de recetas falla → error con Reintentar, sin códigos ni INICIAR; Reintentar las carga', combVehiculo: 'gasolina', esperado: 'gasolina', bloqueado: true, codigo: 'A', recetasCaidas: true })).ok);
   rR.push((await escenarioCombustible(browser, baseUrl, { nombre: 'recetas: con ?servicio= y la lectura caída, el paso 1 muestra el error con Reintentar y al reintentar se abre el servicio', modo: 'borrador', combVehiculo: 'diesel', fila: { combustible: 'diesel' }, esperado: 'diesel', bloqueado: true, recetasCaidas: true })).ok);
-  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) && rR.every(Boolean) ? 0 : 1;
+  // Vistas del cliente sin rastro del rechazo (18/10).
+  const rV = [];
+  rV.push(await escenarioVistaCliente(browser, baseUrl, { nombre: 'vista pública: informe /servicio/:slug de un aprobado con historial de rechazo → sin rastro del rechazo', ruta: '/servicio/SMK123-B-14102026-AB1', filas: [filaAprobadaSmoke({ rechazado: false })] }));
+  rV.push(await escenarioVistaCliente(browser, baseUrl, { nombre: 'vista pública: informe de una fila vieja aprobada con la marca todavía en true → sin rastro del rechazo', ruta: '/servicio/SMK123-B-14102026-AB1', filas: [filaAprobadaSmoke({ rechazado: true })] }));
+  rV.push(await escenarioVistaCliente(browser, baseUrl, { nombre: 'vista pública: historial por placa con los dos casos → sin rastro del rechazo', ruta: '/historial', placa: 'SMK123', filas: [filaAprobadaSmoke({ rechazado: true }), filaAprobadaSmoke({ id: '00000000-0000-4000-8000-0000000000e2', slug: 'SMK123-A-01092026-ZZ9', servicio_codigo: 'A', rechazado: false })] }));
+  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) && rR.every(Boolean) && rV.every(Boolean) ? 0 : 1;
   console.log(code === 0 ? 'smoke OK: la app carga sin errores en todos los escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);

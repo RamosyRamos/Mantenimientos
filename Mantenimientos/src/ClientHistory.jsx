@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { T, OK, CRIT, FONT, SERIF, ensureClientFonts } from "./temaCliente.js";
 import Lightbox from "./Lightbox.jsx";
+import { sinRechazo } from "./lib/vistaCliente.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
@@ -53,7 +54,8 @@ export default function ClientHistory() {
         }
       );
       const data = await res.json();
-      setResults(Array.isArray(data) ? data : []);
+      // El rechazo es historial interno: cada fila llega sin él (lib/vistaCliente.js).
+      setResults(Array.isArray(data) ? data.map(sinRechazo) : []);
     } catch (e) {
       setResults([]);
     } finally {
@@ -197,31 +199,14 @@ function ServiceCard({ service: s, index, total }) {
         <div style={{ flex:1 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4, flexWrap:"wrap" }}>
             <span style={{ fontSize:14, fontWeight:700, color:T.rojo }}>{esRC(s) ? "Revisión de Compra" : `Servicio ${s.servicio_codigo}`}</span>
-            {s.rechazado === true ? (
-              <span style={{ fontSize:9, background:CRIT.bg, border:`1px solid ${CRIT.border}`, color:CRIT.text, borderRadius:4, padding:"1px 6px", fontWeight:700 }}>❌ Rechazado</span>
-            ) : (
-              <>
-                {hasIssues && (
-                  <span style={{ fontSize:9, background:CRIT.bg, border:`1px solid ${CRIT.border}`, color:CRIT.text, borderRadius:4, padding:"1px 6px", fontWeight:700 }}>⚠️ Con detalles</span>
-                )}
-                {!hasIssues && (
-                  <span style={{ fontSize:9, background:OK.bg, border:`1px solid ${OK.border}`, color:OK.text, borderRadius:4, padding:"1px 6px", fontWeight:700 }}>✅ OK</span>
-                )}
-              </>
+            {hasIssues && (
+              <span style={{ fontSize:9, background:CRIT.bg, border:`1px solid ${CRIT.border}`, color:CRIT.text, borderRadius:4, padding:"1px 6px", fontWeight:700 }}>⚠️ Con detalles</span>
+            )}
+            {!hasIssues && (
+              <span style={{ fontSize:9, background:OK.bg, border:`1px solid ${OK.border}`, color:OK.text, borderRadius:4, padding:"1px 6px", fontWeight:700 }}>✅ OK</span>
             )}
           </div>
           <div style={{ fontSize:12, color:T.dim }}>{s.servicio_desc}</div>
-          {s.rechazado === true && (
-            <div style={{ background:CRIT.bg, border:`1px solid ${CRIT.border}`, borderRadius:6, padding:"8px 10px", margin:"8px 0", fontSize:12 }}>
-              <div style={{ color:CRIT.text, fontWeight:700, marginBottom:4 }}>❌ {esRC(s) ? "Revisión de Compra rechazada" : "Servicio rechazado"}</div>
-              {s.rechazado_por && (
-                <div style={{ color:T.dim, fontSize:11 }}>Por: <strong style={{ color:T.texto }}>{s.rechazado_por}</strong></div>
-              )}
-              {s.motivo_rechazo && (
-                <div style={{ color:T.dim, fontSize:11, marginTop:3 }}>Motivo: <em>{s.motivo_rechazo}</em></div>
-              )}
-            </div>
-          )}
           <div style={{ fontSize:11, color:T.muted, marginTop:4 }}>
             📅 {fechaServicio(s)} · 👤 {s.mecanico}
             {s.aprobado_por && <span style={{ color:T.success }}> · ✅ {s.aprobado_por}</span>}
