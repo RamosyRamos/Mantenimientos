@@ -15,7 +15,7 @@ import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActi
 import { apiFetch, authHeaders, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
 import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
-import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
+import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO, laminaDeRespuesta } from './lib/resolverAceite.js';
 import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
 import { autorInicial, campoMecanico } from './lib/autorServicio.js';
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
@@ -2060,7 +2060,7 @@ function MainApp({ session, onLogout }) {
     const t = setTimeout(async () => {
       const r = await resolverAceiteDeVehiculo({ ordenId: ordenUuidAc, placa: placaAc });
       if (!vivo) return;
-      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo, traccion: r.ok ? es4maticDeRespuesta(r.datos) : null });
+      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo, traccion: r.ok ? es4maticDeRespuesta(r.datos) : null, lamina: r.ok ? laminaDeRespuesta(r.datos) : null });
     }, ordenUuidAc ? 0 : 700);
     return () => { vivo = false; clearTimeout(t); };
   }, [claveAc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2072,6 +2072,8 @@ function MainApp({ session, onLogout }) {
   // resolver-aceite el interruptor se prende solo y queda bloqueado; sin dato,
   // libre. En un servicio guardado manda lo guardado (aviso si difiere).
   const es4maticVeh = resolverAc.clave === claveAc ? resolverAc.traccion : null;
+  // La lámina técnica de la carrocería (resolver-aceite, imagenes.lamina): solo se muestra.
+  const laminaVeh = resolverAc.clave === claveAc ? (resolverAc.lamina ?? null) : null;
   const estTrac = estadoTraccion({ es4maticVehiculo: es4maticVeh, is4mActual: is4m, servicioExistente: tracGuardada != null });
   useEffect(() => {
     if (estTrac.autoseleccionar) setIs4m(true);
@@ -4800,6 +4802,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <button onClick={()=>setStep(2)} style={{ fontSize:10, color:"#555", background:"transparent", border:`1px solid ${line}`, borderRadius:6, padding:"3px 7px", cursor:"pointer", fontFamily:"monospace", flexShrink:0 }}>✏️ editar</button>
         </div>
+        {/* Lámina técnica del carro (feat/lamina-carroceria): líneas oscuras sobre fondo
+            transparente, así que va sobre un fondo claro. Sin lámina, nada. */}
+        {laminaVeh && (
+          <div data-lamina-carroceria style={{ marginTop:8, background:"#F4F4F2", borderRadius:8, padding:6, display:"flex", justifyContent:"center" }}>
+            <img src={laminaVeh} alt="Lámina técnica del vehículo" crossOrigin="anonymous" onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
+              style={{ display:"block", width:"100%", maxWidth:520, height:"auto", maxHeight:220, objectFit:"contain" }} />
+          </div>
+        )}
         {estComb.aviso && <div data-combustible-aviso style={{ marginTop:6, fontSize:10, color:"#d97706" }}>⚠ {estComb.aviso}</div>}
         {aceite.litros > 0 && (
           <div data-aceite-paso3 style={{ marginTop:6, display:"flex", alignItems:"center", gap:8, padding:"5px 10px", borderRadius:6, background:"#C8A96E10", border:"1px solid #C8A96E30" }}>

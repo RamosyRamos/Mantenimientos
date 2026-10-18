@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, condicionDeEtiqueta, esUuid,
+  llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, condicionDeEtiqueta, esUuid, laminaDeRespuesta,
 } from "./resolverAceite.js";
 import { aceiteDelServicio, camposAceite, ETIQUETA_GUARDADO } from "./aceiteServicio.js";
 
@@ -149,4 +149,12 @@ test("condición de la etiqueta y uuid", () => {
   assert.equal(condicionDeEtiqueta(""), null);
   assert.equal(esUuid("c461f068-f681-4f4b-9ed8-06b2ffd8f1aa"), true);
   assert.equal(esUuid("INT-#3100"), false);
+});
+
+test("laminaDeRespuesta: la URL de la lámina; ausente, null o no https = sin lámina", () => {
+  assert.equal(laminaDeRespuesta({ imagenes: { foto: "https://x/f.webp", lamina: "https://x/W204/lamina.webp?v=1" } }), "https://x/W204/lamina.webp?v=1");
+  assert.equal(laminaDeRespuesta({ imagenes: { foto: null, lamina: null } }), null);
+  assert.equal(laminaDeRespuesta({ aceite: {} }), null);
+  assert.equal(laminaDeRespuesta(null), null);
+  assert.equal(laminaDeRespuesta({ imagenes: { lamina: "javascript:alert(1)" } }), null);
 });
