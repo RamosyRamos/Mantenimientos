@@ -4605,47 +4605,34 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           exactamente como siempre. */}
       {editingId && estadoOriginal !== 'borrador' && (
         modoEdicionJefe ? (
-          <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:`1px solid ${T.accent}60`, background:T.accent+'12', display:"flex", alignItems:"flex-start", gap:8 }}>
-            <span style={{ fontSize:13, lineHeight:1.3 }}>✏️</span>
-            <div style={{ flex:1, fontSize:11, color:T.accent, lineHeight:1.6 }}>
-              <strong>MODO EDICIÓN</strong> — editando servicio aprobado; los cambios regeneran el informe del cliente.
-            </div>
-            <button onClick={() => setModoEdicionJefe(false)}
-              style={{ flexShrink:0, padding:"5px 10px", borderRadius:6, border:`1px solid ${T.accent}50`, background:"none", color:T.accent, fontFamily:T.sans, fontSize:10, cursor:"pointer", letterSpacing:0.5 }}>
-              Salir del modo
-            </button>
-          </div>
+          <Aviso data-modo-edicion color={T.warn} icono={Ic.PenLine} titulo="Modo edición" style={{ margin:"10px 16px 0" }}
+            accion={<Boton color={T.warn} icono={Ic.X} data-salir-modo-edicion onClick={() => setModoEdicionJefe(false)}>Salir del modo</Boton>}>
+            Editando un servicio aprobado; los cambios regeneran el informe del cliente.
+          </Aviso>
         ) : (
           estadoOriginal === 'pendiente' ? (
-          <div data-por-aprobar style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:`1px solid ${T.accent}50`, background:T.accent+'10', display:"flex", alignItems:"flex-start", gap:8 }}>
-            <span style={{ fontSize:13, lineHeight:1.3 }}>⏳</span>
-            <div style={{ flex:1, fontSize:11, color:T.accent, lineHeight:1.6 }}>
-              <strong>Por aprobar</strong> — este servicio ya se envió{servicioCargado?.mecanico ? ` (lo hizo ${servicioCargado.mecanico})` : ""} y espera la aprobación del jefe.
-              <div style={{ fontSize:10, color:T.accentMuted, marginTop:2 }}>
-                Solo lectura: lo que marqués acá no se guarda.
-              </div>
+          <Aviso data-por-aprobar color={T.warn} icono={Ic.Hourglass} titulo="Por aprobar" style={{ margin:"10px 16px 0" }}>
+            Este servicio ya se envió{servicioCargado?.mecanico ? ` (lo hizo ${servicioCargado.mecanico})` : ""} y espera la aprobación del jefe.
+            <div style={{ fontSize:12, color:T.textSoft, marginTop:2 }}>
+              Solo lectura: lo que marqués acá no se guarda.
             </div>
-          </div>
+          </Aviso>
           ) : (
-          <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:`1px solid ${T.crit}40`, background:T.crit+'0D', display:"flex", alignItems:"flex-start", gap:8 }}>
-            <span style={{ fontSize:13, lineHeight:1.3 }}>🔒</span>
-            <div style={{ flex:1, fontSize:11, color:T.crit, lineHeight:1.6 }}>
-              Solo lectura — este servicio está <strong>{estadoOriginal}</strong>, ya no es un borrador.
-              <div style={{ fontSize:10, color:"#8a5a5a", marginTop:2 }}>
-                Lo que marqués acá NO se guarda. Reabrir un servicio cerrado y guardarlo lo devolvería a
-                borrador y le quitaría la aprobación.
-              </div>
-              {esJefeReal && estadoOriginal === 'aprobado' && (
-                <button
-                  onClick={() => {
-                    if (confirm("Vas a editar un servicio ya aprobado. Los cambios se verán en el informe del cliente al guardar. ¿Continuar?")) setModoEdicionJefe(true);
-                  }}
-                  style={{ marginTop:8, padding:"6px 12px", borderRadius:6, border:`1px solid ${T.accent}50`, background:T.accent+'15', color:T.accent, fontFamily:T.sans, fontSize:10, cursor:"pointer", letterSpacing:0.5 }}>
-                  ✏️ Activar modo edición (jefe)
-                </button>
-              )}
+          <Aviso data-solo-lectura color={T.crit} icono={Ic.Lock} titulo="Solo lectura" style={{ margin:"10px 16px 0" }}
+            accion={esJefeReal && estadoOriginal === 'aprobado' ? (
+              <Boton icono={Ic.PenLine} data-activar-modo-edicion
+                onClick={() => {
+                  if (confirm("Vas a editar un servicio ya aprobado. Los cambios se verán en el informe del cliente al guardar. ¿Continuar?")) setModoEdicionJefe(true);
+                }}>
+                Activar modo edición (jefe)
+              </Boton>
+            ) : null}>
+            Este servicio está <strong style={{ fontWeight:600 }}>{estadoOriginal}</strong>, ya no es un borrador.
+            <div style={{ fontSize:12, color:T.textSoft, marginTop:2 }}>
+              Lo que marqués acá no se guarda. Reabrir un servicio cerrado y guardarlo lo devolvería a
+              borrador y le quitaría la aprobación.
             </div>
-          </div>
+          </Aviso>
           )
         )
       )}
