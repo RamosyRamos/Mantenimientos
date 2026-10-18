@@ -1816,17 +1816,32 @@ const tipoRevision = (codigo) => {
   const c = (codigo || "").toUpperCase();
   return c === "RG" ? "general" : c === "RC" ? "compra" : null;
 };
+// Combustible para mostrar (tema B): texto sin emoji y su ícono. fuelLabel
+// queda para el informe en markdown, que no cambia.
+const fuelTexto = f => f === "diesel" ? "Diesel" : f === "electrico" ? "Eléctrico" : "Gasolina";
+const iconoCombustible = f => f === "diesel" ? Ic.Droplet : f === "electrico" ? Ic.Zap : Ic.Fuel;
+
+// Una fila de dato con su ícono a la izquierda (resúmenes de la pestaña Notas).
+function LineaDato({ icono: Icono, color = T.textMuted, children }) {
+  return (
+    <div style={{ display:"flex", alignItems:"flex-start", gap:8, minWidth:0, lineHeight:1.5 }}>
+      {Icono && <Icono size={15} color={color} style={{ flexShrink:0, marginTop:2 }} />}
+      <span style={{ flex:1, minWidth:0, overflowWrap:"anywhere" }}>{children}</span>
+    </div>
+  );
+}
+
 const DICTAMEN_OPCIONES = {
   compra: [
-    { key:"apto",              label:"✅ Apto para compra",       color:T.ok },
-    { key:"apto_reparaciones", label:"⚠️ Apto con reparaciones",  color:T.warn },
-    { key:"no_recomendable",   label:"❌ No recomendable",        color:T.crit },
+    { key:"apto",              label:"Apto para compra",         color:T.ok },
+    { key:"apto_reparaciones", label:"Apto con reparaciones",    color:T.warn },
+    { key:"no_recomendable",   label:"No recomendable",          color:T.crit },
   ],
   general: [
-    { key:"excelente",             label:"✅ Excelente",                color:T.ok },
-    { key:"bueno",                 label:"🟡 Bueno, atención menor",    color:T.ok },
-    { key:"requiere_reparaciones", label:"🟠 Requiere reparaciones",    color:T.warn },
-    { key:"critico",               label:"🔴 Estado crítico",           color:T.crit },
+    { key:"excelente",             label:"Excelente",                  color:T.ok },
+    { key:"bueno",                 label:"Bueno, atención menor",      color:T.ok },
+    { key:"requiere_reparaciones", label:"Requiere reparaciones",      color:T.warn },
+    { key:"critico",               label:"Estado crítico",             color:T.crit },
   ],
 };
 
@@ -2089,7 +2104,6 @@ function MainApp({ session, onLogout }) {
   const llevaAceite    = Array.isArray(svc.items) && svc.items.includes("3");         // la receta incluye cambio de aceite (ítem "3")
   const servicioTitulo = esRC ? revisionLabel : `Servicio ${sel}`;
   const dictamenTotal  = reparaciones.reduce((s, r) => s + (Number(r.costo_estimado) || 0), 0);
-  const G            = svc.color || T.accent;
   const fuelLock     = svc.fuelLock || null;
   const fuelMismatch = fuelLock && fuelLock !== fuel;
 
@@ -5067,79 +5081,77 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </>
         ) : (
           /* NOTAS */
-          <div style={{ paddingBottom:24 }}>
-            <div style={{ fontSize:11, color:T.textMuted, letterSpacing:3, marginBottom:8 }}>OBSERVACIONES</div>
+          <div style={{ paddingBottom:24, paddingTop:6 }}>
+            <Etiqueta>Observaciones</Etiqueta>
             <textarea value={notes} onChange={e=>setNotes(e.target.value)}
               placeholder={"Ej: Pastillas traseras al 20%\nEj: Sin fugas detectadas\nEj: EGR con depósitos — programar limpieza"}
-              style={{ width:"100%", minHeight:180, background:card, border:`1px solid ${line}`, borderRadius:8, color:T.textSoft, fontSize:13, fontFamily:T.sans, padding:12, resize:"vertical", lineHeight:1.6, boxSizing:"border-box", outline:"none" }} />
-            <div style={{ fontSize:10, color:T.border, textAlign:"right", marginTop:4 }}>{notes.length} car.</div>
+              style={{ ...campoMB, minHeight:180, resize:"vertical", lineHeight:1.6 }} />
+            <div style={{ fontSize:11.5, color:T.textMuted, textAlign:"right", marginTop:4 }}><Num>{notes.length}</Num> car.</div>
 
             {/* Resumen */}
-            <div style={{ margin:"14px 0 8px", padding:"10px 12px", borderRadius:8, border:`1px solid ${G}30`, background:`${G}08` }}>
-              <div style={{ fontSize:9, color:G, letterSpacing:3, marginBottom:6 }}>RESUMEN DEL SERVICIO</div>
-              <div style={{ fontSize:11, color:T.textMuted, lineHeight:2 }}>
-                <div>🔧 <span style={{ color:G, fontWeight:"bold" }}>{servicioTitulo}</span></div>
-                {model && <div>🚗 {model}</div>}
-                {engine && <div>⚙️ {engine}</div>}
-                {aceite.litros > 0 && <div>🛢️ Aceite: <span style={{ color:T.accent, fontWeight:"bold" }}>{aceite.litros} L</span> · {aceite.spec}{etiquetaAceite}</div>}
+            <div data-resumen-servicio style={{ margin:"16px 0 8px", padding:"12px 14px", borderRadius:12, background:T.panel, border:`1px solid ${T.borderDefault}` }}>
+              <Sobretitulo style={{ marginBottom:8 }}>Resumen del servicio</Sobretitulo>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:13, color:T.textSoft }}>
+                <LineaDato icono={Ic.Wrench}><span style={{ color:T.text, fontWeight:600 }}>{servicioTitulo}</span></LineaDato>
+                {model && <LineaDato icono={Ic.Car}>{model}</LineaDato>}
+                {engine && <LineaDato icono={Ic.Cog}><Num>{engine}</Num></LineaDato>}
+                {aceite.litros > 0 && <LineaDato icono={Ic.Droplet}>Aceite: <Num style={{ color:T.text, fontWeight:600 }}>{aceite.litros} L</Num> · <Num>{aceite.spec}</Num>{etiquetaAceite}</LineaDato>}
                 {!aceite.litros && !isEV && avisoSinAceite}
-                {!aceite.litros && opcionesAc.length > 0 && <div style={{ color:T.warn }}>🛢️ Aceite: falta elegir la cantidad (arriba)</div>}
-                {plate && <div>📋 <span style={{ letterSpacing:2 }}>{plate}</span></div>}
-                {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
-                <div>{fuelLabel(fuel)} {is4m?"· ⚙️ 4MATIC":""}</div>
-                <div>✅ Progreso ASSYST: <span style={{ color:isComplete?T.ok:G }}>{doneN}/{total} ({pct}%)</span>{naN > 0 && <span style={{ color:T.textMuted, fontSize:10 }}> · {naN} N/A</span>}</div>
-                {exDoneN > 0 && <div>🔎 Revisiones adicionales: <span style={{ color:T.estado.listo }}>{exDoneN}/{exTotal}</span></div>}
+                {!aceite.litros && opcionesAc.length > 0 && <LineaDato icono={Ic.Droplet} color={T.warn}>Aceite: falta elegir la cantidad (arriba)</LineaDato>}
+                {plate && <LineaDato icono={Ic.ClipboardList}><Placa placa={plate} /></LineaDato>}
+                {km    && <LineaDato icono={Ic.Gauge}><Num>{parseInt(km).toLocaleString()} km</Num></LineaDato>}
+                <LineaDato icono={iconoCombustible(fuel)}>{fuelTexto(fuel)}{is4m ? " · 4MATIC" : ""}</LineaDato>
+                <LineaDato icono={Ic.CircleCheck}>Progreso ASSYST: <Num style={{ color:isComplete?T.ok:T.text }}>{doneN}/{total} ({pct}%)</Num>{naN > 0 && <span style={{ color:T.textMuted, fontSize:12 }}> · <Num>{naN}</Num> N/A</span>}</LineaDato>
+                {exDoneN > 0 && <LineaDato icono={Ic.Search}>Revisiones adicionales: <Num style={{ color:T.text }}>{exDoneN}/{exTotal}</Num></LineaDato>}
               </div>
             </div>
 
             {/* ── DICTAMEN (solo Revisión de Compra / General — serie 'C') ── */}
             {esRC && (
-              <div style={{ marginTop:20, paddingTop:16, borderTop:`1px dashed ${T.border}` }}>
-                <div style={{ fontSize:11, color:T.estado.listo, letterSpacing:3, marginBottom:12 }}>📋 DICTAMEN DE {revisionLabel.toUpperCase()}</div>
+              <div data-dictamen style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${T.borderSubtle}` }}>
+                <h3 style={{ ...tituloB, display:"flex", alignItems:"center", gap:8, marginBottom:14 }}><Ic.ClipboardCheck size={16} color={T.accentMuted} />Dictamen de {revisionLabel.toLowerCase()}</h3>
 
                 {/* Recomendación / estado */}
-                <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2, marginBottom:8 }}>{tipoRev === "general" ? "ESTADO DEL VEHÍCULO" : "RECOMENDACIÓN GENERAL"} <span style={{ color:T.crit }}>*</span></div>
-                <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20 }}>
+                <Etiqueta requerido style={{ marginBottom:8 }}>{tipoRev === "general" ? "Estado del vehículo" : "Recomendación general"}</Etiqueta>
+                <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:20 }}>
                   {dictamenOpciones.map(o => { const on = dictamenRec === o.key; return (
-                    <button key={o.key} onClick={()=>setDictamenRec(o.key)}
-                      style={{ padding:"12px 14px", borderRadius:8, textAlign:"left", cursor:"pointer", fontFamily:T.sans, fontSize:13, fontWeight:on?"bold":"normal", border:`1.5px solid ${on?o.color:line}`, background:on?o.color+"18":card, color:on?o.color:T.textMuted }}>
-                      {on ? "●" : "○"}  {o.label}
+                    <button key={o.key} type="button" data-dictamen-opcion={o.key} aria-pressed={on} onClick={()=>setDictamenRec(o.key)}
+                      style={{ ...opcionB(on), minHeight:48, fontWeight:on?600:500 }}>
+                      {on ? <Ic.CircleDot size={18} color={o.color} /> : <Ic.Circle size={18} color={T.textMuted} />}
+                      {o.label}
                     </button>
                   );})}
                 </div>
 
                 {/* Reparaciones sugeridas */}
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                  <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2 }}>REPARACIONES SUGERIDAS</div>
-                  <button onClick={()=>setReparaciones(p=>[...p, { descripcion:"", costo_estimado:"" }])}
-                    style={{ fontSize:11, color:T.estado.listo, background:"transparent", border:`1px solid ${T.estado.listo}60`, borderRadius:6, padding:"4px 10px", cursor:"pointer", fontFamily:T.sans }}>
-                    + Agregar
-                  </button>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:8 }}>
+                  <Sobretitulo>Reparaciones sugeridas</Sobretitulo>
+                  <Boton icono={Ic.Plus} onClick={()=>setReparaciones(p=>[...p, { descripcion:"", costo_estimado:"" }])} style={{ padding:"0 12px" }}>
+                    Agregar
+                  </Boton>
                 </div>
                 {reparaciones.length === 0 && (
-                  <div style={{ fontSize:11, color:T.textDisabled, fontStyle:"italic", marginBottom:12 }}>Sin reparaciones sugeridas.</div>
+                  <div style={{ fontSize:12.5, color:T.textMuted, marginBottom:12 }}>Sin reparaciones sugeridas.</div>
                 )}
                 {reparaciones.map((r, i) => (
-                  <div key={i} style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
+                  <div key={i} data-reparacion style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center", flexWrap:"wrap" }}>
                     <input value={r.descripcion} placeholder="Descripción de la reparación"
                       onChange={e=>setReparaciones(p=>p.map((x,j)=>j===i?{...x, descripcion:e.target.value}:x))}
-                      style={{ flex:1, minWidth:0, background:card, border:`1px solid ${line}`, borderRadius:6, color:T.textSoft, fontSize:12, fontFamily:T.sans, padding:"8px 10px", boxSizing:"border-box", outline:"none" }} />
-                    <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
-                      <span style={{ fontSize:12, color:T.textMuted }}>₡</span>
+                      style={{ ...campoMB, flex:"1 1 180px", minWidth:0, width:"auto" }} />
+                    <div style={{ display:"flex", alignItems:"center", gap:6, flex:"0 0 auto", marginLeft:"auto" }}>
+                      <Num style={{ fontSize:13, color:T.textMuted }}>₡</Num>
                       <input value={r.costo_estimado} placeholder="0" inputMode="numeric"
                         onChange={e=>setReparaciones(p=>p.map((x,j)=>j===i?{...x, costo_estimado:e.target.value.replace(/[^\d]/g,"")}:x))}
-                        style={{ width:90, background:card, border:`1px solid ${line}`, borderRadius:6, color:T.accent, fontSize:12, fontFamily:T.sans, padding:"8px 10px", boxSizing:"border-box", outline:"none", textAlign:"right" }} />
+                        style={{ ...campoMB, ...monoB, width:110, textAlign:"right" }} />
+                      <BotonIcono icono={Ic.Trash2} title="Quitar reparación" color={T.crit} iconoTam={17}
+                        onClick={()=>setReparaciones(p=>p.filter((_,j)=>j!==i))} />
                     </div>
-                    <button onClick={()=>setReparaciones(p=>p.filter((_,j)=>j!==i))}
-                      style={{ flexShrink:0, background:"transparent", border:`1px solid ${line}`, borderRadius:6, color:T.crit, fontSize:14, cursor:"pointer", padding:"6px 9px", lineHeight:1 }}>
-                      ×
-                    </button>
                   </div>
                 ))}
                 {reparaciones.length > 0 && (
-                  <div style={{ display:"flex", justifyContent:"space-between", marginTop:8, padding:"8px 12px", borderRadius:8, background:T.estado.listo+'10', border:`1px solid ${T.estado.listo}30` }}>
-                    <span style={{ fontSize:11, color:T.textMuted, letterSpacing:1 }}>TOTAL ESTIMADO</span>
-                    <span style={{ fontSize:13, fontWeight:"bold", color:T.estado.listo }}>₡{dictamenTotal.toLocaleString("es-CR")}</span>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, padding:"10px 12px", borderRadius:10, background:T.panel, border:`1px solid ${T.borderDefault}` }}>
+                    <Sobretitulo>Total estimado</Sobretitulo>
+                    <Num style={{ fontSize:15, fontWeight:600, color:T.text }}>₡{dictamenTotal.toLocaleString("es-CR")}</Num>
                   </div>
                 )}
               </div>
@@ -5147,83 +5159,85 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
             {/* ── CIERRE DEL SERVICIO (sin firma desde el 8/10: el encargado es el del
                  link o quien está logueado, y la autoría por ítem ya la sella la sesión) ── */}
-            <div style={{ marginTop:20, paddingTop:16, borderTop:`1px dashed ${T.border}`, paddingBottom:32 }}>
-              <div style={{ fontSize:9, color:T.accent, letterSpacing:3, marginBottom:12 }}>✓ CIERRE DEL SERVICIO</div>
+            <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${T.borderSubtle}`, paddingBottom:32 }}>
+              <h3 style={{ ...tituloB, display:"flex", alignItems:"center", gap:8, marginBottom:14 }}><Ic.CircleCheck size={16} color={T.accentMuted} />Cierre del servicio</h3>
 
               {/* Encargado: del link de Taller, de la fila cargada o de la sesión. No se elige. */}
-              <div style={{ marginBottom:12 }} data-encargado>
-                <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2, marginBottom:5 }}>ENCARGADO</div>
-                <div style={{ fontSize:12, color:T.text, fontWeight:"bold" }}>👤 {autorServicioActual || "—"}</div>
+              <div style={{ marginBottom:14 }} data-encargado>
+                <Sobretitulo style={{ marginBottom:4 }}>Encargado</Sobretitulo>
+                <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, color:T.text, fontWeight:600 }}><Ic.User size={15} color={T.textMuted} />{autorServicioActual || "—"}</div>
               </div>
 
               {/* Resumen del servicio */}
-              <div style={{ marginBottom:14, padding:"10px 12px", borderRadius:8, border:`1px solid ${line}`, background:T.card }}>
-                <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2, marginBottom:6 }}>SERVICIO A CERTIFICAR</div>
-                <div style={{ fontSize:11, color:T.textMuted, lineHeight:1.9 }}>
-                  <div>🔧 <span style={{ color:T.accent, fontWeight:"bold" }}>{servicioTitulo}</span> — {svc.desc}</div>
-                  {model && <div>🚗 {model}</div>}
-                  {plate && <div>📋 <span style={{ letterSpacing:2, color:T.textSoft }}>{plate}</span></div>}
-                  {km    && <div>📍 {parseInt(km).toLocaleString()} km</div>}
-                  <div>{fuelLabel(fuel)} {is4m?"· ⚙️ 4MATIC":""}</div>
-                  <div>✅ Progreso: <span style={{ color:isComplete?T.ok:T.accent }}>{doneN}/{total} tareas ({pct}%)</span></div>
+              <div data-servicio-certificar style={{ marginBottom:14, padding:"12px 14px", borderRadius:12, border:`1px solid ${T.borderDefault}`, background:T.panel }}>
+                <Sobretitulo style={{ marginBottom:8 }}>Servicio a certificar</Sobretitulo>
+                <div style={{ display:"flex", flexDirection:"column", gap:6, fontSize:13, color:T.textSoft }}>
+                  <LineaDato icono={Ic.Wrench}><span style={{ color:T.text, fontWeight:600 }}>{servicioTitulo}</span> — {svc.desc}</LineaDato>
+                  {model && <LineaDato icono={Ic.Car}>{model}</LineaDato>}
+                  {plate && <LineaDato icono={Ic.ClipboardList}><Placa placa={plate} /></LineaDato>}
+                  {km    && <LineaDato icono={Ic.Gauge}><Num>{parseInt(km).toLocaleString()} km</Num></LineaDato>}
+                  <LineaDato icono={iconoCombustible(fuel)}>{fuelTexto(fuel)}{is4m ? " · 4MATIC" : ""}</LineaDato>
+                  <LineaDato icono={Ic.CircleCheck}>Progreso: <Num style={{ color:isComplete?T.ok:T.text }}>{doneN}/{total}</Num> tareas (<Num>{pct}%</Num>)</LineaDato>
                 </div>
               </div>
 
               {/* Botón confirmar. Con un servicio que se abrió desde el link ya
                   fuera del mecánico (por aprobar o aprobado) no hay acción. */}
               {vistaPorAprobar ? (
-                <div data-sin-accion style={{ padding:"12px 14px", borderRadius:8, border:`1px solid ${T.accent}30`, background:T.accent+'06', textAlign:"center", fontSize:11, color:T.accent, letterSpacing:1 }}>
-                  {estadoOriginal === 'aprobado' ? "✅ SERVICIO APROBADO" : "⏳ POR APROBAR — sin acción para el mecánico"}
-                </div>
+                estadoOriginal === 'aprobado'
+                  ? <Aviso data-sin-accion color={T.ok} icono={Ic.CircleCheck} titulo="Servicio aprobado" />
+                  : <Aviso data-sin-accion color={T.warn} icono={Ic.Hourglass} titulo="Por aprobar">Sin acción para el mecánico.</Aviso>
               ) : (
               <div className="sticky-action">
-                <button
+                <Boton
+                  jerarquia="principal"
+                  ancho
+                  icono={Ic.Check}
                   onClick={confirmSig}
                   data-confirmar-guardar
-                  style={{ width:"100%", padding:"14px", borderRadius:6, border:`1px solid ${T.accent}60`, background:T.accent+'20', color:T.accent, fontFamily:T.sans, fontSize:13, letterSpacing:1, cursor:"pointer", fontWeight:"bold" }}
+                  style={{ minHeight:48 }}
                 >
-                  ✓ CONFIRMAR Y GUARDAR
-                </button>
+                  Confirmar y guardar
+                </Boton>
               </div>
               )}
 
               {/* ── PANTALLA DE FINALIZACIÓN (solo tras el guardado confirmado: e502b9b) ── */}
               {sigDate && (
-                <div style={{ marginTop:4 }}>
+                <div style={{ marginTop:12 }}>
                   {/* Declaración principal */}
-                  <div style={{ padding:"20px 16px", borderRadius:10, border:`2px solid ${T.accent}60`, background:`linear-gradient(180deg,${T.accent}0A 0%,${T.bg} 100%)`, textAlign:"center", marginBottom:14 }}>
-                    <div style={{ fontSize:22, marginBottom:10 }}>⭐</div>
-                    <div style={{ fontSize:13, color:T.accent, fontWeight:"bold", letterSpacing:2, marginBottom:12 }}>SERVICIO COMPLETADO</div>
-                    <div style={{ fontSize:14, color:T.text, lineHeight:1.8, marginBottom:16, fontStyle:"italic" }}>
+                  <div data-servicio-completado style={{ padding:"20px 16px", borderRadius:12, border:`1px solid ${T.borderDefault}`, background:T.panel, textAlign:"center", marginBottom:14 }}>
+                    <Ic.CircleCheckBig size={28} color={T.ok} />
+                    <div style={{ fontSize:18, fontWeight:600, color:T.text, margin:"8px 0 10px" }}>Servicio completado</div>
+                    <div style={{ fontSize:14, color:T.textSoft, lineHeight:1.6, marginBottom:16 }}>
                       "Confirmo que se ha realizado la lista de revisiones previas a la entrega"
                     </div>
-                    <div style={{ fontSize:12, color:T.textMuted, lineHeight:2 }}>
-                      <div>👤 <span style={{ color:T.text, fontWeight:"bold" }}>{autorServicioActual}</span></div>
-                      <div>🗓 <span style={{ color:T.textSoft }}>{sigDate}</span></div>
-                      {plate && <div>🚗 Placa: <span style={{ color:T.textSoft, letterSpacing:2 }}>{plate}</span></div>}
-                      {model && <div>🔎 {model}</div>}
-                      <div>🔧 Servicio <span style={{ color:T.accent, fontWeight:"bold" }}>{sel}</span> · {doneN}/{total} ítems revisados</div>
+                    <div style={{ display:"inline-flex", flexDirection:"column", gap:6, textAlign:"left", fontSize:13, color:T.textSoft, maxWidth:"100%" }}>
+                      <LineaDato icono={Ic.User}><span style={{ color:T.text, fontWeight:600 }}>{autorServicioActual}</span></LineaDato>
+                      <LineaDato icono={Ic.Calendar}><Num>{sigDate}</Num></LineaDato>
+                      {plate && <LineaDato icono={Ic.Car}>Placa <Placa placa={plate} /></LineaDato>}
+                      {model && <LineaDato icono={Ic.Search}>{model}</LineaDato>}
+                      <LineaDato icono={Ic.Wrench}>Servicio <Num style={{ color:T.text, fontWeight:600 }}>{sel}</Num> · <Num>{doneN}/{total}</Num> ítems revisados</LineaDato>
                     </div>
                   </div>
 
                   {/* Issues encontrados */}
                   {Object.entries(taskIssue).filter(([,v])=>v).length > 0 && (
-                    <div style={{ marginBottom:14, padding:"10px 12px", borderRadius:8, border:`1px solid ${T.crit}30`, background:(T.crit+'1F')+'08' }}>
-                      <div style={{ fontSize:9, color:T.crit, letterSpacing:2, marginBottom:8 }}>⚠️ DETALLES PENDIENTES</div>
+                    <Aviso color={T.crit} titulo="Detalles pendientes" style={{ marginBottom:14 }}>
                       {Object.entries(taskIssue).filter(([,v])=>v).map(([id,txt])=>(
-                        <div key={id} style={{ fontSize:11, color:T.crit, marginBottom:4, lineHeight:1.5 }}>• {txt}</div>
+                        <div key={id} style={{ fontSize:13, marginTop:4, lineHeight:1.5 }}>• {txt}</div>
                       ))}
-                    </div>
+                    </Aviso>
                   )}
 
                   {/* Flujo de aprobación */}
                   {modoRevision && !aprobado && (
-                    <div style={{ marginBottom:10, padding:"14px", borderRadius:8, border:`1px solid ${T.ok}40`, background:T.ok+'06' }}>
-                      <div style={{ fontSize:10, color:T.ok, letterSpacing:1, marginBottom:10, textAlign:"center" }}>📋 REVISIÓN DE APROBACIÓN</div>
-                      <div style={{ fontSize:9, color:T.textMuted, marginBottom:10, textAlign:"center" }}>La aprobación queda a nombre de quien está logueado:</div>
+                    <div data-revision-aprobacion style={{ marginBottom:10, padding:14, borderRadius:12, border:`1px solid ${T.borderDefault}`, background:T.panel }}>
+                      <Sobretitulo style={{ marginBottom:6, textAlign:"center" }}>Revisión de aprobación</Sobretitulo>
+                      <div style={{ fontSize:12.5, color:T.textSoft, marginBottom:10, textAlign:"center" }}>La aprobación queda a nombre de quien está logueado:</div>
                       <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                         {/* F4: un solo botón; aprobado_por = session.nombre (identidad de Auth). Antes: tres botones por nombre fijo. */}
-                        <button onClick={async () => {
+                        <Boton ancho color={T.ok} icono={Ic.CircleCheck} data-aprobar-servicio onClick={async () => {
                           const nombre = session?.nombre || "—";
                           // Guard de placa (fix #3049): con orden vinculada, aprobar exige que la
                           // placa de la orden coincida; ilegible o distinta → no se aprueba.
@@ -5257,51 +5271,46 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                           setAprobado(true);
                           setAprobadoPor(nombre);
                           if (autorServicioActual) notifyPush([autorServicioActual], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
-                        }}
-                          style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${T.ok}40`, background:T.ok+'10', color:T.ok, fontFamily:T.sans, fontSize:11, cursor:"pointer", letterSpacing:1, textAlign:"center" }}>
-                          ✅ Revisión de aprobación — {session?.nombre || "—"}
-                        </button>
+                        }}>
+                          Revisión de aprobación — {session?.nombre || "—"}
+                        </Boton>
                       </div>
                     </div>
                   )}
                   {!modoRevision && !aprobado && (
-                    <div style={{ padding:"10px 14px", borderRadius:8, border:`1px solid ${T.accent}30`, background:T.accent+'06', marginBottom:10, textAlign:"center" }}>
-                      <div style={{ fontSize:10, color:T.accent, letterSpacing:1 }}>⏳ PENDIENTE DE APROBACIÓN</div>
-                    </div>
+                    <Aviso color={T.warn} icono={Ic.Hourglass} titulo="Pendiente de aprobación" style={{ marginBottom:10 }} />
                   )}
                   {aprobado && (
                     <>
-                      <div style={{ padding:"8px 12px", borderRadius:6, border:`1px solid ${T.ok}30`, background:T.ok+'08', marginBottom:10, textAlign:"center", fontSize:10, color:T.ok }}>
-                        ✅ Aprobado por {aprobadoPor}
-                      </div>
+                      <Aviso color={T.ok} icono={Ic.CircleCheck} style={{ marginBottom:10 }}>Aprobado por <strong style={{ fontWeight:600 }}>{aprobadoPor}</strong></Aviso>
                       {/* Enviar a la orden — solo visible si está aprobado */}
                       {ordenId ? (
                         ordenEnvioStatus === "done" ? (
-                          <div style={{ padding:"12px 14px", borderRadius:8, border:`1px solid ${T.ok}50`, background:(T.ok+'1F'), marginBottom:10 }}>
-                            <div style={{ fontSize:9, color:T.ok, letterSpacing:2, marginBottom:6 }}>✅ ENVIADO A LA ORDEN {ordenNumero}</div>
-                            <div style={{ fontSize:11, color:T.textMuted, marginBottom:10 }}>El informe fue guardado en la orden de trabajo.</div>
-                            <a href="https://taller.ramosyramoscr.com" target="_blank" rel="noreferrer"
-                              style={{ display:"block", textAlign:"center", padding:"10px", borderRadius:6, border:`1px solid ${T.ok}50`, background:T.ok+'15', color:T.ok, fontFamily:T.sans, fontSize:11, textDecoration:"none", letterSpacing:1 }}>
-                              🔗 Ver orden →
-                            </a>
-                          </div>
+                          <Aviso color={T.ok} icono={Ic.ClipboardCheck} titulo={<>Enviado a la orden <Num>{ordenNumero}</Num></>} style={{ marginBottom:10 }}
+                            accion={
+                              <a href="https://taller.ramosyramoscr.com" target="_blank" rel="noreferrer"
+                                style={{ ...botonB('secundario', 'movil'), color:T.ok, border:`1px solid ${T.ok}A6`, textDecoration:"none" }}>
+                                <Ic.ExternalLink size={16} />Ver orden
+                              </a>
+                            }>
+                            <div style={{ fontSize:12.5, color:T.textSoft }}>El informe fue guardado en la orden de trabajo.</div>
+                          </Aviso>
                         ) : (
-                          <button onClick={enviarAOrden} disabled={ordenEnvioStatus === "sending"}
-                            style={{ width:"100%", padding:"12px", borderRadius:8, border:`1px solid ${ordenEnvioStatus==="sending"?T.border:T.accent+'80'}`, background:ordenEnvioStatus==="sending"?T.bg:T.accent+'18', color:ordenEnvioStatus==="sending"?T.textDisabled:T.accent, fontFamily:T.sans, fontSize:12, cursor:ordenEnvioStatus==="sending"?"default":"pointer", fontWeight:"bold", marginBottom:10, letterSpacing:1 }}>
-                            {ordenEnvioStatus === "sending" ? "⏳ Enviando..." : "📋 Enviar a la orden de trabajo"}
-                          </button>
+                          <Boton ancho icono={ordenEnvioStatus === "sending" ? Ic.Loader : Ic.ClipboardList} onClick={enviarAOrden} disabled={ordenEnvioStatus === "sending"} style={{ marginBottom:10 }}>
+                            {ordenEnvioStatus === "sending" ? "Enviando…" : "Enviar a la orden de trabajo"}
+                          </Boton>
                         )
                       ) : (
-                        <div style={{ padding:"10px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.card, marginBottom:10, fontSize:11, color:T.textMuted, lineHeight:1.6 }}>
-                          ℹ️ Este servicio fue creado manualmente. Para asociarlo a una orden, abrilo desde el sistema del Taller.
-                        </div>
+                        <Aviso color={T.info} style={{ marginBottom:10 }}>
+                          Este servicio fue creado manualmente. Para asociarlo a una orden, abrilo desde el sistema del Taller.
+                        </Aviso>
                       )}
                     </>
                   )}
 
-                  <button onClick={()=>{ handleReset(); window.scrollTo({top:0,behavior:"smooth"}); }} style={{ width:"100%", padding:"10px", borderRadius:6, border:`1px solid ${line}`, background:card, color:T.textMuted, fontFamily:T.sans, fontSize:10, cursor:"pointer" }}>
-                    ↺ Nuevo servicio
-                  </button>
+                  <Boton ancho icono={Ic.RotateCcw} onClick={()=>{ handleReset(); window.scrollTo({top:0,behavior:"smooth"}); }}>
+                    Nuevo servicio
+                  </Boton>
                 </div>
               )}
             </div>
