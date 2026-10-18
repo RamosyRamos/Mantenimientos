@@ -23,6 +23,7 @@ import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from '
 import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
 import { buildTasks, stripInterna, adicionalesDeTareas, idsDeRevisiones, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
+import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, marcasParaPasar, claveChoque, TIPO } from './lib/servicioVigente.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null, traccion: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -1825,7 +1826,9 @@ function MainApp({ session, onLogout }) {
   const [aprobado, setAprobado] = useState(false);
   const [aprobadoPor, setAprobadoPor] = useState("");
   const [modoRevision, setModoRevision] = useState(false); // true = jefe revisando, false = mecánico editando // Quién aprobó
-  const [sel, setSel]       = useState("A");
+  // Con el link "Iniciar revisión" de Taller (?tipo=revision) no se preelige
+  // ningún código: la persona elige entre RC y RG. Sin tipo, "A" como siempre.
+  const [sel, setSel]       = useState(() => tipoDelLink(new URLSearchParams(window.location.search).get('tipo')) === TIPO.REVISION ? null : "A");
   const [fuel, setFuel]     = useState("gasolina");
   const [is4m, setIs4m]     = useState(false);
   const [model, setModel]   = useState("");
@@ -1910,6 +1913,22 @@ function MainApp({ session, onLogout }) {
   const [conflicto,     setConflicto]     = useState(null); // {quien, at}
   const [itemStamps,    setItemStamps]    = useState({});   // {id: {por, at}} — espejo del ref, para pintar el sello
   const [recetasReady,  setRecetasReady]  = useState(false);
+  // ── Un servicio vigente por orden (18/10/2026, lib/servicioVigente.js) ──
+  // vigenteEstado: la búsqueda del servicio de la orden del link
+  //   'idle' | 'buscando' | 'ninguno' | 'abierto' | 'error'.
+  // servicioCargado: lo que hace falta de la fila abierta para los avisos
+  //   (quién lo lleva, el rechazo con su motivo). vistaPorAprobar: se abrió
+  //   desde el link un servicio que ya no es del mecánico (pendiente o
+  //   aprobado): solo lectura, sin "Confirmar". choque: lo que estaba cargado
+  //   cuando un guardado chocó con el servicio vigente de la orden (409/23505).
+  const [vigenteEstado,   setVigenteEstado]   = useState('idle');
+  const [servicioCargado, setServicioCargado] = useState(null);
+  const [vistaPorAprobar, setVistaPorAprobar] = useState(false);
+  const [choque,          setChoque]          = useState(null);
+  const vigenteBuscadoRef = useRef(false);
+  // La elección revisión / mantenimiento que trae el link de Taller (?tipo=).
+  const [tipoLink] = useState(() => tipoDelLink(new URLSearchParams(window.location.search).get('tipo')));
+  const [verTodasSeries, setVerTodasSeries] = useState(false);
   // Estado con el que se CARGÓ la fila (no se relee al vuelo: si el autosave
   // tuviera que preguntarle al servidor, la ventana entre la lectura y el PATCH
   // volvería a dejar pasar la escritura). Un servicio nuevo nace 'borrador'.
@@ -2179,6 +2198,7 @@ function MainApp({ session, onLogout }) {
     itemStampsRef.current = {}; itemSnapRef.current = {};
     conflictoRef.current = false;
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
+    setServicioCargado(null); setVistaPorAprobar(false); setChoque(null);
     setEstadoOriginal('borrador');   // arranca de cero: es un borrador nuevo
     setCombGuardado(null);
     setTracGuardada(null);
@@ -2408,18 +2428,47 @@ function MainApp({ session, onLogout }) {
       });
   }, [recetasReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Smart draft auto-load: runs after mount when both URL params and draft list are ready
+  // ── Servicio vigente de la orden del link (decisión de Tavo, 18/10/2026) ──
+  // Una orden tiene a lo sumo un servicio vigente (índice único en la base).
+  // Al llegar con ?orden_id= se busca el de ESA orden —de cualquier mecánico y
+  // en cualquier estado no descartado— y se abre según su estado; solo si no
+  // hay ninguno sigue el flujo de siempre (servicio nuevo). Antes se buscaban
+  // solo los borradores propios y se arrancaba otro (caso #3058).
+  // Espera al catálogo, como la apertura por ?servicio=: sin recetas el
+  // checklist sale vacío.
+  useEffect(() => {
+    if (!cameFromTaller || !ordenId || editingId || !recetasReady) return;
+    if (vigenteBuscadoRef.current) return;
+    if (new URLSearchParams(window.location.search).get('servicio')) return;   // camino del jefe por id
+    vigenteBuscadoRef.current = true;
+    setVigenteEstado('buscando');
+    buscarVigenteDeOrden(ordenId)
+      .then(row => {
+        if (!row) { setVigenteEstado('ninguno'); return; }
+        setVigenteEstado('abierto');
+        abrirServicioVigente(row);
+      })
+      .catch(e => {
+        // Sin poder leer no se bloquea: queda el flujo de siempre y, si al
+        // guardar choca con el vigente, el choque lo abre (resolverChoque).
+        console.warn('[servicio vigente] la lectura falló:', e);
+        setVigenteEstado('error');
+      });
+  }, [cameFromTaller, ordenId, editingId, recetasReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Smart draft auto-load: corre recién cuando la orden NO tiene servicio
+  // vigente (o no se pudo leer): borradores propios de la misma placa en otra
+  // orden. Con la lectura caída, además, el borrador propio de esta orden.
   useEffect(() => {
     if (!cameFromTaller) return;
     if (!ordenId) return;
     if (!pendingDrafts.length) return;
     if (editingId) return; // already loaded a draft, don't double-load
-    // Espera al catálogo, como la apertura por ?servicio=: sin recetas el
-    // checklist sale vacío (y con la lectura caída quedaría así, sin explicación).
+    if (vigenteEstado !== 'ninguno' && vigenteEstado !== 'error') return;
     if (!recetasReady) return;
 
     const exactMatch = pendingDrafts.find(d => d.orden_id === ordenId);
-    if (exactMatch) {
+    if (exactMatch && vigenteEstado === 'error') {
       loadService(exactMatch);
       return;
     }
@@ -2430,7 +2479,100 @@ function MainApp({ session, onLogout }) {
     if (samePlacaDifferentOrden.length > 0) {
       setDifferentOrdenPrompt({ drafts: samePlacaDifferentOrden, currentOrden: ordenNumero });
     }
-  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId, recetasReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameFromTaller, ordenId, plate, pendingDrafts, editingId, recetasReady, vigenteEstado]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // El servicio vigente de una orden (cualquier mecánico, cualquier estado no
+  // descartado). Lanza si la lectura falla: el caller decide.
+  const buscarVigenteDeOrden = async (oid) => {
+    const q = `orden_id=eq.${encodeURIComponent(oid)}&or=(estado.is.null,estado.neq.descartado)&select=*&order=created_at.desc`;
+    const r = await apiFetch(`${API_URL}/rest/v1/servicios?${q}`);
+    const rows = await r.json();
+    return servicioVigente(Array.isArray(rows) ? rows : []);
+  };
+
+  // Abre el servicio vigente según su estado (lib/servicioVigente.js):
+  // borrador (propio o ajeno, rechazado o no) → se continúa con loadService,
+  // que conserva su autor; pendiente → solo lectura "Por aprobar"; aprobado →
+  // informe público. Después de un choque el aprobado también se abre acá
+  // (solo lectura), para que el aviso de lo que se cargó se vea.
+  const abrirServicioVigente = (row, { porChoque = false } = {}) => {
+    const r = accionAlAbrir(row, { nombreSesion: session?.nombre });
+    if (r.accion === ACCION.APROBADO && !porChoque) {
+      const url = urlInformePublico(row, window.location.origin);
+      if (url) { window.location.replace(url); return r; }
+    }
+    loadService(row);
+    if (r.accion === ACCION.POR_APROBAR || r.accion === ACCION.APROBADO) setVistaPorAprobar(true);
+    return r;
+  };
+
+  // Copia local de lo cargado cuando un guardado chocó con el vigente: aparte
+  // del draft de siempre, que se borra con el primer guardado OK del servicio
+  // que se abre. Solo se borra al pasar las marcas o al descartarlas.
+  const guardarChoqueLocal = (oid, copia) => { try { const k = claveChoque(oid); if (k) localStorage.setItem(k, JSON.stringify(copia)); } catch { /* storage lleno o bloqueado */ } };
+  const leerChoqueLocal = (oid) => { try { const k = claveChoque(oid); const raw = k ? localStorage.getItem(k) : null; return raw ? JSON.parse(raw) : null; } catch { return null; } };
+  const borrarChoqueLocal = (oid) => { try { const k = claveChoque(oid); if (k) localStorage.removeItem(k); } catch { /* nada */ } };
+
+  // Un guardado (autosave, confirmar, enviar a la orden) chocó con el índice
+  // `servicios_un_vigente_por_orden`: la orden ya tiene un servicio. No se
+  // muestra éxito: lo cargado se guarda en este dispositivo, se abre el
+  // servicio vigente de la orden y se avisa. Nunca lanza.
+  const resolverChoque = async (origen) => {
+    clearTimeout(autoSaveTimer.current);
+    clearTimeout(retryTimer.current);
+    const d = autoSaveRef.current;
+    const oid = d.ordenId;
+    const copia = {
+      at: new Date().toISOString(), origen, autor: session?.nombre || null,
+      sel: d.sel, crudo: d.tasks?.length ? armarCrudo(d) : {}, notas: d.notes || "", km: d.km || "",
+    };
+    guardarChoqueLocal(oid, copia);
+    let row = null;
+    try { row = oid ? await buscarVigenteDeOrden(oid) : null; }
+    catch (e) { console.warn('[choque] no se pudo leer el servicio vigente:', e); }
+    if (!row) {
+      if (!errorDesdeRef.current) errorDesdeRef.current = new Date().toISOString();
+      setSaveInfo({ estado: 'error', desde: errorDesdeRef.current, msg: 'La orden ya tiene un servicio y no se pudo abrir. Lo cargado quedó en este dispositivo: recargá la página.', intento: 0, reintentoEn: null, sinReintento: true });
+      setChoque({ ...copia, accion: null, lleva: null, sinAbrir: true });
+      return;
+    }
+    dirtyRef.current = false;   // lo cargado ya está a salvo en la copia local
+    errorDesdeRef.current = null;
+    const r = abrirServicioVigente(row, { porChoque: true });
+    setChoque({ ...copia, accion: r.accion, lleva: r.lleva });
+    setSaveInfo({ estado: 'idle' });
+  };
+
+  // Pasar las marcas de la copia local al servicio abierto: solo ítems con
+  // contenido que existan en este checklist y que no estén ya marcados acá.
+  // El autosave las guarda a nombre de quien está logueado.
+  const pasarMarcasDelChoque = () => {
+    if (!choque) return;
+    const m = marcasParaPasar(choque.crudo, { idsDestino: tasks.map(t => t.id), statusDestino: taskStatus });
+    setTaskStatus(p => ({ ...p, ...m.status }));
+    setTaskIssue(p => ({ ...p, ...m.detail }));
+    setTaskPhotos(p => ({ ...p, ...m.fotos }));
+    setChk(p => ({ ...p, ...Object.fromEntries(Object.keys(m.status).map(id => [id, true])) }));
+    if (choque.notas && choque.notas.trim() && !String(notes || "").includes(choque.notas.trim())) {
+      setNotes(n => (n ? `${n}\n${choque.notas.trim()}` : choque.notas.trim()));
+    }
+    if (choque.km && !km) setKm(choque.km);
+    borrarChoqueLocal(ordenId);
+    setChoque(null);
+  };
+  const descartarChoque = () => {
+    if (!confirm('¿Descartar lo que habías cargado en este dispositivo? No se puede recuperar.')) return;
+    borrarChoqueLocal(ordenId);
+    setChoque(null);
+  };
+
+  // Una copia de un choque anterior (la persona salió sin decidir) se vuelve a
+  // ofrecer al entrar al checklist de la misma orden.
+  useEffect(() => {
+    if (step !== 3 || !tasks.length || !ordenId || choque) return;
+    const c = leerChoqueLocal(ordenId);
+    if (c) setChoque({ ...c, accion: c.accion || null, retomada: true });
+  }, [step, tasks.length, ordenId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ¿El ítem lo marcó alguien distinto del mecánico de la orden? Ese es el caso
   // que interesa mostrar: la intervención de un jefe sobre el checklist ajeno.
@@ -2637,6 +2779,9 @@ function MainApp({ session, onLogout }) {
       errorDesdeRef.current = null;
       setSaveInfo({ estado: 'saved', at: new Date().toISOString() });
     } catch(e) {
+      // La orden ya tiene un servicio vigente (índice único): no hay reintento
+      // que valga; se abre ese servicio y lo cargado queda en el dispositivo.
+      if (esChoqueVigente(e)) { await resolverChoque('autosave'); return; }
       console.warn("[autoSave] falló:", e);
       if (!errorDesdeRef.current) errorDesdeRef.current = new Date().toISOString();
       const { reintentar, esperaMs } = siguienteReintento(e, intento);
@@ -2843,6 +2988,15 @@ function MainApp({ session, onLogout }) {
     // Y del corte por estado: lo que NO nació borrador se abre en solo lectura.
     // Sin `estado` en la fila (selects viejos) se asume el caso seguro.
     setEstadoOriginal(s.estado || 'desconocido');
+    // Para los avisos de la fila abierta (quién la lleva, el rechazo con su
+    // motivo). La vista "Por aprobar" la prende quien abre desde el link.
+    setServicioCargado({
+      estado: s.estado || null, mecanico: s.mecanico || "",
+      rechazado: !!s.rechazado, motivo_rechazo: s.motivo_rechazo || "",
+      rechazado_por: s.rechazado_por || "", rechazado_at: s.rechazado_at || null,
+      slug: s.slug || "", id: s.id,
+    });
+    setVistaPorAprobar(false);
     // El aceite guardado: si el cálculo de hoy da vacío, se conserva este.
     setAceiteFila(aceiteGuardado(s));
     // El modo edición de jefe jamás sobrevive un cambio de servicio: se
@@ -3708,6 +3862,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       setClientUrl(finalClientUrl);
       if (!editingId && savedId) setEditingId(savedId);
       setEstadoOriginal('aprobado');   // idem confirmSig: fila fuera de borrador
+      setServicioCargado(p => (p ? { ...p, estado: 'aprobado' } : p));
 
       // 3. PATCH ordenes.informe_mantenimiento
       const markdown = buildInformeMarkdown();
@@ -3719,9 +3874,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       setOrdenEnvioStatus("done");
     } catch(e) {
+      setOrdenEnvioStatus("idle");
+      if (esChoqueVigente(e)) {
+        alert("⚠️ Esta orden ya tiene un servicio: no se creó otro ni se envió nada. Se abre el que ya existe; lo que cargaste quedó en este dispositivo.");
+        await resolverChoque('enviar');
+        return;
+      }
       console.error("[enviarAOrden]", e);
       alert(`⚠️ No se pudo enviar el informe a la orden (${mensajeError(e)}). Intentá de nuevo.`);
-      setOrdenEnvioStatus("idle");
     }
   };
 
@@ -3823,6 +3983,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       // La fila ya no es borrador: el corte por estado queda armado aunque
       // después alguien limpie sigDate (que es lo que hace loadService).
       setEstadoOriginal('pendiente');
+      setServicioCargado(p => (p ? { ...p, estado: 'pendiente' } : p));
       notifyPush(
         APROBADORES_Y_ADMIN,
         esRC ? `${revisionLabel} pendiente de aprobación` : "Servicio pendiente de aprobación",
@@ -3834,6 +3995,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       dirtyRef.current = false;
       setSigDate(fecha);
     } catch(e) {
+      if (esChoqueVigente(e)) {
+        alert("⚠️ Esta orden ya tiene un servicio: no se guardó este. Se abre el que ya existe; lo que cargaste quedó en este dispositivo.");
+        await resolverChoque('confirmar');
+        return;
+      }
       console.error("[confirmSig] save failed:", e);
       alert(`⚠️ ERROR al guardar el informe: ${mensajeError(e)}.\n\nNo se confirmó. Por favor reintentá. Si persiste, contactá soporte. NO cierres la app (los cambios quedan en este dispositivo).`);
     }
@@ -4324,7 +4490,20 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         {/* Selector de código de servicio */}
         <div style={{ marginBottom:20 }}>
           <div style={{ fontSize:10, color:"#555", marginBottom:10 }}>{fuel === "electrico" ? "CÓDIGO DE SERVICIO" : "CÓDIGO DE SERVICIO ASSYST"} <span style={{ color:"#f87171" }}>*</span></div>
-          {fuel !== "electrico" && (<>
+          {/* Elección que trajo el link de Taller ("Iniciar revisión" / "Iniciar
+              mantenimiento"): se muestra solo esa serie, con salida a todas. */}
+          {tipoLink && !verTodasSeries && (
+            <div data-tipo-link={tipoLink} style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginBottom:10, padding:"7px 10px", borderRadius:6, border:`1px solid ${line}`, background:"#101113" }}>
+              <span style={{ flex:1, minWidth:0, fontSize:10, color:"#aaa" }}>
+                Elegido en Taller: <strong style={{ color:"#C8A96E" }}>{tipoLink === TIPO.REVISION ? "Revisión" : "Mantenimiento"}</strong>
+              </span>
+              <button data-ver-todas-series onClick={() => setVerTodasSeries(true)}
+                style={{ padding:"6px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#888", fontFamily:"monospace", fontSize:10, cursor:"pointer" }}>
+                Ver todas las series
+              </button>
+            </div>
+          )}
+          {seriesVisibles(tipoLink, { verTodas: verTodasSeries }).mantenimiento && fuel !== "electrico" && (<>
           <div style={{ fontSize:9, color:"#C8A96E80", letterSpacing:2, marginBottom:6 }}>SERIE A — INSPECCIÓN MENOR</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:10 }}>
             {activeAKeys.map(k => { const s=activeCodes[k]||{},on=sel===k,cand=estadoCandado({ fuelLock: s.fuelLock || null, fuel, fuelFijo }); return (
@@ -4346,7 +4525,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             );})}
           </div>
           </>)}
-          {fuel === "electrico" && activeEVKeys.length > 0 && (
+          {seriesVisibles(tipoLink, { verTodas: verTodasSeries }).mantenimiento && fuel === "electrico" && activeEVKeys.length > 0 && (
             <>
               <div style={{ fontSize:9, color:"#4ade8080", letterSpacing:2, margin:"12px 0 6px" }}>SERIE EV — ELÉCTRICOS</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -4361,7 +4540,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             </>
           )}
           {/* Serie C (RC / RG): para CUALQUIER combustible, eléctricos incluidos (decisión del dueño, 7/10/2026). */}
-          {activeCKeys.length > 0 && (
+          {seriesVisibles(tipoLink, { verTodas: verTodasSeries }).revision && activeCKeys.length > 0 && (
             <>
               <div style={{ fontSize:9, color:"#a78bfa80", letterSpacing:2, margin:"12px 0 6px" }}>REVISIONES</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
@@ -4646,6 +4825,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             </button>
           </div>
         ) : (
+          estadoOriginal === 'pendiente' ? (
+          <div data-por-aprobar style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #C8A96E50", background:"#C8A96E10", display:"flex", alignItems:"flex-start", gap:8 }}>
+            <span style={{ fontSize:13, lineHeight:1.3 }}>⏳</span>
+            <div style={{ flex:1, fontSize:11, color:"#C8A96E", lineHeight:1.6 }}>
+              <strong>Por aprobar</strong> — este servicio ya se envió{servicioCargado?.mecanico ? ` (lo hizo ${servicioCargado.mecanico})` : ""} y espera la aprobación del jefe.
+              <div style={{ fontSize:10, color:"#8a7a5a", marginTop:2 }}>
+                Solo lectura: lo que marqués acá no se guarda.
+              </div>
+            </div>
+          </div>
+          ) : (
           <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #f8717140", background:"#f871710d", display:"flex", alignItems:"flex-start", gap:8 }}>
             <span style={{ fontSize:13, lineHeight:1.3 }}>🔒</span>
             <div style={{ flex:1, fontSize:11, color:"#f87171", lineHeight:1.6 }}>
@@ -4665,13 +4855,87 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               )}
             </div>
           </div>
+          )
         )
       )}
 
+      {/* RECHAZADO — el jefe lo devolvió: el motivo COMPLETO arriba del checklist
+          (hasta el 18/10 solo llegaba por el push, cortado a 120 caracteres). */}
+      {editingId && servicioCargado?.estado === 'borrador' && servicioCargado.rechazado && (
+        <div data-motivo-rechazo style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, border:"1px solid #f8717160", background:"#f8717112", display:"flex", alignItems:"flex-start", gap:8 }}>
+          <span style={{ fontSize:13, lineHeight:1.3 }}>❌</span>
+          <div style={{ flex:1, minWidth:0, fontSize:11, color:"#f87171", lineHeight:1.6 }}>
+            <strong>Rechazado{servicioCargado.rechazado_por ? ` por ${servicioCargado.rechazado_por}` : ""}</strong>
+            {servicioCargado.rechazado_at ? ` · ${hace(servicioCargado.rechazado_at)}` : ""} — corregilo y volvé a confirmar.
+            <div style={{ marginTop:4, color:"#f0c0c0", whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>
+              {servicioCargado.motivo_rechazo ? `Motivo: ${servicioCargado.motivo_rechazo}` : "Sin motivo escrito."}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LO LLEVA OTRO — fijo, no se cierra. El encargado (servicios.mecanico)
+          no cambia; lo que marque esta persona queda sellado a su nombre. */}
+      {editingId && servicioCargado?.estado === 'borrador' && esAjeno(servicioCargado, session?.nombre) && (
+        <div data-lo-lleva style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #C8A96E60", background:"#C8A96E14", display:"flex", alignItems:"flex-start", gap:8 }}>
+          <span style={{ fontSize:13, lineHeight:1.3 }}>👥</span>
+          <div style={{ flex:1, minWidth:0, fontSize:11, color:"#C8A96E", lineHeight:1.6 }}>
+            Este servicio lo lleva <strong>{servicioCargado.mecanico}</strong>.
+            <div style={{ fontSize:10, color:"#8a7a5a", marginTop:2 }}>
+              {servicioIntro?.at ? `${servicioIntro.estimado ? 'Creado' : `${servicioIntro.quien || servicioCargado.mecanico} lo actualizó`} ${hace(servicioIntro.at)}. ` : ""}
+              Podés continuarlo: lo que marqués queda a tu nombre y el encargado sigue siendo {servicioCargado.mecanico}.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHOQUE — un guardado se encontró con el servicio vigente de la orden.
+          Lo cargado quedó en este dispositivo hasta que se pase o se descarte. */}
+      {choque && (() => {
+        const editable = editingId && estadoOriginal === 'borrador' && !sigDate;
+        const m = marcasParaPasar(choque.crudo, { idsDestino: tasks.map(t => t.id), statusDestino: taskStatus });
+        const conNotas = !!(choque.notas && choque.notas.trim());
+        return (
+          <div data-choque style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, border:"1px solid #fb923c60", background:"#fb923c12", fontSize:11, color:"#fb923c", lineHeight:1.6 }}>
+            <div>
+              ⚠ {choque.sinAbrir
+                ? <>Esta orden ya tiene un servicio y no se pudo abrir. Recargá la página.</>
+                : <>Esta orden ya tenía un servicio{choque.lleva ? <> (lo lleva <strong>{choque.lleva}</strong>)</> : ""}: se abrió ese y no se creó otro.</>}
+            </div>
+            <div style={{ fontSize:10, color:"#c98a5a", marginTop:2 }}>
+              Lo que {choque.autor ? `cargó ${choque.autor}` : "se cargó"} en este dispositivo quedó guardado acá
+              {m.pasan + m.fuera + m.conflicto > 0 ? ` (${m.pasan + m.fuera + m.conflicto} marcas)` : ""}{conNotas ? " con notas" : ""}.
+              {editable && m.conflicto > 0 ? ` ${m.conflicto} ya estaban marcadas en este servicio y no se tocan.` : ""}
+              {editable && m.fuera > 0 ? ` ${m.fuera} no existen en este checklist.` : ""}
+              {!editable && !choque.sinAbrir ? " Este servicio ya no se puede editar, así que no se pueden pasar." : ""}
+            </div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:8 }}>
+              {editable && (m.pasan > 0 || conNotas) && (
+                <button data-pasar-marcas onClick={pasarMarcasDelChoque}
+                  style={{ padding:"8px 12px", borderRadius:6, border:"1px solid #fb923c80", background:"#fb923c20", color:"#fb923c", fontFamily:"monospace", fontSize:11, cursor:"pointer", fontWeight:"bold", minHeight:36 }}>
+                  Pasar mis marcas{m.pasan > 0 ? ` (${m.pasan})` : ""}
+                </button>
+              )}
+              {estadoOriginal === 'aprobado' && servicioCargado && urlInformePublico(servicioCargado, window.location.origin) && (
+                <a data-ver-informe href={urlInformePublico(servicioCargado, window.location.origin)}
+                  style={{ padding:"8px 12px", borderRadius:6, border:"1px solid #4ade8060", background:"#4ade8012", color:"#4ade80", fontFamily:"monospace", fontSize:11, textDecoration:"none", minHeight:36, display:"inline-flex", alignItems:"center" }}>
+                  Ver informe
+                </a>
+              )}
+              <button data-descartar-choque onClick={descartarChoque}
+                style={{ padding:"8px 12px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:"#888", fontFamily:"monospace", fontSize:11, cursor:"pointer", minHeight:36 }}>
+                Descartar lo mío
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* CONTINUANDO UN SERVICIO AJENO — quién lo dejó en progreso y cuándo.
           El autosave pisa la fila entera, así que el aviso importa: el otro
-          puede estar editando AHORA MISMO. */}
-      {servicioIntro && editingId && (
+          puede estar editando AHORA MISMO. (Si lo lleva otro, lo dice el aviso
+          fijo de arriba.) */}
+      {servicioIntro && editingId && !(servicioCargado?.estado === 'borrador' && esAjeno(servicioCargado, session?.nombre)) && (
         <div style={{ margin:"10px 16px 0", padding:"9px 12px", borderRadius:8, border:"1px solid #C8A96E40", background:"#C8A96E0d", display:"flex", alignItems:"flex-start", gap:8 }}>
           <span style={{ fontSize:13, lineHeight:1.3 }}>👥</span>
           <div style={{ flex:1, fontSize:11, color:"#C8A96E", lineHeight:1.6 }}>
@@ -4991,7 +5255,13 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 </div>
               </div>
 
-              {/* Botón confirmar */}
+              {/* Botón confirmar. Con un servicio que se abrió desde el link ya
+                  fuera del mecánico (por aprobar o aprobado) no hay acción. */}
+              {vistaPorAprobar ? (
+                <div data-sin-accion style={{ padding:"12px 14px", borderRadius:8, border:"1px solid #C8A96E30", background:"#C8A96E06", textAlign:"center", fontSize:11, color:"#C8A96E", letterSpacing:1 }}>
+                  {estadoOriginal === 'aprobado' ? "✅ SERVICIO APROBADO" : "⏳ POR APROBAR — sin acción para el mecánico"}
+                </div>
+              ) : (
               <div className="sticky-action">
                 <button
                   onClick={confirmSig}
@@ -5001,6 +5271,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                   ✓ CONFIRMAR Y GUARDAR
                 </button>
               </div>
+              )}
 
               {/* ── PANTALLA DE FINALIZACIÓN (solo tras el guardado confirmado: e502b9b) ── */}
               {sigDate && (
