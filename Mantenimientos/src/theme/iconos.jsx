@@ -76,6 +76,12 @@ const NODOS = {
   CircleMinus: [["circle",{"cx":"12","cy":"12","r":"10"}],["path",{"d":"M8 12h8"}]],
   Square: [["rect",{"width":"18","height":"18","x":"3","y":"3","rx":"2"}]],
   SquareCheck: [["rect",{"width":"18","height":"18","x":"3","y":"3","rx":"2"}],["path",{"d":"m9 12 2 2 4-4"}]],
+  Play: [["path",{"d":"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"}]],
+  Users: [["path",{"d":"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"}],["path",{"d":"M16 3.128a4 4 0 0 1 0 7.744"}],["path",{"d":"M22 21v-2a4 4 0 0 0-3-3.87"}],["circle",{"cx":"9","cy":"7","r":"4"}]],
+  MapPin: [["path",{"d":"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"}],["circle",{"cx":"12","cy":"10","r":"3"}]],
+  Upload: [["path",{"d":"M12 3v12"}],["path",{"d":"m17 8-5-5-5 5"}],["path",{"d":"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"}]],
+  CircleCheckBig: [["path",{"d":"M21.801 10A10 10 0 1 1 17 3.335"}],["path",{"d":"m9 11 3 3L22 4"}]],
+  NotebookPen: [["path",{"d":"M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"}],["path",{"d":"M2 6h4"}],["path",{"d":"M2 10h4"}],["path",{"d":"M2 14h4"}],["path",{"d":"M2 18h4"}],["path",{"d":"M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"}]],
 }
 
 function crear(nombre) {
@@ -167,3 +173,9 @@ export const Loader = crear('Loader')
 export const CircleMinus = crear('CircleMinus')
 export const Square = crear('Square')
 export const SquareCheck = crear('SquareCheck')
+export const Play = crear('Play')
+export const Users = crear('Users')
+export const MapPin = crear('MapPin')
+export const Upload = crear('Upload')
+export const CircleCheckBig = crear('CircleCheckBig')
+export const NotebookPen = crear('NotebookPen')

@@ -13,6 +13,7 @@ import FotoPicker from './FotoPicker.jsx';
 import { T } from './theme/tokensB.js';
 import { monoB, campoB, campoTactilB, panelB, tarjetaB, overlayB, modalB, modalTituloB, modalSubtituloB, botonB, hoverBotonB, insigniaB, chipB, segmentoB, sobretituloB, etiquetaB, tituloSeccionB, menuB, itemMenuB, toastB, cerrarB } from './theme/estilosB.js';
 import * as Ic from './theme/iconos.jsx';
+import { Num, Placa, Insignia, Boton, BotonIcono, Sobretitulo, Etiqueta, tituloB, campoMB, MensajeCampo, Aviso, FondoModal, CajaModal, PanelLateral, Vacio, opcionB } from './theme/piezasB.jsx';
 // Reglas de concurrencia/sellado compartidas con Taller — ver el encabezado del
 // archivo: es un GEMELO byte a byte de Taller/src/lib/servicioConcurrencia.js.
 import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActividad, itemTieneContenido } from './servicioConcurrencia.js';
@@ -1566,68 +1567,75 @@ function LoginScreen({ onLogin, mensajeInicial = '' }) {
     setCanal(c); setPaso(1); setCodigo(''); setError(''); setAviso(''); setCooldown(0);
   };
 
-  const fieldStyle = { background:T.field, border:`1px solid ${T.border}`, color:T.text, borderRadius:8, padding:"12px 14px", fontSize:13, fontFamily:T.sans, outline:"none", width:"100%", boxSizing:"border-box" };
-  const btnStyle = (active) => ({ marginTop:4, padding:"13px", borderRadius:8, border:`1px solid ${active ? T.accent+'60' : T.border}`, background: active ? T.accent+'20' : T.field, color: active ? T.accent : T.textDisabled, fontFamily:T.sans, fontSize:12, letterSpacing:2, fontWeight:"bold", cursor: active ? "pointer" : "default" });
-  const linkStyle = { background:"none", border:"none", color:T.textMuted, fontSize:11, cursor:"pointer", fontFamily:T.sans, padding:4, textDecoration:"underline" };
-  const tabStyle = (activa) => ({ flex:1, padding:"9px 8px", borderRadius:7, border:`1px solid ${activa ? T.accent+'60' : "transparent"}`, background: activa ? T.accent+'20' : "transparent", color: activa ? T.accent : T.textMuted, fontFamily:T.sans, fontSize:11, letterSpacing:1.5, fontWeight:"bold", cursor: activa ? "default" : "pointer" });
+  // Tema B: campos de 44 con letra de 16, pestañas como segmentos de 44, el
+  // botón principal del tema y los textos en mayúscula de frase. Los textos de
+  // TEXTOS_CANAL viven en lib/authOtp.js (gemelo de Taller): el botón se pasa a
+  // frase solo para mostrarlo.
+  const linkStyle = { minHeight:44, background:"none", border:"none", color:T.textSoft, fontSize:13, cursor:"pointer", fontFamily:T.sans, padding:"0 4px", textDecoration:"underline", textUnderlineOffset:3 };
   const puedeEnviar = !loading && (canal === 'email' ? emailValido(email) : telValido(tel));
   const puedeEntrar = !loading && codigo.length === 6;
   const textos = canal === 'email' ? TEXTOS_CANAL.email : TEXTOS_CANAL[CANAL_OTP];
+  const campoErr = error ? { border: `1px solid ${T.crit}A6` } : null;
 
   return (
-    <div style={{ minHeight:"100vh", background:T.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:T.sans, padding:24 }}>
-      <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:100, height:100, borderRadius:"50%", marginBottom:16, objectFit:"cover" }} />
-      <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:3, color:T.text, marginBottom:4 }}>RAMOS Y RAMOS</div>
-      <div style={{ fontSize:9, color:T.textMuted, letterSpacing:3, marginBottom:36 }}>TALLER ESPECIALIZADO · MERCEDES-BENZ</div>
+    <div style={{ minHeight:"100vh", background:T.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:T.sans, padding:24, color:T.text }}>
+      <img src={LOGO_SRC} alt="Ramos y Ramos" style={{ width:88, height:88, borderRadius:"50%", marginBottom:16, objectFit:"cover" }} />
+      <div style={{ fontSize:20, fontWeight:600, color:T.text, marginBottom:4 }}>Ramos y Ramos</div>
+      <Sobretitulo style={{ marginBottom:32, textAlign:"center" }}>Taller especializado · Mercedes-Benz</Sobretitulo>
       {paso === 1 ? (
-        <form onSubmit={enviarCodigo} style={{ width:"100%", maxWidth:300, display:"flex", flexDirection:"column", gap:12 }}>
-          <div role="tablist" aria-label="Cómo querés recibir el código" style={{ display:"flex", gap:4, padding:3, borderRadius:9, background:T.field, border:`1px solid ${T.border}`, marginBottom:4 }}>
-            {['sms', 'email'].map(c => (
-              <button key={c} type="button" role="tab" aria-selected={canal === c} onClick={() => elegirCanal(c)} style={tabStyle(canal === c)}>
-                {c === 'email' ? '✉ ' : '📱 '}{TEXTOS_CANAL[c].pestana}
-              </button>
-            ))}
+        <form onSubmit={enviarCodigo} style={{ width:"100%", maxWidth:320, display:"flex", flexDirection:"column", gap:12 }}>
+          <div role="tablist" aria-label="Cómo querés recibir el código" style={{ display:"flex", gap:4, padding:3, borderRadius:10, background:T.field, border:`1px solid ${T.borderDefault}`, marginBottom:4 }}>
+            {['sms', 'email'].map(c => {
+              const activa = canal === c;
+              const IconoCanal = c === 'email' ? Ic.Mail : Ic.Smartphone;
+              return (
+                <button key={c} type="button" role="tab" aria-selected={activa} onClick={() => elegirCanal(c)}
+                  style={{ ...opcionB(activa), flex:1, justifyContent:"center", gap:8, minHeight:44, fontWeight:activa ? 600 : 500, border: `1px solid ${activa ? T.accent + '73' : 'transparent'}`, cursor: activa ? "default" : "pointer" }}>
+                  <IconoCanal size={16} />{TEXTOS_CANAL[c].pestana}
+                </button>
+              );
+            })}
           </div>
-          <div style={{ fontSize:11, color:T.textMuted, textAlign:"center", letterSpacing:0.5 }}>{textos.pedir}</div>
+          <div style={{ fontSize:13, color:T.textSoft, textAlign:"center" }}>{textos.pedir}</div>
           {canal === 'email' ? (
             <input key="email" type="email" inputMode="email" autoComplete="email" autoCapitalize="off" spellCheck={false} value={email}
               onChange={e => { setEmail(e.target.value); setError(''); }}
-              placeholder="nombre@correo.com" maxLength={254} autoFocus
-              style={{ ...fieldStyle, fontSize:15 }} />
+              placeholder="nombre@correo.com" maxLength={254} autoFocus aria-invalid={!!error}
+              style={{ ...campoMB, ...campoErr }} />
           ) : (
             <div style={{ display:"flex", gap:8 }}>
-              <div style={{ ...fieldStyle, width:"auto", flexShrink:0, color:T.textMuted, userSelect:"none" }}>+506</div>
+              <div style={{ ...campoMB, ...monoB, width:"auto", flexShrink:0, color:T.textMuted, userSelect:"none", display:"flex", alignItems:"center" }}>+506</div>
               <input key="tel" type="tel" inputMode="numeric" autoComplete="tel-national" value={formatearTel(tel)}
                 onChange={e => { setTel(soloDigitos(e.target.value).slice(0, 8)); setError(''); }}
-                placeholder="8888 8888" maxLength={9} autoFocus
-                style={{ ...fieldStyle, flex:1, letterSpacing:2, fontSize:16 }} />
+                placeholder="8888 8888" maxLength={9} autoFocus aria-invalid={!!error}
+                style={{ ...campoMB, ...monoB, flex:1, minWidth:0, letterSpacing:1, ...campoErr }} />
             </div>
           )}
-          {error && <div style={{ fontSize:11, color:T.crit, textAlign:"center", letterSpacing:0.5, lineHeight:1.5 }}>{error}</div>}
-          <button type="submit" disabled={!puedeEnviar} style={btnStyle(puedeEnviar)}>
-            {loading ? "Enviando..." : textos.boton}
-          </button>
+          {error && <MensajeCampo error style={{ marginTop:-4 }}>{error}</MensajeCampo>}
+          <Boton type="submit" jerarquia="principal" ancho disabled={!puedeEnviar} style={{ marginTop:4 }}>
+            {loading ? "Enviando…" : fraseBoton(textos.boton)}
+          </Boton>
         </form>
       ) : (
-        <form onSubmit={verificar} style={{ width:"100%", maxWidth:300, display:"flex", flexDirection:"column", gap:12 }}>
-          <div style={{ fontSize:11, color:T.textMuted, textAlign:"center", letterSpacing:0.5, lineHeight:1.5 }}>
+        <form onSubmit={verificar} style={{ width:"100%", maxWidth:320, display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ fontSize:13, color:T.textSoft, textAlign:"center", lineHeight:1.5 }}>
             {TEXTOS_CANAL[canalUsado]?.enviado || TEXTOS_CANAL.sms.enviado}{' '}
-            <span style={{ color:T.text, wordBreak:"break-all" }}>{canalUsado === 'email' ? normalizarEmail(email) : `+506 ${formatearTel(tel)}`}</span> con un código de 6 dígitos
-            {aviso && <div style={{ color:T.accent, marginTop:4 }}>{aviso}</div>}
+            <span style={{ color:T.text, wordBreak:"break-all", ...(canalUsado === 'email' ? null : monoB) }}>{canalUsado === 'email' ? normalizarEmail(email) : `+506 ${formatearTel(tel)}`}</span> con un código de 6 dígitos
+            {aviso && <div style={{ color:T.info, marginTop:4 }}>{aviso}</div>}
           </div>
           <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" value={codigo}
             onChange={e => { setCodigo(soloDigitos(e.target.value).slice(0, 6)); setError(''); }}
-            placeholder="······" maxLength={6} autoFocus
-            style={{ ...fieldStyle, textAlign:"center", letterSpacing:10, fontSize:22 }} />
-          {error && <div style={{ fontSize:11, color:T.crit, textAlign:"center", letterSpacing:0.5, lineHeight:1.5 }}>{error}</div>}
-          <button type="submit" disabled={!puedeEntrar} style={btnStyle(puedeEntrar)}>
-            {loading ? "Verificando..." : "ENTRAR"}
-          </button>
-          <div style={{ display:"flex", justifyContent:"space-between", marginTop:2 }}>
+            placeholder="······" maxLength={6} autoFocus aria-invalid={!!error} data-campo-grande
+            style={{ ...campoMB, ...monoB, minHeight:52, textAlign:"center", letterSpacing:10, fontSize:22, ...campoErr }} />
+          {error && <MensajeCampo error style={{ marginTop:-4 }}>{error}</MensajeCampo>}
+          <Boton type="submit" jerarquia="principal" ancho disabled={!puedeEntrar} style={{ marginTop:4 }}>
+            {loading ? "Verificando…" : "Entrar"}
+          </Boton>
+          <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
             <button type="button" onClick={cambiarNumero} style={linkStyle}>{TEXTOS_CANAL[canalUsado]?.cambiar || TEXTOS_CANAL.sms.cambiar}</button>
             <button type="button" onClick={enviarCodigo} disabled={cooldown > 0 || loading}
-              style={{ ...linkStyle, color: cooldown > 0 ? T.textMuted : T.textMuted, cursor: cooldown > 0 ? "default" : "pointer", textDecoration: cooldown > 0 ? "none" : "underline" }}>
-              {cooldown > 0 ? `Reenviar código (${cooldown} s)` : 'Reenviar código'}
+              style={{ ...linkStyle, color: cooldown > 0 ? T.textMuted : T.textSoft, cursor: cooldown > 0 ? "default" : "pointer", textDecoration: cooldown > 0 ? "none" : "underline" }}>
+              {cooldown > 0 ? <>Reenviar código (<Num>{cooldown}</Num> s)</> : 'Reenviar código'}
             </button>
           </div>
         </form>
@@ -1636,13 +1644,20 @@ function LoginScreen({ onLogin, mensajeInicial = '' }) {
   );
 }
 
+// Los botones de TEXTOS_CANAL (lib/authOtp.js, gemelo de Taller) vienen en
+// mayúsculas; acá se muestran en mayúscula de frase sin tocar el gemelo.
+function fraseBoton(s) {
+  const t = String(s || '').toLowerCase();
+  return (t.charAt(0).toUpperCase() + t.slice(1)).replace(/\bsms\b/g, 'SMS').replace(/\bwhatsapp\b/g, 'WhatsApp');
+}
+
 // Pantalla mínima mientras getSession() + mi_usuario() resuelven al arrancar:
 // evita el parpadeo del login en un teléfono ya logueado.
 function ResolviendoSesion() {
   return (
     <div style={{ minHeight:"100vh", background:T.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", fontFamily:T.sans }}>
       <img src={LOGO_SRC} alt="" style={{ width:80, height:80, borderRadius:"50%", marginBottom:14, objectFit:"cover", opacity:0.85 }} />
-      <div style={{ fontSize:9, color:T.textMuted, letterSpacing:3 }}>CARGANDO…</div>
+      <Sobretitulo>Cargando…</Sobretitulo>
     </div>
   );
 }
