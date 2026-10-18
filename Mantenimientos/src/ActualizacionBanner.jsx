@@ -4,10 +4,13 @@
 // distinto al embebido muestra este banner discreto abajo. No recarga sola:
 // el usuario elige "Actualizar" (o el detector recarga por su cuenta solo al
 // volver de ≥ 4 h oculta en vista segura — ver lib/version.js).
-// Estilo neutro (gris carbono, monospace) para que el invert del tema claro
-// lo deje legible igual.
+// Tema B (feat/tema-b-mantenimientos): la caja de los modales del tema, con
+// "Después" secundario y "Actualizar" como botón principal.
 import { useEffect, useState } from 'react'
 import { iniciarDetectorVersion, recargar, vistaSeguraMantenimientos } from './lib/version.js'
+import { T } from './theme/tokensB.js'
+import { botonB, hoverBotonB } from './theme/estilosB.js'
+import { RefreshCw } from './theme/iconos.jsx'
 
 export default function ActualizacionBanner() {
   const [nueva, setNueva] = useState(false)
@@ -20,24 +23,27 @@ export default function ActualizacionBanner() {
 
   if (!nueva || oculto) return null
   return (
-    <div role="status" style={{
+    <div role="status" data-banner-version style={{
       position: 'fixed', left: 12, right: 12, bottom: 12, zIndex: 9000,
-      margin: '0 auto', maxWidth: 520,
-      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-      background: '#1a1a1e', border: '1px solid #55595f', borderRadius: 10,
-      boxShadow: '0 6px 24px rgba(0,0,0,0.45)', color: '#e8e3d5', fontSize: 13, fontFamily: 'monospace',
+      margin: '0 auto', maxWidth: 520, boxSizing: 'border-box',
+      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 14px',
+      background: T.panel, border: `1px solid ${T.borderStrong}`, borderRadius: 14,
+      boxShadow: '0 24px 60px rgba(0,0,0,0.55)', color: T.textSoft, fontSize: 13, fontFamily: T.sans,
     }}>
-      <span style={{ flex: 1, lineHeight: 1.4 }}>
-        <b style={{ color: '#c9cdd2' }}>Hay una versión nueva</b> de la app. Actualizá cuando termines el checklist.
+      <span style={{ flex: '1 1 200px', minWidth: 0, lineHeight: 1.45, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <RefreshCw size={16} color={T.accentMuted} style={{ flexShrink: 0, marginTop: 2 }} />
+        <span><b style={{ color: T.text, fontWeight: 600 }}>Hay una versión nueva</b> de la app. Actualizá cuando termines el checklist.</span>
       </span>
-      <button onClick={() => setOculto(true)} title="Recordar más tarde"
-        style={{ background: 'transparent', border: '1px solid #33373c', color: '#8f949b', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'monospace' }}>
-        Después
-      </button>
-      <button onClick={recargar}
-        style={{ background: '#c9cdd222', border: '1px solid #c9cdd288', color: '#c9cdd2', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace' }}>
-        Actualizar
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+        <button type="button" onClick={() => setOculto(true)} title="Recordar más tarde" {...hoverBotonB}
+          style={{ ...botonB('secundario', 'modal'), fontFamily: T.sans }}>
+          Después
+        </button>
+        <button type="button" onClick={recargar} {...hoverBotonB}
+          style={{ ...botonB('principal', 'modal'), fontFamily: T.sans }}>
+          Actualizar
+        </button>
+      </div>
     </div>
   )
 }

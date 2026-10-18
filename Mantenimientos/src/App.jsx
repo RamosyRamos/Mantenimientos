@@ -3240,21 +3240,21 @@ function MainApp({ session, onLogout }) {
 
   const serviceRow = (s, actionBtn) => {
     const d = s.datos || {};
-    const placa    = d.vehiculo?.placa  || s.placa  || "Sin placa";
+    const placa    = d.vehiculo?.placa  || s.placa  || "";
     const modelo   = d.vehiculo?.modelo || s.modelo || "—";
     const servicio = d.servicio?.codigo || s.servicio_codigo || "—";
     const mecanico = d.mecanico         || s.mecanico || "";
     const fecha    = s.created_at ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" }) : "—";
     return (
-      <div key={s.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:T.card, border:`1px solid ${line}` }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
-          <span style={{ fontSize:11, fontWeight:"bold", color:T.accent }}>{placa}</span>
-          <span style={{ fontSize:9, color:T.textMuted }}>{fecha}</span>
+      <div key={s.id} data-fila-servicio style={{ marginBottom:8, padding:"12px", borderRadius:10, background:T.card, border:`1px solid ${T.borderDefault}` }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, marginBottom:6 }}>
+          {placa ? <Placa placa={placa} /> : <span style={{ fontSize:12, color:T.textMuted }}>Sin placa</span>}
+          <Num style={{ fontSize:11.5, color:T.textMuted }}>{fecha}</Num>
         </div>
-        <div style={{ fontSize:11, color:T.textSoft, marginBottom:4 }}>{modelo}</div>
-        <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:8 }}>
-          <span style={{ fontSize:9, background:T.accent+'20', border:`1px solid ${T.accent}40`, color:T.accent, borderRadius:4, padding:"1px 6px" }}>{servicio}</span>
-          <span style={{ fontSize:9, color:T.textMuted }}>{mecanico}</span>
+        <div style={{ fontSize:13, color:T.textSoft, marginBottom:6, overflowWrap:"anywhere" }}>{modelo}</div>
+        <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginBottom:10 }}>
+          <Insignia color={T.accent}><Num>{servicio}</Num></Insignia>
+          {mecanico && <span style={{ fontSize:12, color:T.textMuted }}>{mecanico}</span>}
         </div>
         {actionBtn}
       </div>
@@ -3262,194 +3262,150 @@ function MainApp({ session, onLogout }) {
   };
 
   const notificationsPanel = showNotifications ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:T.overlay }} onClick={() => setShowNotifications(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:T.panel, borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-          <div>
-            <div style={{ fontWeight:"bold", fontSize:13, color:T.text }}>🔔 Pendientes de aprobación</div>
-            <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2 }}>{notifList.length} SERVICIO{notifList.length !== 1 ? "S" : ""}</div>
-          </div>
-          <button onClick={() => setShowNotifications(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:14, cursor:"pointer" }}>✕</button>
-        </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {notifLoading && <div style={{ textAlign:"center", color:T.textMuted, padding:40, fontSize:12 }}>Cargando...</div>}
-          {!notifLoading && notifList.length === 0 && corrList.length === 0 && <div style={{ textAlign:"center", color:T.textMuted, padding:40, fontSize:12 }}>No hay servicios pendientes de aprobación.</div>}
-          {notifList.map(s => serviceRow(s,
-            <button onClick={() => { setModoRevision(true); loadService(s); }}
-              style={{ width:"100%", padding:"7px", borderRadius:6, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontSize:10, fontFamily:T.sans, cursor:"pointer", fontWeight:"bold", letterSpacing:1 }}>
-              ▶ Ver / Aprobar
-            </button>
+    <PanelLateral icono={Ic.Bell} titulo="Pendientes de aprobación"
+      subtitulo={<><Num>{notifList.length}</Num> servicio{notifList.length !== 1 ? "s" : ""}</>}
+      onCerrar={() => setShowNotifications(false)}>
+      {notifLoading && <Vacio>Cargando…</Vacio>}
+      {!notifLoading && notifList.length === 0 && corrList.length === 0 && <Vacio>No hay servicios pendientes de aprobación.</Vacio>}
+      {notifList.map(s => serviceRow(s,
+        <Boton ancho icono={Ic.Play} onClick={() => { setModoRevision(true); loadService(s); }}>
+          Ver y aprobar
+        </Boton>
+      ))}
+      {!notifLoading && corrList.length > 0 && (
+        <>
+          <Sobretitulo style={{ margin:"16px 0 8px", display:"flex", alignItems:"center", gap:6 }}><Ic.Droplet size={13} />Correcciones de aceite (<Num>{corrList.length}</Num>)</Sobretitulo>
+          {corrList.map(c => (
+            <div key={c.id} style={{ marginBottom:10, padding:"12px", borderRadius:10, border:`1px solid ${T.borderDefault}`, background:T.card }}>
+              <div style={{ fontSize:13, color:T.text, fontWeight:600 }}>{c.nombre}</div>
+              <div style={{ fontSize:12, color:T.textMuted, marginBottom:6 }}>{c.categoria}</div>
+              <div style={{ fontSize:15, color:T.text, fontWeight:600, marginBottom:6, display:"flex", alignItems:"center", gap:6 }}>
+                <Num>{c.litros_actual != null ? `${c.litros_actual} L` : "—"}</Num><Ic.ArrowRight size={15} color={T.textMuted} /><Num>{c.litros_propuesto} L</Num>
+              </div>
+              <div style={{ fontSize:12, color:T.textMuted, marginBottom:c.comentario ? 4 : 10 }}>Propuesto por {c.propuesto_por || "—"}</div>
+              {c.comentario && <div style={{ fontSize:12, color:T.textSoft, marginBottom:10 }}>"{c.comentario}"</div>}
+              <div style={{ display:"flex", flexDirection:"column", gap:6, opacity:corrResolvingId === c.id ? 0.5 : 1 }}>
+                {/* F4: aprueba QUIEN ESTÁ LOGUEADO (identidad de Auth), ya no un botón por nombre */}
+                <Boton ancho color={T.ok} icono={Ic.Check} onClick={() => resolverCorreccionAceite(c.id, session?.nombre || "—", true)} disabled={corrResolvingId === c.id}>
+                  Aprobar — {session?.nombre || "—"}
+                </Boton>
+                <Boton ancho jerarquia="peligro" icono={Ic.X} onClick={() => resolverCorreccionAceite(c.id, session?.nombre || "—", false)} disabled={corrResolvingId === c.id}>
+                  Rechazar
+                </Boton>
+              </div>
+            </div>
           ))}
-          {!notifLoading && corrList.length > 0 && (
-            <>
-              <div style={{ margin:"16px 0 8px", fontSize:10, color:T.accent, letterSpacing:2, fontWeight:"bold" }}>🛢️ CORRECCIONES DE ACEITE ({corrList.length})</div>
-              {corrList.map(c => (
-                <div key={c.id} style={{ marginBottom:10, padding:"10px 12px", borderRadius:8, border:`1px solid ${T.accent}30`, background:T.accent+'08' }}>
-                  <div style={{ fontSize:12, color:T.text, fontWeight:"bold" }}>{c.nombre}</div>
-                  <div style={{ fontSize:10, color:T.textMuted, marginBottom:5 }}>{c.categoria}</div>
-                  <div style={{ fontSize:14, color:T.accent, fontWeight:"bold", marginBottom:5 }}>{c.litros_actual != null ? `${c.litros_actual} L` : "—"} → {c.litros_propuesto} L</div>
-                  <div style={{ fontSize:10, color:T.textMuted, marginBottom:c.comentario ? 3 : 8 }}>Propuesto por {c.propuesto_por || "—"}</div>
-                  {c.comentario && <div style={{ fontSize:10, color:T.textSoft, fontStyle:"italic", marginBottom:8 }}>"{c.comentario}"</div>}
-                  <div style={{ display:"flex", flexDirection:"column", gap:5, opacity:corrResolvingId === c.id ? 0.5 : 1 }}>
-                    {/* F4: aprueba QUIEN ESTÁ LOGUEADO (identidad de Auth), ya no un botón por nombre */}
-                    <button onClick={() => resolverCorreccionAceite(c.id, session?.nombre || "—", true)} disabled={corrResolvingId === c.id}
-                      style={{ width:"100%", padding:"7px", borderRadius:6, border:`1px solid ${T.ok}40`, background:T.ok+'10', color:T.ok, fontFamily:T.sans, fontSize:10, cursor:"pointer", letterSpacing:1 }}>
-                      ✅ Aprobar — {session?.nombre || "—"}
-                    </button>
-                    <button onClick={() => resolverCorreccionAceite(c.id, session?.nombre || "—", false)} disabled={corrResolvingId === c.id}
-                      style={{ width:"100%", padding:"7px", borderRadius:6, border:`1px solid ${T.crit}40`, background:T.crit+'10', color:T.crit, fontFamily:T.sans, fontSize:10, cursor:"pointer", letterSpacing:1 }}>
-                      ✕ Rechazar
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </PanelLateral>
   ) : null;
 
   const completedPanel = showCompleted ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:T.overlay }} onClick={() => setShowCompleted(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:T.panel, borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-          <div>
-            <div style={{ fontWeight:"bold", fontSize:13, color:T.text }}>📋 Servicios realizados</div>
-            <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2 }}>
-              {completedList.length === 100 ? "MOSTRANDO LOS 100 MÁS RECIENTES" : `${completedList.length} REGISTRO${completedList.length !== 1 ? "S" : ""}`}
-            </div>
-          </div>
-          <button onClick={() => setShowCompleted(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:14, cursor:"pointer" }}>✕</button>
-        </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {completedLoading && <div style={{ textAlign:"center", color:T.textMuted, padding:40, fontSize:12 }}>Cargando...</div>}
-          {!completedLoading && completedList.length === 0 && <div style={{ textAlign:"center", color:T.textMuted, padding:40, fontSize:12 }}>No hay servicios completados todavía.</div>}
-          {completedList.map(s => serviceRow(s,
-            <button onClick={() => { setModoRevision(true); loadService(s); }}
-              style={{ width:"100%", padding:"7px", borderRadius:6, border:`1px solid ${T.ok}40`, background:T.ok+'12', color:T.ok, fontSize:10, fontFamily:T.sans, cursor:"pointer", letterSpacing:1 }}>
-              👁 Ver
-            </button>
-          ))}
-        </div>
-        <div style={{ padding:"12px 16px", borderTop:`1px solid ${line}`, flexShrink:0 }}>
-          <button
-            onClick={() => { setShowVerTodos(true); fetchVerTodos(); setShowCompleted(false); }}
-            style={{ width:"100%", padding:"9px", borderRadius:6, border:`1px solid ${T.accent}40`, background:T.accent+'10', color:T.accent, fontSize:11, fontFamily:T.sans, cursor:"pointer", letterSpacing:1, fontWeight:"bold" }}>
-            🔍 VER TODOS / BUSCAR
-          </button>
-        </div>
-      </div>
-    </div>
+    <PanelLateral icono={Ic.ClipboardCheck} titulo="Servicios realizados"
+      subtitulo={completedList.length === 100 ? "Mostrando los 100 más recientes" : <><Num>{completedList.length}</Num> registro{completedList.length !== 1 ? "s" : ""}</>}
+      onCerrar={() => setShowCompleted(false)}
+      pie={
+        <Boton ancho icono={Ic.Search} onClick={() => { setShowVerTodos(true); fetchVerTodos(); setShowCompleted(false); }}>
+          Ver todos y buscar
+        </Boton>
+      }>
+      {completedLoading && <Vacio>Cargando…</Vacio>}
+      {!completedLoading && completedList.length === 0 && <Vacio>No hay servicios completados todavía.</Vacio>}
+      {completedList.map(s => serviceRow(s,
+        <Boton ancho icono={Ic.Eye} onClick={() => { setModoRevision(true); loadService(s); }}>
+          Ver
+        </Boton>
+      ))}
+    </PanelLateral>
   ) : null;
 
   const borradoresPanel = showBorradores ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:T.overlay }} onClick={() => setShowBorradores(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:T.panel, borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-          <div>
-            <div style={{ fontWeight:"bold", fontSize:13, color:T.text }}>📝 Borradores sin finalizar</div>
-            <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2 }}>{adminDrafts.length} BORRADOR{adminDrafts.length !== 1 ? "ES" : ""}</div>
-          </div>
-          <button onClick={() => setShowBorradores(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:14, cursor:"pointer" }}>✕</button>
-        </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {adminDraftsLoading && <div style={{ textAlign:"center", color:T.textMuted, padding:40, fontSize:12 }}>Cargando...</div>}
-          {!adminDraftsLoading && adminDrafts.length === 0 && <div style={{ textAlign:"center", color:T.textMuted, padding:40, fontSize:12 }}>✅ No hay borradores pendientes.</div>}
-          {!adminDraftsLoading && adminDrafts.map(b => {
-            // `servicios` no tiene updated_at: la última actividad real sale del
-            // sello más reciente del checklist (ultimaActividad), con created_at de piso.
-            const act = ultimaActividad(b);
-            const fechaRef = new Date(act.at || b.created_at).getTime();
-            const diasAtras = Math.floor((Date.now() - fechaRef) / (24 * 60 * 60 * 1000));
-            const esViejo = diasAtras >= 7;
-            const allItems = Object.values(b.revisiones || {}).flat();
-            const completados = allItems.filter(i => i.status === 'ok' || i.status === 'issue').length;
-            const total = allItems.length;
-            return (
-              <div key={b.id} style={{ marginBottom:8, padding:"10px 12px", borderRadius:8, background:T.card, border:`1px solid ${esViejo ? T.textMuted : line}`, opacity: esViejo ? 0.65 : 1 }}>
-                <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:"bold", color:T.accent }}>
-                      {b.placa || '(sin placa)'} · {b.modelo ? b.modelo.split(' ').slice(0,3).join(' ') : '(sin modelo)'}
-                    </div>
-                    <div style={{ fontSize:10, color:T.textSoft, marginTop:2 }}>
-                      {b.mecanico || '(sin mecánico)'} · {diasAtras === 0 ? 'hoy' : `hace ${diasAtras} día${diasAtras !== 1 ? 's' : ''}`}
-                    </div>
-                    {!act.estimado && act.quien && (
-                      <div style={{ fontSize:9, color:T.textMuted, marginTop:1 }}>
-                        ✎ {act.quien} lo actualizó {hace(act.at)}
-                      </div>
-                    )}
-                    <div style={{ fontSize:10, color:T.textMuted, marginTop:1 }}>
-                      {b.orden_numero ? `📋 ${b.orden_numero}` : '⚠️ Sin orden'}{total > 0 ? ` · ${completados}/${total} ítems` : ''}
-                      {esViejo ? <span style={{ marginLeft:6 }}>⚪ +7 días</span> : ''}
-                    </div>
+    <>
+    <PanelLateral icono={Ic.Inbox} titulo="Borradores sin finalizar"
+      subtitulo={<><Num>{adminDrafts.length}</Num> borrador{adminDrafts.length !== 1 ? "es" : ""}</>}
+      onCerrar={() => setShowBorradores(false)}>
+      {adminDraftsLoading && <Vacio>Cargando…</Vacio>}
+      {!adminDraftsLoading && adminDrafts.length === 0 && <Vacio>No hay borradores pendientes.</Vacio>}
+      {!adminDraftsLoading && adminDrafts.map(b => {
+        // `servicios` no tiene updated_at: la última actividad real sale del
+        // sello más reciente del checklist (ultimaActividad), con created_at de piso.
+        const act = ultimaActividad(b);
+        const fechaRef = new Date(act.at || b.created_at).getTime();
+        const diasAtras = Math.floor((Date.now() - fechaRef) / (24 * 60 * 60 * 1000));
+        const esViejo = diasAtras >= 7;
+        const allItems = Object.values(b.revisiones || {}).flat();
+        const completados = allItems.filter(i => i.status === 'ok' || i.status === 'issue').length;
+        const total = allItems.length;
+        return (
+          <div key={b.id} data-borrador style={{ marginBottom:8, padding:"10px 6px 10px 12px", borderRadius:10, background:T.card, border:`1px solid ${T.borderDefault}`, opacity: esViejo ? 0.65 : 1 }}>
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:6 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                  {b.placa ? <Placa placa={b.placa} /> : <span style={{ fontSize:12, color:T.textMuted }}>(sin placa)</span>}
+                  <span style={{ fontSize:13, fontWeight:600, color:T.text }}>{b.modelo ? b.modelo.split(' ').slice(0,3).join(' ') : '(sin modelo)'}</span>
+                </div>
+                <div style={{ fontSize:12, color:T.textSoft, marginTop:4 }}>
+                  {b.mecanico || '(sin mecánico)'} · {diasAtras === 0 ? 'hoy' : `hace ${diasAtras} día${diasAtras !== 1 ? 's' : ''}`}
+                </div>
+                {!act.estimado && act.quien && (
+                  <div style={{ fontSize:11.5, color:T.textMuted, marginTop:2, display:"flex", alignItems:"center", gap:5 }}>
+                    <Ic.PenLine size={12} />{act.quien} lo actualizó {hace(act.at)}
                   </div>
-                  <div style={{ display:"flex", gap:5, marginLeft:8, flexShrink:0, alignItems:"center" }}>
-                    <button onClick={() => { loadService(b); setShowBorradores(false); }}
-                      style={{ padding:"5px 9px", background:T.accent, color:T.plateText, border:"none", borderRadius:4, cursor:"pointer", fontSize:11, fontWeight:"bold" }}>
-                      ▶
-                    </button>
-                    <button onClick={() => setConfirmDelete(b)}
-                      style={{ padding:"5px 9px", background:"transparent", color:T.crit, border:`1px solid ${T.crit}60`, borderRadius:4, cursor:"pointer", fontSize:11 }}>
-                      🗑
-                    </button>
-                  </div>
+                )}
+                <div style={{ fontSize:12, color:T.textMuted, marginTop:4, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                  {b.orden_numero
+                    ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Ic.ClipboardList size={13} /><Num>{b.orden_numero}</Num></span>
+                    : <span style={{ display:"inline-flex", alignItems:"center", gap:5, color:T.warn }}><Ic.TriangleAlert size={13} />Sin orden</span>}
+                  {total > 0 && <span>· <Num>{completados}/{total}</Num> ítems</span>}
+                  {esViejo && <Insignia>+7 días</Insignia>}
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
-      {confirmDelete && (
-        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.75)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
-          onClick={e => e.stopPropagation()}>
-          <div style={{ background:T.panel, border:`1px solid ${T.crit}80`, borderRadius:10, padding:"20px 18px", maxWidth:360, width:"100%", fontFamily:T.sans }}>
-            <div style={{ fontSize:13, color:T.crit, fontWeight:"bold", marginBottom:10 }}>⚠️ Eliminar borrador</div>
-            <div style={{ fontSize:11, color:T.textSoft, lineHeight:1.6, marginBottom:4 }}>
-              ¿Eliminar el borrador de <strong style={{ color:T.accent }}>{confirmDelete.placa || '(sin placa)'}</strong> de <strong>{confirmDelete.mecanico || '(sin mecánico)'}</strong>?
-            </div>
-            <div style={{ fontSize:10, color:T.textMuted, marginBottom:14 }}>Esta acción no se puede deshacer.</div>
-            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-              <button onClick={() => setConfirmDelete(null)}
-                style={{ padding:"7px 12px", background:"transparent", color:T.textSoft, border:`1px solid ${line}`, borderRadius:4, cursor:"pointer", fontSize:11, fontFamily:T.sans }}>
-                Cancelar
-              </button>
-              <button onClick={async () => {
-                // Solo se saca de la lista si el DELETE llegó (antes se daba por hecho).
-                try {
-                  await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${confirmDelete.id}`, { method: 'DELETE' });
-                } catch (e) {
-                  console.error('[eliminar borrador]', e);
-                  alert(`⚠️ No se pudo eliminar el borrador (${mensajeError(e)}). Sigue en la base; reintentá.`);
-                  return;
-                }
-                setAdminDrafts(prev => prev.filter(d => d.id !== confirmDelete.id));
-                setConfirmDelete(null);
-              }}
-                style={{ padding:"7px 12px", background:T.crit, color:T.text, border:"none", borderRadius:4, cursor:"pointer", fontSize:11, fontWeight:"bold", fontFamily:T.sans }}>
-                🗑 Eliminar
-              </button>
+              <div style={{ display:"flex", flexShrink:0, alignItems:"center" }}>
+                <BotonIcono icono={Ic.Play} title="Continuar el borrador" color={T.accent} onClick={() => { loadService(b); setShowBorradores(false); }} />
+                <BotonIcono icono={Ic.Trash2} title="Eliminar el borrador" color={T.crit} iconoTam={18} onClick={() => setConfirmDelete(b)} />
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        );
+      })}
+    </PanelLateral>
+    {confirmDelete && (
+      <FondoModal zIndex={500} onClick={e => e.stopPropagation()}>
+        <CajaModal icono={Ic.Trash2} colorIcono={T.crit} titulo="Eliminar borrador" ancho={380}
+          pie={<>
+            <Boton tam="modal" onClick={() => setConfirmDelete(null)}>Cancelar</Boton>
+            <Boton tam="modal" jerarquia="peligro" icono={Ic.Trash2} onClick={async () => {
+              // Solo se saca de la lista si el DELETE llegó (antes se daba por hecho).
+              try {
+                await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${confirmDelete.id}`, { method: 'DELETE' });
+              } catch (e) {
+                console.error('[eliminar borrador]', e);
+                alert(`⚠️ No se pudo eliminar el borrador (${mensajeError(e)}). Sigue en la base; reintentá.`);
+                return;
+              }
+              setAdminDrafts(prev => prev.filter(d => d.id !== confirmDelete.id));
+              setConfirmDelete(null);
+            }}>
+              Eliminar
+            </Boton>
+          </>}>
+          <div>
+            ¿Eliminar el borrador de <strong style={{ color:T.text, fontWeight:600 }}>{confirmDelete.placa || '(sin placa)'}</strong> de <strong style={{ color:T.text, fontWeight:600 }}>{confirmDelete.mecanico || '(sin mecánico)'}</strong>?
+          </div>
+          <div style={{ fontSize:12, color:T.textMuted }}>Esta acción no se puede deshacer.</div>
+        </CajaModal>
+      </FondoModal>
+    )}
+    </>
   ) : null;
 
   // Aviso de la apertura por ?servicio= que no pudo continuar (id inexistente,
   // servicio ya enviado/aprobado). No bloquea: la app queda usable igual.
   const deepLinkBanner = deepLinkMsg ? (
-    <div style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, fontFamily:T.sans, fontSize:11, lineHeight:1.6,
-      border:`1px solid ${deepLinkMsg.tipo === 'error' ? T.crit+'50' : T.accent+'50'}`,
-      background: deepLinkMsg.tipo === 'error' ? (T.crit+'1F') : '#1a160a',
-      color: deepLinkMsg.tipo === 'error' ? T.crit : T.accent,
-      display:"flex", alignItems:"flex-start", gap:8 }}>
-      <span style={{ flex:1 }}>{deepLinkMsg.tipo === 'error' ? '⚠️ ' : 'ℹ️ '}{deepLinkMsg.texto}</span>
-      <button onClick={() => setDeepLinkMsg(null)}
-        style={{ background:"transparent", border:"none", color:"inherit", fontSize:13, cursor:"pointer", lineHeight:1, padding:0 }}>✕</button>
-    </div>
+    <Aviso data-deep-link color={deepLinkMsg.tipo === 'error' ? T.crit : T.info} style={{ margin:"10px 16px 0" }}
+      accion={<BotonIcono icono={Ic.X} title="Cerrar el aviso" iconoTam={17} onClick={() => setDeepLinkMsg(null)} style={{ margin:"-10px -8px -10px 0" }} />}>
+      {deepLinkMsg.texto}
+    </Aviso>
   ) : null;
 
   // Recetas (feat/recetas-astra): sin mant_recetas + mant_items la app falla
@@ -3460,17 +3416,16 @@ function MainApp({ session, onLogout }) {
   // muda. En el paso 1 solo el error (cargar tarda un instante); en el 3 también
   // el "Cargando…".
   const recetasBanner = (!recetasReady && step !== 2 && (recetasError || step === 3)) ? (
-    <div data-recetas-estado={recetasError ? "error" : "cargando"} style={{ margin:"10px 16px 0", padding:"10px 12px", borderRadius:8, fontFamily:T.sans, fontSize:11, lineHeight:1.6,
-      border:`1px solid ${recetasError ? T.crit+'50' : line}`, background: recetasError ? (T.crit+'1F') : 'transparent', color: recetasError ? T.crit : T.textMuted,
-      display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-      <span style={{ flex:1, minWidth:0 }}>{recetasError ? `⚠ ${recetasError} Sin recetas no se puede iniciar ni continuar un servicio.` : "Cargando las recetas…"}</span>
-      {recetasError && (
-        <button data-accion="reintentar-recetas" onClick={() => setRecetasNonce(n => n + 1)}
-          style={{ padding:"7px 12px", borderRadius:6, border:`1px solid ${T.crit}`, background:"transparent", color:T.crit, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-          Reintentar
-        </button>
-      )}
-    </div>
+    recetasError ? (
+      <Aviso data-recetas-estado="error" color={T.crit} style={{ margin:"10px 16px 0" }}
+        accion={<Boton data-accion="reintentar-recetas" color={T.crit} icono={Ic.RefreshCw} onClick={() => setRecetasNonce(n => n + 1)}>Reintentar</Boton>}>
+        {recetasError} Sin recetas no se puede iniciar ni continuar un servicio.
+      </Aviso>
+    ) : (
+      <div data-recetas-estado="cargando" style={{ margin:"10px 16px 0", fontSize:12.5, color:T.textMuted, display:"flex", alignItems:"center", gap:6 }}>
+        <Ic.Loader size={14} />Cargando las recetas…
+      </div>
+    )
   ) : null;
 
   // El autosave escribe la fila completa: si alguien más guardó desde que
@@ -3478,55 +3433,41 @@ function MainApp({ session, onLogout }) {
   // (`conflictoModal` se renderiza en las tres pantallas; el modal del draft
   // local viaja adentro para no tocar los tres puntos de montaje.)
   const conflictoModalBase = conflicto ? (
-    <div style={{ position:"fixed", inset:0, zIndex:600, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <div style={{ background:T.panel, border:`1px solid ${T.crit}60`, borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:T.sans }}>
-        <div style={{ fontSize:13, color:T.crit, fontWeight:"bold", marginBottom:10 }}>⚠️ Servicio modificado</div>
-        <div style={{ fontSize:11, color:T.textSoft, lineHeight:1.7, marginBottom:6 }}>
+    <FondoModal zIndex={600}>
+      <CajaModal data-modal-conflicto icono={Ic.TriangleAlert} colorIcono={T.crit} titulo="Servicio modificado" ancho={400}
+        pie={<>
+          <Boton tam="modal" jerarquia="peligro" icono={Ic.Upload} onClick={forzarGuardado}>Guardar lo mío igual</Boton>
+          <Boton tam="modal" jerarquia="principal" icono={Ic.RefreshCw} onClick={recargarServicio}>Recargar lo guardado</Boton>
+        </>}>
+        <div style={{ color:T.text }}>
           Este servicio fue modificado mientras lo tenías abierto
-          {conflicto.quien ? <> por <strong style={{ color:T.accent }}>{conflicto.quien}</strong></> : null}
+          {conflicto.quien ? <> por <strong style={{ fontWeight:600 }}>{conflicto.quien}</strong></> : null}
           {conflicto.at ? ` (${hace(conflicto.at)})` : ''}.
         </div>
-        <div style={{ fontSize:10, color:T.textMuted, lineHeight:1.6, marginBottom:14 }}>
-          Tus cambios NO se guardaron todavía. Guardá lo tuyo (se pierde lo que hizo la otra persona)
+        <div style={{ fontSize:12.5 }}>
+          Tus cambios no se guardaron todavía. Guardá lo tuyo (se pierde lo que hizo la otra persona)
           o recargá lo guardado (se pierde lo que marcaste vos desde que abriste).
         </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          <button onClick={recargarServicio}
-            style={{ padding:"10px", borderRadius:6, border:`1px solid ${T.ok}50`, background:T.ok+'15', color:T.ok, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-            ↻ Recargar lo guardado
-          </button>
-          <button onClick={forzarGuardado}
-            style={{ padding:"10px", borderRadius:6, border:`1px solid ${T.crit}50`, background:T.crit+'15', color:T.crit, fontFamily:T.sans, fontSize:11, cursor:"pointer" }}>
-            ⤒ Guardar lo mío de todas formas
-          </button>
-        </div>
-      </div>
-    </div>
+      </CajaModal>
+    </FondoModal>
   ) : null;
   // Draft local (autosave ruidoso): quedaron cambios en este dispositivo que
   // no llegaron a la base. Se ofrece una vez por servicio, al abrirlo.
   const draftLocalModal = draftLocal ? (
-    <div style={{ position:"fixed", inset:0, zIndex:600, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-      <div style={{ background:T.panel, border:`1px solid ${T.accent}60`, borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:T.sans }}>
-        <div style={{ fontSize:13, color:T.accent, fontWeight:"bold", marginBottom:10 }}>💾 Cambios sin guardar</div>
-        <div style={{ fontSize:11, color:T.textSoft, lineHeight:1.7, marginBottom:6 }}>
-          Tenés cambios sin guardar de <strong style={{ color:T.accent }}>{hace(draftLocal.draft.at)}</strong>: quedaron en este dispositivo porque el guardado no llegó a la base.
+    <FondoModal zIndex={600}>
+      <CajaModal data-modal-draft-local icono={Ic.Save} titulo="Cambios sin guardar" ancho={400}
+        pie={<>
+          <Boton tam="modal" jerarquia="peligro" icono={Ic.Trash2} onClick={descartarDraftLocal}>Descartar</Boton>
+          <Boton tam="modal" jerarquia="principal" icono={Ic.Undo2} onClick={restaurarDraftLocal}>Restaurar</Boton>
+        </>}>
+        <div style={{ color:T.text }}>
+          Tenés cambios sin guardar de <strong style={{ fontWeight:600 }}>{hace(draftLocal.draft.at)}</strong>: quedaron en este dispositivo porque el guardado no llegó a la base.
         </div>
-        <div style={{ fontSize:10, color:T.textMuted, lineHeight:1.6, marginBottom:14 }}>
+        <div style={{ fontSize:12.5 }}>
           Restaurar pone esos cambios sobre lo que hay en pantalla y los guarda. Descartar los borra de este dispositivo.
         </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-          <button onClick={restaurarDraftLocal}
-            style={{ padding:"10px", borderRadius:6, border:`1px solid ${T.ok}50`, background:T.ok+'15', color:T.ok, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-            ↩ Restaurar
-          </button>
-          <button onClick={descartarDraftLocal}
-            style={{ padding:"10px", borderRadius:6, border:`1px solid ${T.crit}50`, background:T.crit+'15', color:T.crit, fontFamily:T.sans, fontSize:11, cursor:"pointer" }}>
-            🗑 Descartar
-          </button>
-        </div>
-      </div>
-    </div>
+      </CajaModal>
+    </FondoModal>
   ) : null;
 
   // conflictoModal se arma DESPUÉS de draftLocalModal: son `const` del render y leer
@@ -3535,84 +3476,75 @@ function MainApp({ session, onLogout }) {
   const conflictoModal = (conflictoModalBase || draftLocalModal) ? <>{conflictoModalBase}{draftLocalModal}</> : null;
 
   const centroMandoPanel = showCentroMando ? (
-    <div style={{ position:"fixed", inset:0, zIndex:200, background:T.overlay }} onClick={() => setShowCentroMando(false)}>
-      <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:0, right:0, width:"min(380px,100vw)", height:"100vh", background:T.panel, borderLeft:`1px solid ${line}`, display:"flex", flexDirection:"column" }}>
-        <div style={{ padding:"14px 16px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-          <div>
-            <div style={{ fontWeight:"bold", fontSize:13, color:T.text }}>🛠 Centro de Mando</div>
-            <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2 }}>CATÁLOGO DE SERVICIOS</div>
-          </div>
-          <button onClick={() => setShowCentroMando(false)} style={{ padding:"5px 10px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:14, cursor:"pointer" }}>✕</button>
-        </div>
-        <div style={{ display:"flex", gap:6, padding:"10px 12px", borderBottom:`1px solid ${line}`, flexShrink:0 }}>
-          {[["recetas","RECETAS"],["items","ÍTEMS"]].map(([v,lbl]) => (
-            <button key={v} onClick={() => setCmTab(v)}
-              style={{ flex:1, padding:"7px", borderRadius:6, border:`1px solid ${cmTab===v?T.accent+'60':line}`, background:cmTab===v?T.accent+'15':card, color:cmTab===v?T.accent:T.textMuted, fontSize:11, fontFamily:T.sans, cursor:"pointer", fontWeight:cmTab===v?"bold":"normal", letterSpacing:1 }}>
+    <PanelLateral icono={Ic.Wrench} titulo="Centro de mando" subtitulo="Catálogo de servicios"
+      onCerrar={() => setShowCentroMando(false)}
+      cabeceraExtra={
+        <div role="tablist" style={{ display:"flex", gap:6, padding:"10px 12px", borderBottom:`1px solid ${T.borderSubtle}`, flexShrink:0 }}>
+          {[["recetas","Recetas"],["items","Ítems"]].map(([v,lbl]) => (
+            <button key={v} type="button" role="tab" aria-selected={cmTab===v} onClick={() => setCmTab(v)}
+              style={{ ...opcionB(cmTab===v), flex:1, justifyContent:"center", fontWeight:cmTab===v?600:500 }}>
               {lbl}
             </button>
           ))}
         </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"12px" }}>
-          {cmTab === "recetas" && (
-            <>
-              {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeEVKeys.length > 0 ? [["Serie EV — Eléctricos", activeEVKeys]] : []),...(activeCKeys.length > 0 ? [["Serie C — Revisiones", activeCKeys]] : [])].map(([titulo, keys]) => (
-                <div key={titulo} style={{ marginBottom:16 }}>
-                  <div style={{ fontSize:9, color:T.textMuted, letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>{titulo.toUpperCase()}</div>
-                  {keys.map(k => {
-                    const def = activeCodes[k];
-                    if (!def) return null;
-                    const isOpen = openCode === k;
-                    return (
-                      <div key={k} style={{ marginBottom: isOpen ? 8 : 3 }}>
-                        <div onClick={() => setOpenCode(isOpen ? null : k)}
-                          style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 10px", borderRadius: isOpen ? "6px 6px 0 0" : 6, background:T.card, border:`1px solid ${isOpen ? def.color+"60" : line}`, cursor:"pointer", userSelect:"none" }}>
-                          <span style={{ fontSize:10, fontWeight:"bold", color:def.color, background:`${def.color}18`, border:`1px solid ${def.color}40`, borderRadius:4, padding:"1px 6px", flexShrink:0 }}>{k}</span>
-                          <span style={{ flex:1, fontSize:11, color:T.textSoft }}>{def.desc}</span>
-                          <span style={{ fontSize:9, color:T.textMuted }}>{isOpen ? "▲" : "▼"}</span>
-                        </div>
-                        {isOpen && (
-                          <div style={{ padding:"8px 10px", borderRadius:"0 0 6px 6px", background:T.bg, border:`1px solid ${def.color}60`, borderTop:"none" }}>
-                            {def.items.map((id, idx) => (
-                              <div key={idx} style={{ display:"flex", gap:8, padding:"4px 0", borderBottom:`1px solid ${line}`, alignItems:"flex-start" }}>
-                                <span style={{ fontSize:9, color:def.color, background:`${def.color}12`, borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:T.sans }}>{id}</span>
-                                <span style={{ fontSize:11, color:T.textMuted }}>{id === "FUEL" ? "Combustible/Bujías (según motor)" : activeItems[id]?.label ?? id}</span>
-                              </div>
-                            ))}
-                            {def.fuelLock && (
-                              <div style={{ marginTop:8, fontSize:9, color:T.accent, background:T.accent+'12', border:`1px solid ${T.accent}30`, borderRadius:4, padding:"3px 8px", display:"inline-flex", alignItems:"center", gap:4 }}>
-                                🔒 {def.fuelLock}
-                              </div>
-                            )}
+      }>
+      {cmTab === "recetas" && (
+        <>
+          {[["Serie A", activeAKeys],["Serie B", activeBKeys],...(activeEVKeys.length > 0 ? [["Serie EV — eléctricos", activeEVKeys]] : []),...(activeCKeys.length > 0 ? [["Serie C — revisiones", activeCKeys]] : [])].map(([titulo, keys]) => (
+            <div key={titulo} style={{ marginBottom:16 }}>
+              <Sobretitulo style={{ marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${T.borderSubtle}` }}>{titulo}</Sobretitulo>
+              {keys.map(k => {
+                const def = activeCodes[k];
+                if (!def) return null;
+                const isOpen = openCode === k;
+                return (
+                  <div key={k} style={{ marginBottom: isOpen ? 8 : 4 }}>
+                    <button type="button" onClick={() => setOpenCode(isOpen ? null : k)} aria-expanded={isOpen}
+                      style={{ display:"flex", alignItems:"center", gap:8, width:"100%", minHeight:44, padding:"8px 10px", borderRadius: isOpen ? "8px 8px 0 0" : 8, background:T.card, border:`1px solid ${isOpen ? T.accent+'73' : T.borderDefault}`, cursor:"pointer", userSelect:"none", fontFamily:T.sans, textAlign:"left", color:T.textSoft }}>
+                      <Insignia color={T.accent} style={{ flexShrink:0 }}><Num>{k}</Num></Insignia>
+                      <span style={{ flex:1, minWidth:0, fontSize:13, color:T.textSoft }}>{def.desc}</span>
+                      {isOpen ? <Ic.ChevronUp size={16} color={T.textMuted} /> : <Ic.ChevronDown size={16} color={T.textMuted} />}
+                    </button>
+                    {isOpen && (
+                      <div style={{ padding:"6px 10px 10px", borderRadius:"0 0 8px 8px", background:T.panel, border:`1px solid ${T.accent}73`, borderTop:"none" }}>
+                        {def.items.map((id, idx) => (
+                          <div key={idx} style={{ display:"flex", gap:8, padding:"6px 0", borderBottom:`1px solid ${T.borderSubtle}`, alignItems:"flex-start" }}>
+                            <Num style={{ fontSize:11.5, color:T.textMuted, flexShrink:0, minWidth:34 }}>{id}</Num>
+                            <span style={{ fontSize:12.5, color:T.textSoft }}>{id === "FUEL" ? "Combustible/Bujías (según motor)" : activeItems[id]?.label ?? id}</span>
                           </div>
+                        ))}
+                        {def.fuelLock && (
+                          <Insignia icono={Ic.Lock} style={{ marginTop:8 }}>{def.fuelLock}</Insignia>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              ))}
-              <div style={{ marginTop:4, padding:"10px 12px", borderRadius:6, background:T.card, border:`1px solid ${line}`, fontSize:10, color:T.textMuted, lineHeight:1.6 }}>
-                ℹ️ Los vehículos diesel suman <span style={{ color:T.info }}>GLOW_TEST</span> (prueba de bujías de precalentamiento) y los 4MATIC suman <span style={{ color:T.info }}>4M_INSP</span> (inspección de diferenciales) automáticamente; el cambio (GLOW, diferenciales) es adicional y se elige en el paso 2. No aparecen en la receta.
-              </div>
-            </>
-          )}
-          {cmTab === "items" && (
-            <div>
-              <div style={{ fontSize:9, color:T.textMuted, letterSpacing:3, marginBottom:8, paddingBottom:4, borderBottom:`1px solid ${line}` }}>CATÁLOGO COMPLETO</div>
-              {Object.entries(activeItems).map(([key, block]) => (
-                <div key={key} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", marginBottom:3, borderRadius:6, background:T.card, border:`1px solid ${line}` }}>
-                  <span style={{ fontSize:14, flexShrink:0 }}>{block.icon}</span>
-                  <span style={{ fontSize:9, color:T.accent, background:T.accent+'12', border:`1px solid ${T.accent}30`, borderRadius:3, padding:"1px 5px", flexShrink:0, fontFamily:T.sans }}>{key}</span>
-                  <span style={{ flex:1, fontSize:11, color:T.textSoft }}>{block.label}</span>
-                  {block.outOfAssyst && (
-                    <span style={{ fontSize:8, color:T.textMuted, background:T.textMuted+'18', border:`1px solid ${T.textMuted}40`, borderRadius:3, padding:"1px 5px", flexShrink:0, letterSpacing:0.5 }}>FUERA DEL ASSYST</span>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          )}
+          ))}
+          <Aviso color={T.info}>
+            Los vehículos diesel suman <Num>GLOW_TEST</Num> (prueba de bujías de precalentamiento) y los 4MATIC suman <Num>4M_INSP</Num> (inspección de diferenciales) automáticamente; el cambio (GLOW, diferenciales) es adicional y se elige en el paso 2. No aparecen en la receta.
+          </Aviso>
+        </>
+      )}
+      {cmTab === "items" && (
+        <div>
+          <Sobretitulo style={{ marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${T.borderSubtle}` }}>Catálogo completo</Sobretitulo>
+          {Object.entries(activeItems).map(([key, block]) => {
+            const IconoItem = iconoDeItem(block.icon);
+            return (
+              <div key={key} style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px", marginBottom:4, borderRadius:8, background:T.card, border:`1px solid ${T.borderDefault}` }}>
+                <IconoItem size={16} color={T.accentMuted} style={{ flexShrink:0 }} />
+                <Num style={{ fontSize:11.5, color:T.textMuted, flexShrink:0, minWidth:34 }}>{key}</Num>
+                <span style={{ flex:1, minWidth:0, fontSize:12.5, color:T.textSoft }}>{block.label}</span>
+                {block.outOfAssyst && <Insignia style={{ flexShrink:0 }}>Fuera del ASSYST</Insignia>}
+              </div>
+            );
+          })}
         </div>
-      </div>
-    </div>
+      )}
+    </PanelLateral>
   ) : null;
 
   // ── Ver Todos Panel ──
@@ -3627,96 +3559,96 @@ function MainApp({ session, onLogout }) {
   });
   const verTodosPages = Math.max(1, Math.ceil(verTodosFiltered.length / VT_PAGE_SIZE));
   const verTodosPaged = verTodosFiltered.slice(verTodosPage * VT_PAGE_SIZE, (verTodosPage + 1) * VT_PAGE_SIZE);
+  const VT_COLUMNAS = "104px 90px 1fr 120px 64px 96px 44px";
 
   const verTodosPanel = showVerTodos ? (
-    <div style={{ position:"fixed", inset:0, zIndex:300, background:T.bg, display:"flex", flexDirection:"column" }}>
+    <div data-ver-todos style={{ position:"fixed", inset:0, zIndex:300, background:T.bg, display:"flex", flexDirection:"column", fontFamily:T.sans, color:T.text }}>
       {/* Header */}
-      <div style={{ padding:"12px 20px", borderBottom:`1px solid ${line}`, display:"flex", alignItems:"center", gap:12, flexShrink:0, flexWrap:"wrap" }}>
-        <button onClick={() => setShowVerTodos(false)}
-          style={{ padding:"6px 12px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color:T.textMuted, fontSize:12, fontFamily:T.sans, cursor:"pointer", letterSpacing:1, flexShrink:0 }}>
-          ✕ CERRAR
-        </button>
+      <div style={{ padding:"10px 16px", background:T.shell, borderBottom:`1px solid ${T.borderSubtle}`, display:"flex", alignItems:"center", gap:12, flexShrink:0, flexWrap:"wrap" }}>
+        <BotonIcono icono={Ic.X} title="Cerrar" onClick={() => setShowVerTodos(false)} />
         <div style={{ flexShrink:0 }}>
-          <div style={{ fontWeight:"bold", fontSize:13, color:T.text, letterSpacing:1 }}>TODOS LOS SERVICIOS</div>
-          <div style={{ fontSize:9, color:T.textMuted, letterSpacing:2 }}>{verTodosFiltered.length} REGISTROS{verTodosSearch ? " (filtrados)" : ""}</div>
+          <h2 style={{ fontSize:18, fontWeight:600, color:T.text, margin:0, lineHeight:1.3 }}>Todos los servicios</h2>
+          <div style={{ fontSize:12, color:T.textMuted }}><Num>{verTodosFiltered.length}</Num> registros{verTodosSearch ? " (filtrados)" : ""}</div>
         </div>
-        <input
-          value={verTodosSearch}
-          onChange={e => { setVerTodosSearch(e.target.value); setVerTodosPage(0); }}
-          placeholder="Buscar placa, modelo o mecánico…"
-          style={{ marginLeft:"auto", background:T.card, border:`1px solid ${line}`, color:T.text, borderRadius:6, padding:"7px 12px", fontSize:12, fontFamily:T.sans, outline:"none", width:"min(260px,100%)", flexShrink:0 }}
-        />
+        <div style={{ position:"relative", marginLeft:"auto", width:"min(280px,100%)", flex:"1 1 200px", maxWidth:320 }}>
+          <Ic.Search size={16} color={T.textMuted} style={{ position:"absolute", left:12, top:14, pointerEvents:"none" }} />
+          <input
+            value={verTodosSearch}
+            onChange={e => { setVerTodosSearch(e.target.value); setVerTodosPage(0); }}
+            placeholder="Buscar placa, modelo o mecánico…"
+            aria-label="Buscar placa, modelo o mecánico"
+            style={{ ...campoMB, paddingLeft:36 }}
+          />
+        </div>
       </div>
 
       {/* Table header — desktop only */}
       {!isMobile && (
-        <div style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"8px 20px", borderBottom:`1px solid ${line}`, fontSize:9, color:T.textMuted, letterSpacing:2, flexShrink:0 }}>
-          <span>FECHA</span><span>PLACA</span><span>MODELO</span><span>MECÁNICO</span><span>SERV.</span><span>ESTADO</span><span></span>
+        <div style={{ display:"grid", gridTemplateColumns:VT_COLUMNAS, gap:8, padding:"8px 20px", borderBottom:`1px solid ${T.borderSubtle}`, flexShrink:0 }}>
+          {["Fecha","Placa","Modelo","Mecánico","Serv.","Estado",""].map((t, i) => <Sobretitulo key={i}>{t}</Sobretitulo>)}
         </div>
       )}
 
       {/* Rows */}
       <div style={{ flex:1, overflowY:"auto" }}>
-        {verTodosLoading && verTodosPaged.length === 0 && (
-          <div style={{ textAlign:"center", color:T.textMuted, padding:60, fontSize:12 }}>Cargando...</div>
-        )}
+        {verTodosLoading && verTodosPaged.length === 0 && <Vacio style={{ padding:60 }}>Cargando…</Vacio>}
         {!verTodosLoading && verTodosFiltered.length === 0 && (
-          <div style={{ textAlign:"center", color:T.textMuted, padding:60, fontSize:12 }}>
-            {verTodosSearch ? "Sin resultados." : "No hay servicios registrados."}
-          </div>
+          <Vacio style={{ padding:60 }}>{verTodosSearch ? "Sin resultados." : "No hay servicios registrados."}</Vacio>
         )}
-        {verTodosPaged.map((s, i) => {
-          const placa    = s.placa   || s.datos?.vehiculo?.placa   || "Sin placa";
+        {verTodosPaged.map((s) => {
+          const placa    = s.placa   || s.datos?.vehiculo?.placa   || "";
           const modelo   = s.modelo  || s.datos?.vehiculo?.modelo  || "—";
           const mecanico = s.mecanico || "—";
           const servCod  = s.servicio_codigo || s.datos?.servicio?.codigo || "—";
           const fecha    = s.created_at
             ? new Date(s.created_at).toLocaleDateString("es-CR", { day:"2-digit", month:"short", year:"numeric" })
             : "—";
-          const estadoColor = s.aprobado ? T.ok : s.estado === "pendiente" ? T.accent : T.textMuted;
-          const estadoLabel = s.aprobado ? "Aprobado" : s.estado === "pendiente" ? "Pendiente" : (s.estado || "Borrador");
+          const estadoColor = s.aprobado ? T.ok : s.estado === "pendiente" ? T.warn : T.neutral;
+          const estadoCrudo = s.aprobado ? "Aprobado" : s.estado === "pendiente" ? "Pendiente" : (s.estado || "Borrador");
+          const estadoLabel = estadoCrudo.charAt(0).toUpperCase() + estadoCrudo.slice(1);
           const slug = s.slug || s.id;
           const url  = `${window.location.origin}/servicio/${slug}`;
+          const placaCelda = placa ? <Placa placa={placa} /> : <span style={{ fontSize:12, color:T.textMuted }}>Sin placa</span>;
+          const enlace = (
+            <a href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="Ver resumen" aria-label="Ver resumen"
+              style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:44, height:44, color:T.textMuted, textDecoration:"none", flexShrink:0 }}>
+              <Ic.ExternalLink size={16} />
+            </a>
+          );
           if (isMobile) {
             return (
-              <div key={s.id}
-                style={{ padding:"12px 16px", borderBottom:`1px solid ${line}20`, cursor:"pointer", background: i % 2 === 0 ? "transparent" : T.text+'04', display:"flex", flexDirection:"column", gap:6 }}
+              <div key={s.id} data-fila-ver-todos
+                style={{ padding:"10px 6px 10px 16px", borderBottom:`1px solid ${T.borderSubtle}`, cursor:"pointer", display:"flex", flexDirection:"column", gap:6 }}
                 onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); }}
               >
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
-                  <span style={{ fontSize:13, fontWeight:"bold", color:T.accent, letterSpacing:1 }}>{placa}</span>
-                  <span style={{ fontSize:9, color:estadoColor, background:estadoColor+"18", border:`1px solid ${estadoColor}40`, borderRadius:4, padding:"2px 8px", letterSpacing:1, fontFamily:T.sans }}>{estadoLabel.toUpperCase()}</span>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, paddingRight:10 }}>
+                  {placaCelda}
+                  <Insignia color={estadoColor}>{estadoLabel}</Insignia>
                 </div>
-                <div style={{ fontSize:12, color:T.textSoft }}>{modelo}</div>
+                <div style={{ fontSize:13, color:T.textSoft, paddingRight:10 }}>{modelo}</div>
                 <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
-                  <span style={{ fontSize:10, color:T.textMuted }}>{fecha}</span>
-                  <span style={{ fontSize:10, color:T.textMuted }}>· {mecanico}</span>
-                  <span style={{ fontSize:9, background:T.accent+'20', border:`1px solid ${T.accent}40`, color:T.accent, borderRadius:4, padding:"1px 6px", letterSpacing:1 }}>{servCod}</span>
-                  <a href={url} target="_blank" rel="noreferrer"
-                    onClick={e => e.stopPropagation()}
-                    style={{ fontSize:10, color:T.textMuted, textDecoration:"none", marginLeft:"auto" }}
-                    title="Ver resumen">🔗</a>
+                  <Num style={{ fontSize:11.5, color:T.textMuted }}>{fecha}</Num>
+                  <span style={{ fontSize:12, color:T.textMuted }}>· {mecanico}</span>
+                  <Insignia color={T.accent}><Num>{servCod}</Num></Insignia>
+                  <span style={{ marginLeft:"auto", display:"inline-flex" }}>{enlace}</span>
                 </div>
               </div>
             );
           }
           return (
-            <div key={s.id}
-              style={{ display:"grid", gridTemplateColumns:"100px 90px 1fr 110px 60px 90px 28px", gap:8, padding:"11px 20px", borderBottom:`1px solid ${line}20`, cursor:"pointer", background: i % 2 === 0 ? "transparent" : T.text+'04', alignItems:"center" }}
-              onMouseEnter={e => e.currentTarget.style.background = T.accent+'10'}
-              onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : T.text+'04'}
+            <div key={s.id} data-fila-ver-todos
+              style={{ display:"grid", gridTemplateColumns:VT_COLUMNAS, gap:8, padding:"4px 20px", minHeight:52, borderBottom:`1px solid ${T.borderSubtle}`, cursor:"pointer", background:"transparent", alignItems:"center" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.card}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               onClick={() => { setModoRevision(false); loadService(s); setShowVerTodos(false); }}
             >
-              <span style={{ fontSize:10, color:T.textMuted }}>{fecha}</span>
-              <span style={{ fontSize:11, fontWeight:"bold", color:T.accent, letterSpacing:1 }}>{placa}</span>
-              <span style={{ fontSize:11, color:T.textSoft, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{modelo}</span>
-              <span style={{ fontSize:10, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{mecanico}</span>
-              <span style={{ fontSize:9, background:T.accent+'20', border:`1px solid ${T.accent}40`, color:T.accent, borderRadius:4, padding:"2px 6px", letterSpacing:1, textAlign:"center" }}>{servCod}</span>
-              <span style={{ fontSize:9, color:estadoColor, background:estadoColor+"18", border:`1px solid ${estadoColor}40`, borderRadius:4, padding:"2px 6px", letterSpacing:1, textAlign:"center", fontFamily:T.sans }}>{estadoLabel.toUpperCase()}</span>
-              <a href={url} target="_blank" rel="noreferrer"
-                onClick={e => e.stopPropagation()}
-                style={{ fontSize:10, color:T.textMuted, textDecoration:"none", textAlign:"center" }}
-                title="Ver resumen">🔗</a>
+              <Num style={{ fontSize:11.5, color:T.textMuted }}>{fecha}</Num>
+              <span>{placaCelda}</span>
+              <span style={{ fontSize:13, color:T.textSoft, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{modelo}</span>
+              <span style={{ fontSize:12, color:T.textMuted, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{mecanico}</span>
+              <span><Insignia color={T.accent}><Num>{servCod}</Num></Insignia></span>
+              <span><Insignia color={estadoColor}>{estadoLabel}</Insignia></span>
+              {enlace}
             </div>
           );
         })}
@@ -3724,18 +3656,16 @@ function MainApp({ session, onLogout }) {
 
       {/* Pagination */}
       {verTodosPages > 1 && (
-        <div style={{ padding:"10px 20px", borderTop:`1px solid ${line}`, display:"flex", alignItems:"center", gap:10, flexShrink:0, justifyContent:"center" }}>
-          <button onClick={() => setVerTodosPage(p => Math.max(0, p - 1))} disabled={verTodosPage === 0}
-            style={{ padding:"5px 14px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color: verTodosPage === 0 ? T.border : T.textMuted, fontSize:12, fontFamily:T.sans, cursor: verTodosPage === 0 ? "default" : "pointer" }}>
-            ← Anterior
-          </button>
-          <span style={{ fontSize:11, color:T.textMuted, fontFamily:T.sans, minWidth:120, textAlign:"center" }}>
-            Página {verTodosPage + 1} de {verTodosPages}
+        <div style={{ padding:"10px 16px", background:T.shell, borderTop:`1px solid ${T.borderSubtle}`, display:"flex", alignItems:"center", gap:10, flexShrink:0, justifyContent:"center" }}>
+          <Boton icono={Ic.ChevronLeft} onClick={() => setVerTodosPage(p => Math.max(0, p - 1))} disabled={verTodosPage === 0}>
+            Anterior
+          </Boton>
+          <span style={{ fontSize:12.5, color:T.textMuted, minWidth:110, textAlign:"center" }}>
+            Página <Num>{verTodosPage + 1}</Num> de <Num>{verTodosPages}</Num>
           </span>
-          <button onClick={() => setVerTodosPage(p => Math.min(verTodosPages - 1, p + 1))} disabled={verTodosPage === verTodosPages - 1}
-            style={{ padding:"5px 14px", borderRadius:6, border:`1px solid ${line}`, background:"transparent", color: verTodosPage === verTodosPages - 1 ? T.border : T.textMuted, fontSize:12, fontFamily:T.sans, cursor: verTodosPage === verTodosPages - 1 ? "default" : "pointer" }}>
-            Siguiente →
-          </button>
+          <Boton iconoFin={Ic.ChevronRight} onClick={() => setVerTodosPage(p => Math.min(verTodosPages - 1, p + 1))} disabled={verTodosPage === verTodosPages - 1}>
+            Siguiente
+          </Boton>
         </div>
       )}
     </div>
@@ -4156,91 +4086,81 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
 
+  // Tus servicios en progreso y el borrador de otra orden con la misma placa:
+  // los mismos dos modales en los pasos 1 y 3 (antes iban copiados en cada uno).
+  const draftPromptModal = draftPrompt ? (
+    <FondoModal zIndex={500}>
+      <CajaModal data-modal-borradores icono={Ic.NotebookPen} titulo="Tus servicios en progreso"
+        subtitulo={<><Num>{pendingDrafts.length}</Num> borrador{pendingDrafts.length !== 1 ? "es" : ""}</>}
+        onCerrar={() => setDraftPrompt(false)}>
+        {pendingDrafts.length === 0 ? (
+          <Vacio style={{ padding:24 }}>No tenés borradores pendientes.</Vacio>
+        ) : pendingDrafts.map((draft, idx) => {
+          const draftDate = draft.created_at ? new Date(draft.created_at) : null;
+          const ageDays = draftDate ? Math.floor((Date.now() - draftDate.getTime()) / 86400000) : 0;
+          const isOld = ageDays >= 15;
+          const ageText = ageDays === 0 ? 'hoy' : ageDays === 1 ? 'ayer' : `hace ${ageDays} días`;
+          const progreso = draft.progreso?.completadas != null && draft.progreso?.total != null
+            ? `${draft.progreso.completadas}/${draft.progreso.total}` : null;
+          return (
+            <div key={draft.id || idx} data-borrador-propio style={{ border:`1px solid ${T.borderDefault}`, borderRadius:10, padding:"12px", background:T.card }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:6 }}>
+                {draft.placa ? <Placa placa={draft.placa} /> : <span style={{ color:T.textMuted }}>—</span>}
+                {isOld && <Insignia color={T.warn} icono={Ic.TriangleAlert}><Num>{ageDays}</Num> días</Insignia>}
+              </div>
+              <div style={{ fontSize:12.5, color:T.textSoft, marginBottom:4, display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" }}>
+                {draft.orden_numero
+                  ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Ic.ClipboardList size={13} color={T.textMuted} />Orden <Num>{draft.orden_numero}</Num></span>
+                  : <span style={{ display:"inline-flex", alignItems:"center", gap:5, color:T.warn }}><Ic.TriangleAlert size={13} />Sin orden vinculada</span>}
+                <span>· Serv. <Num>{draft.servicio_codigo || '—'}</Num></span>
+              </div>
+              <div style={{ fontSize:12, color:T.textMuted, marginBottom:10, display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+                <Ic.User size={13} />{draft.mecanico || '—'} · {ageText}{progreso ? <> · <Num>{progreso}</Num> ítems</> : null}
+              </div>
+              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                <Boton icono={Ic.Play} onClick={() => continuarDraft(draft)} style={{ flex:1 }}>Continuar</Boton>
+                <BotonIcono icono={Ic.Trash2} title="Descartar el borrador" color={T.crit} iconoTam={18} onClick={() => descartarDraft(draft)} />
+              </div>
+            </div>
+          );
+        })}
+      </CajaModal>
+    </FondoModal>
+  ) : null;
+
+  const differentOrdenModal = differentOrdenPrompt ? (
+    <FondoModal zIndex={500}>
+      <CajaModal data-modal-otra-orden icono={Ic.TriangleAlert} colorIcono={T.warn} titulo="Borrador de otra orden" ancho={400}
+        pie={
+          <Boton tam="modal" jerarquia="principal" icono={Ic.Plus} onClick={() => setDifferentOrdenPrompt(null)}>
+            Empezar {differentOrdenPrompt.currentOrden}
+          </Boton>
+        }>
+        <div style={{ color:T.text }}>
+          Estás abriendo la <strong style={{ fontWeight:600 }}>{differentOrdenPrompt.currentOrden}</strong> pero
+          ya tenés un borrador de la misma placa para otra orden:
+        </div>
+        {differentOrdenPrompt.drafts.map((d, idx) => (
+          <div key={d.id || idx} style={{ border:`1px solid ${T.borderDefault}`, borderRadius:10, padding:"12px", background:T.card }}>
+            <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:3 }}>
+              {d.orden_numero ? <>Orden <Num>{d.orden_numero}</Num></> : 'Sin orden vinculada'}
+            </div>
+            <div style={{ fontSize:12, color:T.textMuted, marginBottom:10 }}>Serv. <Num>{d.servicio_codigo}</Num> · {d.mecanico}</div>
+            <Boton icono={Ic.Play} onClick={() => { setDifferentOrdenPrompt(null); continuarDraft(d); }}>
+              Continuar este borrador
+            </Boton>
+          </div>
+        ))}
+      </CajaModal>
+    </FondoModal>
+  ) : null;
+
   /* ── PASO 1: DATOS DEL VEHÍCULO ── */
   if (step === 1) return (
     <div style={{ background:T.bg, minHeight:"100vh", fontFamily:T.sans, color:T.text }}>
 
-      {/* Borradores panel */}
-      {draftPrompt && (
-        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:420, width:"100%", fontFamily:T.sans, maxHeight:"85vh", overflowY:"auto" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontSize:13, color:T.accent, fontWeight:"bold" }}>📝 Tus servicios en progreso ({pendingDrafts.length})</div>
-              <button onClick={() => setDraftPrompt(false)} style={{ background:"transparent", border:"none", fontSize:20, cursor:"pointer", color:T.textMuted, lineHeight:1 }}>×</button>
-            </div>
-            {pendingDrafts.length === 0 ? (
-              <div style={{ textAlign:"center", padding:24, color:T.textMuted, fontSize:12 }}>No tenés borradores pendientes.</div>
-            ) : pendingDrafts.map((draft, idx) => {
-              const draftDate = draft.created_at ? new Date(draft.created_at) : null;
-              const ageDays = draftDate ? Math.floor((Date.now() - draftDate.getTime()) / 86400000) : 0;
-              const isOld = ageDays >= 15;
-              const ageText = ageDays === 0 ? 'hoy' : ageDays === 1 ? 'ayer' : `hace ${ageDays} días`;
-              const progreso = draft.progreso?.completadas != null && draft.progreso?.total != null
-                ? `${draft.progreso.completadas}/${draft.progreso.total} items` : null;
-              return (
-                <div key={draft.id || idx} style={{ border:`1px solid ${isOld ? T.warn : line}`, borderRadius:8, padding:"10px 12px", marginBottom:10, background:T.panel }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:5 }}>
-                    <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:1, color:T.text }}>{draft.placa || '—'}</div>
-                    {isOld && (
-                      <span style={{ fontSize:9, fontWeight:"bold", color:T.warn, background:"rgba(249,115,22,0.15)", padding:"2px 7px", borderRadius:4, letterSpacing:1 }}>
-                        ⚠️ {ageDays} DÍAS
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize:11, color:T.accent, marginBottom:3 }}>
-                    {draft.orden_numero ? `📋 Orden ${draft.orden_numero}` : '⚠️ Sin orden vinculada'}
-                    {' · '}Serv. {draft.servicio_codigo || '—'}
-                  </div>
-                  <div style={{ fontSize:10, color:T.textMuted, marginBottom:9 }}>
-                    👤 {draft.mecanico || '—'} · {ageText}{progreso ? ` · ✓ ${progreso}` : ''}
-                  </div>
-                  <div style={{ display:"flex", gap:8 }}>
-                    <button onClick={() => continuarDraft(draft)}
-                      style={{ flex:1, padding:"8px", borderRadius:6, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-                      ▶ Continuar
-                    </button>
-                    <button onClick={() => descartarDraft(draft)}
-                      style={{ padding:"8px 12px", borderRadius:6, border:`1px solid ${T.crit}60`, background:T.crit+'18', color:T.crit, fontFamily:T.sans, fontSize:11, cursor:"pointer" }}>
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Borrador de otra orden — mismo placa */}
-      {differentOrdenPrompt && (
-        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:T.sans }}>
-            <div style={{ fontSize:13, color:T.warn, fontWeight:"bold", marginBottom:10 }}>⚠️ Borrador de otra orden</div>
-            <div style={{ fontSize:11, color:T.textSoft, lineHeight:1.6, marginBottom:12 }}>
-              Estás abriendo la <strong style={{ color:T.accent }}>{differentOrdenPrompt.currentOrden}</strong> pero
-              ya tenés un borrador de la misma placa para otra orden:
-            </div>
-            {differentOrdenPrompt.drafts.map((d, idx) => (
-              <div key={d.id || idx} style={{ border:`1px solid ${line}`, borderRadius:6, padding:"10px 12px", marginBottom:8, background:T.panel }}>
-                <div style={{ fontSize:13, fontWeight:"bold", color:T.text, marginBottom:3 }}>
-                  {d.orden_numero ? `Orden ${d.orden_numero}` : 'Sin orden vinculada'}
-                </div>
-                <div style={{ fontSize:10, color:T.textMuted, marginBottom:8 }}>Serv. {d.servicio_codigo} · {d.mecanico}</div>
-                <button onClick={() => { setDifferentOrdenPrompt(null); continuarDraft(d); }}
-                  style={{ padding:"7px 12px", borderRadius:6, background:T.accent+'18', color:T.accent, border:`1px solid ${T.accent}60`, fontFamily:T.sans, fontSize:11, cursor:"pointer" }}>
-                  ▶ Continuar este borrador
-                </button>
-              </div>
-            ))}
-            <div style={{ marginTop:14 }}>
-              <button onClick={() => setDifferentOrdenPrompt(null)}
-                style={{ width:"100%", padding:"10px", borderRadius:6, background:T.ok+'22', color:T.ok, border:`1px solid ${T.ok}60`, fontFamily:T.sans, fontSize:12, fontWeight:"bold", cursor:"pointer" }}>
-                + Empezar {differentOrdenPrompt.currentOrden}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {draftPromptModal}
+      {differentOrdenModal}
 
       {/* Overlay para cerrar el buscador — PRIMERO para que quede detrás */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40, background:"transparent" }} />}
@@ -4629,87 +4549,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   return (
     <div style={{ background:T.bg, minHeight:"100vh", fontFamily:T.sans, color:T.text }}>
-      {/* Borradores panel (step 3) */}
-      {draftPrompt && (
-        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:420, width:"100%", fontFamily:T.sans, maxHeight:"85vh", overflowY:"auto" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-              <div style={{ fontSize:13, color:T.accent, fontWeight:"bold" }}>📝 Tus servicios en progreso ({pendingDrafts.length})</div>
-              <button onClick={() => setDraftPrompt(false)} style={{ background:"transparent", border:"none", fontSize:20, cursor:"pointer", color:T.textMuted, lineHeight:1 }}>×</button>
-            </div>
-            {pendingDrafts.length === 0 ? (
-              <div style={{ textAlign:"center", padding:24, color:T.textMuted, fontSize:12 }}>No tenés borradores pendientes.</div>
-            ) : pendingDrafts.map((draft, idx) => {
-              const draftDate = draft.created_at ? new Date(draft.created_at) : null;
-              const ageDays = draftDate ? Math.floor((Date.now() - draftDate.getTime()) / 86400000) : 0;
-              const isOld = ageDays >= 15;
-              const ageText = ageDays === 0 ? 'hoy' : ageDays === 1 ? 'ayer' : `hace ${ageDays} días`;
-              const progreso = draft.progreso?.completadas != null && draft.progreso?.total != null
-                ? `${draft.progreso.completadas}/${draft.progreso.total} items` : null;
-              return (
-                <div key={draft.id || idx} style={{ border:`1px solid ${isOld ? T.warn : line}`, borderRadius:8, padding:"10px 12px", marginBottom:10, background:T.panel }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:5 }}>
-                    <div style={{ fontSize:15, fontWeight:"bold", letterSpacing:1, color:T.text }}>{draft.placa || '—'}</div>
-                    {isOld && (
-                      <span style={{ fontSize:9, fontWeight:"bold", color:T.warn, background:"rgba(249,115,22,0.15)", padding:"2px 7px", borderRadius:4, letterSpacing:1 }}>
-                        ⚠️ {ageDays} DÍAS
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize:11, color:T.accent, marginBottom:3 }}>
-                    {draft.orden_numero ? `📋 Orden ${draft.orden_numero}` : '⚠️ Sin orden vinculada'}
-                    {' · '}Serv. {draft.servicio_codigo || '—'}
-                  </div>
-                  <div style={{ fontSize:10, color:T.textMuted, marginBottom:9 }}>
-                    👤 {draft.mecanico || '—'} · {ageText}{progreso ? ` · ✓ ${progreso}` : ''}
-                  </div>
-                  <div style={{ display:"flex", gap:8 }}>
-                    <button onClick={() => continuarDraft(draft)}
-                      style={{ flex:1, padding:"8px", borderRadius:6, border:`1px solid ${T.accent}60`, background:T.accent+'18', color:T.accent, fontFamily:T.sans, fontSize:11, cursor:"pointer", fontWeight:"bold" }}>
-                      ▶ Continuar
-                    </button>
-                    <button onClick={() => descartarDraft(draft)}
-                      style={{ padding:"8px 12px", borderRadius:6, border:`1px solid ${T.crit}60`, background:T.crit+'18', color:T.crit, fontFamily:T.sans, fontSize:11, cursor:"pointer" }}>
-                      🗑
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Borrador de otra orden — mismo placa (step 3) */}
-      {differentOrdenPrompt && (
-        <div style={{ position:"fixed", inset:0, zIndex:500, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
-          <div style={{ background:card, border:`1px solid ${line}`, borderRadius:10, padding:"20px 18px", maxWidth:400, width:"100%", fontFamily:T.sans }}>
-            <div style={{ fontSize:13, color:T.warn, fontWeight:"bold", marginBottom:10 }}>⚠️ Borrador de otra orden</div>
-            <div style={{ fontSize:11, color:T.textSoft, lineHeight:1.6, marginBottom:12 }}>
-              Estás abriendo la <strong style={{ color:T.accent }}>{differentOrdenPrompt.currentOrden}</strong> pero
-              ya tenés un borrador de la misma placa para otra orden:
-            </div>
-            {differentOrdenPrompt.drafts.map((d, idx) => (
-              <div key={d.id || idx} style={{ border:`1px solid ${line}`, borderRadius:6, padding:"10px 12px", marginBottom:8, background:T.panel }}>
-                <div style={{ fontSize:13, fontWeight:"bold", color:T.text, marginBottom:3 }}>
-                  {d.orden_numero ? `Orden ${d.orden_numero}` : 'Sin orden vinculada'}
-                </div>
-                <div style={{ fontSize:10, color:T.textMuted, marginBottom:8 }}>Serv. {d.servicio_codigo} · {d.mecanico}</div>
-                <button onClick={() => { setDifferentOrdenPrompt(null); continuarDraft(d); }}
-                  style={{ padding:"7px 12px", borderRadius:6, background:T.accent+'18', color:T.accent, border:`1px solid ${T.accent}60`, fontFamily:T.sans, fontSize:11, cursor:"pointer" }}>
-                  ▶ Continuar este borrador
-                </button>
-              </div>
-            ))}
-            <div style={{ marginTop:14 }}>
-              <button onClick={() => setDifferentOrdenPrompt(null)}
-                style={{ width:"100%", padding:"10px", borderRadius:6, background:T.ok+'22', color:T.ok, border:`1px solid ${T.ok}60`, fontFamily:T.sans, fontSize:12, fontWeight:"bold", cursor:"pointer" }}>
-                + Empezar {differentOrdenPrompt.currentOrden}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {draftPromptModal}
+      {differentOrdenModal}
 
       {/* Overlay para cerrar el buscador */}
       {modelOpen && <div onClick={()=>setModelOpen(false)} style={{ position:"fixed", inset:0, zIndex:40 }} />}
