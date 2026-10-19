@@ -3,29 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#0a0a0f" />
+    <meta name="theme-color" content="#0F1112" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Ramos y Ramos | Mantenimiento</title>
+    <!-- Tema B (feat/tema-b-mantenimientos): IBM Plex Sans para la interfaz y
+         IBM Plex Mono para placas, km, litros, fechas y fracciones. La CSP de
+         vercel.json ya permite fonts.googleapis.com y fonts.gstatic.com. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
-      /* ── TEMA OSCURO (por defecto) ── */
+      /* ── TEMA OSCURO (por defecto) ── valores de los tokens del tema B
+         (src/theme/tokensB.js): bg, panel, border, text, textMuted,
+         textSoft, accent, shell, card, field, textDisabled. */
       :root, [data-theme="dark"] {
         --bg:       #0B0B0D;
-        --card:     #16181c;
-        --line:     #2f363b;
-        --text:     #e0d8cc;
-        --sub:      #555555;
-        --sub2:     #888888;
+        --card:     #191C1E;
+        --line:     #25282A;
+        --text:     #F2F0EB;
+        --sub:      #8A8D90;
+        --sub2:     #ABA9A4;
         --gold:     #C8A96E;
-        --header:   #0d0e10;
-        --datos:    #101113;
-        --inp-bg:   #121316;
-        --inp-text: #e0d8cc;
-        --inp-ph:   #555555;
-        --card-txt: #ccc;
+        --header:   #0F1112;
+        --datos:    #202325;
+        --inp-bg:   #141719;
+        --inp-text: #F2F0EB;
+        --inp-ph:   #5C6064;
+        --card-txt: #ABA9A4;
       }
 
       /* ── TEMA CLARO ── */
@@ -48,16 +56,27 @@
       body {
         background: var(--bg);
         color: var(--text);
+        font-family: 'IBM Plex Sans', system-ui, sans-serif;
         transition: background 0.2s, color 0.2s;
       }
       #root { min-height: 100vh; }
 
-      /* Inputs heredan el tema */
-      input, select, textarea {
+      /* Inputs heredan el tema (las casillas no: llevan accent-color). El borde
+         ya no va con !important: un campo con error lo pinta en crit inline. */
+      input:not([type=checkbox]):not([type=radio]), select, textarea {
         background: var(--inp-bg) !important;
         color: var(--inp-text) !important;
-        border-color: var(--line) !important;
+        border-color: rgba(255,255,255,0.08);
+        color-scheme: dark;
       }
+      /* Foco del tema B, solo en la app interna (las vistas del cliente tienen el suyo). */
+      input:not(#history-root *):focus, select:not(#history-root *):focus, textarea:not(#history-root *):focus {
+        border-color: rgba(200,169,110,0.55) !important;
+        box-shadow: 0 0 0 3px rgba(200,169,110,0.12);
+        outline: none;
+      }
+      /* Casillas nativas del tema B: oscuras, con su accent-color inline (ok). */
+      input[type=checkbox], input[type=radio] { color-scheme: dark; }
       input::placeholder, textarea::placeholder {
         color: var(--inp-ph) !important;
       }
@@ -65,21 +84,6 @@
         background: var(--inp-bg);
         color: var(--inp-text);
       }
-
-      /* Botón de tema */
-      .theme-toggle {
-        margin-left: auto;
-        padding: 5px 9px;
-        border-radius: 8px;
-        border: 1px solid var(--line);
-        background: var(--card);
-        color: var(--sub);
-        font-size: 15px;
-        cursor: pointer;
-        line-height: 1;
-        transition: all 0.2s;
-      }
-      .theme-toggle:hover { opacity: 0.8; }
 
       /* Transiciones suaves */
       #root { transition: filter 0.2s; }
@@ -117,21 +121,21 @@
         /* Tactile active feedback */
         button:active { opacity: 0.72 !important; transform: scale(0.985); }
 
-        /* iOS input zoom prevention — MUST be ≥16px */
-        input, select, textarea { font-size: 16px !important; }
+        /* iOS input zoom prevention — MUST be ≥16px (el código de ingreso va más grande) */
+        input:not([data-campo-grande]), select, textarea { font-size: 16px !important; }
 
-        /* Minimum 44px touch targets */
+        /* Minimum 44px touch targets (tema B: campos de 44) */
         button { min-height: 44px; }
-        input, select { min-height: 48px; }
+        input:not([type=checkbox]):not([type=radio]), select { min-height: 44px; }
         textarea { min-height: 80px; }
 
         /* Sticky primary action bar (used on step 1, 2, checklist, notes) */
         .sticky-action {
           position: sticky;
           bottom: 0;
-          background: var(--bg);
+          background: var(--header);
           padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
-          border-top: 1px solid var(--line);
+          border-top: 1px solid rgba(255,255,255,0.05);
           z-index: 8;
           margin-top: 8px;
         }
@@ -142,23 +146,13 @@
           max-width: 100vw !important;
         }
 
-        /* Checklist action buttons: larger tap target */
-        .chk-btn {
-          padding: 8px 10px !important;
-          font-size: 12px !important;
-          min-height: 40px !important;
-        }
-
-        /* Service code selector buttons: larger */
-        .svc-btn {
-          padding: 10px 14px !important;
-          font-size: 12px !important;
-          min-height: 44px !important;
-        }
+        /* Checklist (OK / hallazgo / N/A) y códigos de servicio: 44 de lado
+           (tema B: el tamaño lo da cada control). */
+        .chk-btn, .svc-btn { min-height: 44px !important; }
 
         /* Login screen: full-width inputs and button */
         .login-input { width: 100% !important; }
-        .login-btn   { width: 100% !important; min-height: 52px !important; font-size: 16px !important; }
+        .login-btn   { width: 100% !important; min-height: 48px !important; font-size: 15px !important; }
       }
 
     </style>
