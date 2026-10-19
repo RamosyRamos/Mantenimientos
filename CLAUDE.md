@@ -2,6 +2,31 @@
 
 App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL: mantenimientos.ramosyramoscr.com. Mismo backend Supabase que el sistema Taller. El contexto general del ecosistema vive en el CLAUDE.md del repo Taller (`C:\Users\gusta\Taller`).
 
+## ⚠⚠ TEMA B (18/10/2026, rama `feat/tema-b-mantenimientos`, merge `93eff3c`; en Taller, la vista del mecánico con `feat/tema-b-mecanico`)
+
+- **Decisión de Tavo del 18/10, que autorizó el merge en un mensaje aparte.** Es solo de presentación: no cambió ningún flujo, estado, consulta ni el autosave, ni lo que se guarda en `servicios` o en el informe. La guía completa es `docs/tema-b.md` del repo Taller.
+- **La app usa el tema B en todas sus pantallas, sin proveedor.** Los archivos viven en `Mantenimientos/src/theme/`:
+  - **`tokensB.js` es GEMELO de `src/theme/tokensB.js` de Taller**: mismos nombres y mismos valores. Lleva arriba un comentario que lo dice, así que no es igual byte a byte. **Los dos se cambian juntos, en el mismo movimiento.**
+  - `estilosB.js` (los estilos de Taller, copiados), `iconos.jsx` (los SVG de lucide, trazo 1.6) y `piezasB.jsx` (`Num`, `Placa`, `Insignia`, `Boton`, `BotonIcono`, `Sobretitulo`, `Etiqueta`, `MensajeCampo`, `Aviso`, `FondoModal`, `CajaModal`, `PanelLateral`, `Vacio`, `opcionB`).
+- **Reglas**:
+  - IBM Plex Sans para la interfaz.
+  - IBM Plex Mono con `tabular-nums` para los datos: placas, #orden, km, litros, fechas y fracciones.
+  - Ningún color escrito a mano: todo sale de `T`.
+  - Sin emojis en la interfaz: los íconos son de `iconos.jsx`. Los que vienen de la base como emoji (`mant_items.icon`) se dibujan con `iconoDeItem`.
+  - Objetivos táctiles de 44 o más; los campos con letra de 16 en el teléfono.
+  - Botones en mayúscula de frase, un solo botón principal por pantalla y los destructivos en texto `crit` (nunca un botón rojo sólido).
+- **Fuera del tema, a propósito**: el informe público del cliente (`ClientReport`, `ClientHistory` y `Lightbox`, con su `temaCliente.js`), el informe en markdown que se escribe en la orden (`fuelLabel` queda para él; la pantalla usa `fuelTexto`) y los textos de push. Los `alert`/`confirm` nativos conservan sus textos.
+- **El smoke y el arnés usan atributos `data-*`. No se quitan.** Esta rama agregó:
+  - pasos 1 y 2: `data-cabecera`, `data-indicador-pasos`, `data-buscar-modelo`, `data-lista-modelos`, `data-modelo-opcion`, `data-modelo-elegido`, `data-continuar-paso1`, `data-vehiculo-resumen`, `data-iniciar-inspeccion`;
+  - checklist: `data-resumen-paso3`, `data-grupo-checklist`, `data-tarea`, `data-estado-tarea`, `data-texto-tarea`, `data-marcar` (`ok` / `issue` / `na`), `data-detalle-tarea`, `data-sello-autor`, `data-guardado`, `data-barra-notas`, `data-servicio-intro`, `data-continuar-notas`;
+  - notas y cierre: `data-dictamen`, `data-dictamen-opcion`, `data-reparacion`, `data-resumen-servicio`, `data-servicio-certificar`, `data-servicio-completado`, `data-revision-aprobacion`, `data-aprobar-servicio`;
+  - modo edición del jefe: `data-solo-lectura`, `data-modo-edicion`, `data-activar-modo-edicion`, `data-salir-modo-edicion`;
+  - paneles y modales: `data-fila-servicio`, `data-borrador`, `data-borrador-propio`, `data-ver-todos`, `data-fila-ver-todos`, `data-modal-conflicto`, `data-modal-draft-local`, `data-modal-borradores`, `data-modal-otra-orden`, `data-deep-link`, `data-banner-version`;
+  - otros: `data-placa`, `data-sesion-nombre`, `data-tema-toggle`, `data-campo-grande`.
+  - Se conservan todos los que ya estaban, como `data-confirmar-guardar`, `data-codigo`, `data-combustible`, `data-por-aprobar` y `data-sin-accion`.
+- **Los modales "Tus servicios en progreso" y "Borrador de otra orden" se definen UNA vez** (`draftPromptModal` y `differentOrdenModal`) y se usan en los pasos 1 y 3. Antes estaban copiados en cada paso.
+- **Calidad del merge**: `npm test` 86/86, build OK y `npm run smoke` 36/36. Demo (`taller-harness\demo-mecanico`): `capturas.mjs` 88/88 a 718×626 y 344×882, sin errores de consola, y `boton_estado.mjs` 116/116. Esas dos suites del demo aceptan los selectores viejos y los nuevos (los originales quedaron en `*.bak_temab`).
+
 ## ⚠⚠ Un servicio vigente por orden y la marca de rechazo solo en borrador (18/10/2026, rama `feat/boton-estado-mantenimiento`, merge `cfd3d61`; en Taller, merge `6006a64`)
 
 - **Decisiones de Tavo del 8/10 y del 18/10.** Mergeada sin preview por su decisión: la cobertura es el demo (`taller-harness\demo-mecanico\boton_estado.mjs`, 116/116 a 718×626 y 344×882) y el smoke. La parte de Taller (índice, `BloqueMantenimiento`, tabla estado → botón, la #3058) está en el CLAUDE.md de Taller, "UN SERVICIO VIGENTE POR ORDEN Y UN BOTÓN POR ESTADO".
@@ -131,7 +156,7 @@ App React (Vite) en la subcarpeta `Mantenimientos/`, monolito `src/App.jsx`. URL
 
 ## FotoPicker (ago 2026)
 
-`src/FotoPicker.jsx` — port del FotoPicker de Taller (057670a), copia propia como useIsMobile. Dos caminos: "📷" (input con `capture`, cámara directa en móvil) y "🖼" (galería) al mismo `onFile`; el input viejo creado a mano forzaba `capture="environment"` y en Android bloqueaba la galería. Única superficie de fotos de la app: evidencia por tarea de revisión (`subirFotoTarea(id, file)` — compresión + bucket `fotos-servicios` intactos). Devuelve un Fragment con los DOS botones (sin wrapper) a propósito: se integran a la fila flex existente del panel de detalle. Look monospace/azul propio, no el Carbon de Taller.
+`src/FotoPicker.jsx` — port del FotoPicker de Taller (057670a), copia propia como useIsMobile. Dos caminos: "📷" (input con `capture`, cámara directa en móvil) y "🖼" (galería) al mismo `onFile`; el input viejo creado a mano forzaba `capture="environment"` y en Android bloqueaba la galería. Única superficie de fotos de la app: evidencia por tarea de revisión (`subirFotoTarea(id, file)` — compresión + bucket `fotos-servicios` intactos). Devuelve un Fragment con los DOS botones (sin wrapper) a propósito: se integran a la fila flex existente del panel de detalle. Look monospace/azul propio, no el Carbon de Taller. **⚠ Desde el 18/10 (tema B)** los dos caminos son botones secundarios de 44 con los íconos SVG de cámara y galería (en la variante compacta, solo el ícono).
 
 ## Apertura por id: jefes continuando un servicio en progreso (ago 2026)
 
