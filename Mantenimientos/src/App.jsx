@@ -22,13 +22,14 @@ import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
 import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
 import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
-import { autorInicial, campoMecanico } from './lib/autorServicio.js';
+import { autorMostrado, campoMecanico } from './lib/autorServicio.js';
+import { puedeDescartarServicio, itemsMarcados, preguntaDescarte, argumentosDescarte, resultadoDescarte, mensajeDescarte, destinoPushAutor, esAutorDelServicio } from './lib/servicioAutor.js';
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
 import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from './lib/combustibleVehiculo.js';
 import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
 import { buildTasks, stripInterna, adicionalesDeTareas, idsDeRevisiones, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
-import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, marcasParaPasar, claveChoque, TIPO, LIMPIAR_RECHAZO } from './lib/servicioVigente.js';
+import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, esServicioDescartado, marcasParaPasar, claveChoque, TIPO, LIMPIAR_RECHAZO } from './lib/servicioVigente.js';
 const ACEITE_VACIO = { litros: null, spec: null };
 const RESOLVER_VACIO = { estado: 'idle', clave: null, res: null, motivo: null, traccion: null };
 // "¿Valor incorrecto?" (proponer corrección de aceite) queda APAGADO desde el 5/10:
@@ -1710,8 +1711,8 @@ export default function App() {
   // F4 Sesión E: la sesión de la app ('ryr_session' = {id, username, nombre, rol,
   // app}, misma forma que siempre) se DERIVA de la sesión de Supabase Auth.
   // Ya NO existe la sesión sintetizada desde el link de Taller
-  // (?mecanico=&orden_id=): `mecanico` de la URL es solo el técnico asignado
-  // del servicio (mechName → servicios.mecanico), nunca identidad.
+  // (?mecanico=&orden_id=). Desde el 19/10 (feat/autor-por-sesion) el
+  // `?mecanico=` de un link viejo se IGNORA: el autor del servicio es la sesión.
   const [session, setSession] = useState(() => {
     try { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
   });
@@ -1867,7 +1868,6 @@ function MainApp({ session, onLogout }) {
   const [showBorradores, setShowBorradores]       = useState(false);
   const [adminDrafts, setAdminDrafts]             = useState([]);
   const [adminDraftsLoading, setAdminDraftsLoading] = useState(false);
-  const [confirmDelete, setConfirmDelete]         = useState(null);
   const [showCompleted, setShowCompleted]         = useState(false);
   const [completedList, setCompletedList]         = useState([]);
   const [completedLoading, setCompletedLoading]   = useState(false);
@@ -1913,9 +1913,9 @@ function MainApp({ session, onLogout }) {
   const [notes, setNotes]   = useState("");
   const [tab, setTab]       = useState("check");
   const [showEx, setShowEx] = useState(false);
-  // mechName = el ENCARGADO que trajo el link (?mecanico=) o la fila cargada.
-  // Ya no es una entrada manual (la "firma" de cinco botones se quitó el 8/10):
-  // sin link ni fila, el autor es session.nombre (ver autorServicioActual).
+  // mechName = el AUTOR de la fila cargada (servicios.mecanico). Desde el 19/10
+  // (feat/autor-por-sesion) el ?mecanico= del link ya no lo llena: sin fila, el
+  // autor es la sesión (ver autorServicioActual).
   const [mechName, setMechName] = useState("");
   const [sigDate, setSigDate]   = useState("");
   const [trelloStatus, setTrelloStatus] = useState("idle");
@@ -2228,10 +2228,11 @@ function MainApp({ session, onLogout }) {
   const normalizar = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
   // Keep ref current so debounced timer always reads latest values
-  // El encargado que se muestra y que se escribe en el PRIMER guardado de la
-  // fila: el del link o la fila (mechName), si no quien está logueado.
-  const autorServicioActual = autorInicial({ mecanicoLink: mechName, sessionNombre: session?.nombre });
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe, aceiteFila };
+  // El autor que se MUESTRA: el de la fila cargada (mechName) o, para un
+  // servicio que todavía no existe, la sesión. Lo que se ESCRIBE en el primer
+  // guardado es siempre la sesión (nombre + id, campoMecanico).
+  const autorServicioActual = autorMostrado({ mecanicoFila: mechName, sessionNombre: session?.nombre });
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sesionAutor: session, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe, aceiteFila };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2320,40 +2321,83 @@ function MainApp({ session, onLogout }) {
     setDraftPrompt(false);
   };
 
-  const descartarDraft = async (draft) => {
+  // ── Descartar un borrador (feat/autor-por-sesion, 19/10/2026) ──
+  // Eliminación BLANDA por la RPC descartar_servicio: la fila queda con estado
+  // 'descartado' y quién, cuándo y el motivo. Solo un borrador (el rechazado
+  // también) y solo su autor o un jefe/admin (servicioAutor.js; la RPC lo
+  // vuelve a decidir). Con ítems marcados, confirmación fuerte. Lo abren el botón
+  // "Descartar borrador" del checklist, "Tus servicios en progreso" y el panel
+  // de borradores del jefe. Reemplaza al PATCH directo de descartarDraft y de
+  // handleReset y al DELETE del panel del jefe (que la RLS bloqueaba sin avisar).
+  const [descarte, setDescarte] = useState(null); // { servicio, marcados, motivo, confirmado, enviando, error }
+  const abrirDescarte = (servicio, marcados = null) => {
+    const p = puedeDescartarServicio(servicio, session);
+    if (!p.ok) { alert(mensajeDescarte(p.motivo)); return; }
+    setDescarte({ servicio, marcados: marcados ?? itemsMarcados(servicio?.revisiones), motivo: "", confirmado: false, enviando: false, error: null });
+  };
+  const confirmarDescarte = async () => {
+    const d = descarte;
+    if (!d || d.enviando) return;
+    if (preguntaDescarte(d.marcados) && !d.confirmado) return;
+    setDescarte(x => (x ? { ...x, enviando: true, error: null } : x));
+    let res;
     try {
-      await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${draft.id}`, {
-        method: 'PATCH',
+      const r = await apiFetch(`${API_URL}/rest/v1/rpc/descartar_servicio`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado: 'descartado' }),
+        body: JSON.stringify(argumentosDescarte(d.servicio.id, d.motivo)),
       });
-      setPendingDrafts(prev => prev.filter(d => d.id !== draft.id));
-    } catch(e) {
-      console.error('[descartarDraft]', e);
-      alert(`⚠️ No se pudo descartar el borrador (${mensajeError(e)}). Reintentá.`);
+      res = resultadoDescarte(await r.json());
+    } catch (e) {
+      res = { ok: false, error: `No se pudo descartar el borrador (${mensajeError(e)}). Reintentá.` };
     }
+    if (!res.ok) { setDescarte(x => (x ? { ...x, enviando: false, error: res.error } : x)); return; }
+    const id = d.servicio.id;
+    setPendingDrafts(prev => prev.filter(x => x.id !== id));
+    setAdminDrafts(prev => prev.filter(x => x.id !== id));
+    if (editingIdRef.current === id) {
+      // Era el que está abierto: se corta el autosave y se vuelve al inicio.
+      clearTimeout(autoSaveTimer.current);
+      clearTimeout(retryTimer.current);
+      borrarDraft(draftKey(id, ordenId));
+      borrarDraft(draftKey(null, ordenId));
+      dirtyRef.current = false;
+      resetAll();
+      setDeepLinkMsg({ tipo: "info", texto: "Borrador descartado. La orden vuelve a mostrar «Iniciar» en el Taller." });
+    }
+    setDescarte(null);
   };
 
-  const handleReset = async () => {
-    if (editingId && !sigDate) {
-      if (!window.confirm('Tenés un servicio en progreso sin confirmar. ¿Seguro que querés empezar uno nuevo?')) return;
-      const discard = window.confirm('¿Descartar el borrador? Presioná Cancelar para guardarlo y continuar más tarde.');
-      if (discard) {
-        // Si el descarte no llega a la base, NO se resetea: el borrador seguiría
-        // vivo en el servidor y la pantalla diría lo contrario.
-        try {
-          await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${editingId}`, {
-            method: 'PATCH',
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ estado: 'descartado' }),
-          });
-        } catch(e) {
-          console.error('[handleReset discard]', e);
-          alert(`⚠️ No se pudo descartar el borrador (${mensajeError(e)}). No se cambió nada; reintentá.`);
-          return;
-        }
-      }
-    }
+  // El servicio abierto, para el permiso de descartarlo: la fila cargada si es
+  // la misma; si nació en esta sesión, su autor es la sesión.
+  const servicioAbierto = () => (editingId ? (
+    servicioCargado?.id === editingId
+      ? { ...servicioCargado, estado: estadoOriginal }
+      : { id: editingId, estado: estadoOriginal, mecanico: session?.nombre || "", mecanico_id: session?.id || null }
+  ) : null);
+  // Ítems marcados del checklist en pantalla (el borrador abierto).
+  const marcadosEnPantalla = () => itemsMarcados(armarCrudo(autoSaveRef.current));
+
+  // Reiniciar (decisión de Tavo, 23/10/2026): limpia los ítems del MISMO
+  // borrador —misma fila, el autor no cambia— y el autosave guarda la fila
+  // limpia. No crea otro borrador ni descarta (eso es "Descartar borrador").
+  // Las notas, los datos del vehículo y el aceite quedan.
+  const reiniciarItems = () => {
+    const n = marcadosEnPantalla();
+    const fotos = Object.values(taskPhotos || {}).some(v => Array.isArray(v) && v.length);
+    if (n === 0 && !fotos) return;
+    if (n > 0 && !window.confirm(n === 1 ? "Se borrará 1 ítem marcado. ¿Reiniciar?" : `Se borrarán ${n} ítems marcados. ¿Reiniciar?`)) return;
+    if (n === 0 && !window.confirm("Se borrarán las fotos de los ítems. ¿Reiniciar?")) return;
+    const u = {}; tasks.forEach(t => { u[t.id] = false; }); setChk(p => ({ ...p, ...u }));
+    setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setActiveIssue(null); setExChk({});
+  };
+  // ¿Se puede reiniciar lo que hay en pantalla? Un servicio nuevo o un
+  // borrador; nunca uno enviado, aprobado ni el modo edición de un aprobado.
+  const puedeReiniciar = !sigDate && (!editingId || estadoOriginal === "borrador");
+
+  // "Nuevo servicio" (después de confirmar): vuelve al inicio para empezar otro.
+  // El servicio confirmado ya quedó guardado.
+  const nuevoServicio = () => {
     borrarDraft(draftKey(editingId, ordenId));
     dirtyRef.current = false;
     resetAll();
@@ -2380,14 +2424,18 @@ function MainApp({ session, onLogout }) {
 
   // On mount: check for an unfinished draft from today
   useEffect(() => {
-    if (!session?.nombre) return;
-    // Borradores "míos": servicios.mecanico = el nombre de quien está logueado
-    // (para el mecánico coincide con el técnico asignado del link).
-    const mechFilter = encodeURIComponent(session.nombre);
-    apiFetch(`${API_URL}/rest/v1/servicios?estado=eq.borrador&mecanico=eq.${mechFilter}&order=created_at.desc`)
+    if (!session?.id && !session?.nombre) return;
+    // Borradores "míos" (feat/autor-por-sesion, 19/10): por servicios.mecanico_id;
+    // las filas viejas sin id, por el nombre normalizado (servicioAutor.js). Se
+    // piden los borradores con mi id o sin id, y el filtro fino es local.
+    const filtro = session?.id
+      ? `&or=(mecanico_id.eq.${encodeURIComponent(session.id)},mecanico_id.is.null)`
+      : `&mecanico_id=is.null`;
+    apiFetch(`${API_URL}/rest/v1/servicios?estado=eq.borrador${filtro}&order=created_at.desc`)
       .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
+      .then(rows => {
+        const data = (Array.isArray(rows) ? rows : []).filter(d => esAutorDelServicio(d, session));
+        if (data.length > 0) {
           setPendingDrafts(data);
           // Draft modal is NOT auto-shown — mechanic opens it via the header button
         }
@@ -2419,7 +2467,6 @@ function MainApp({ session, onLogout }) {
     const params = new URLSearchParams(window.location.search);
     const pPlaca    = params.get('placa')?.toUpperCase().trim() || '';
     const pModelo   = params.get('modelo')?.trim()              || '';
-    const pMecanico = params.get('mecanico')?.trim()            || '';
     const pOrdenId  = params.get('orden_id')?.trim()            || '';
     const pNumero   = params.get('numero')?.trim()              || '';
     const pFalla    = params.get('falla')?.trim()               || '';
@@ -2444,7 +2491,8 @@ function MainApp({ session, onLogout }) {
       if (pAnio)    setVehAnio(pAnio);
       if (pVersion) setVehVersion(pVersion);
     }
-    if (pMecanico) setMechName(pMecanico);
+    // ?mecanico= (links viejos de Taller) se IGNORA desde el 19/10: el autor del
+    // servicio es la sesión, no el nombre que trae la URL.
     if (pOrdenId)  setOrdenId(pOrdenId);
     if (pNumero)   setOrdenNumero(pNumero);
     if (pFalla)    setOrdenFalla(pFalla);
@@ -2564,7 +2612,7 @@ function MainApp({ session, onLogout }) {
   // informe público. Después de un choque el aprobado también se abre acá
   // (solo lectura), para que el aviso de lo que se cargó se vea.
   const abrirServicioVigente = (row, { porChoque = false } = {}) => {
-    const r = accionAlAbrir(row, { nombreSesion: session?.nombre });
+    const r = accionAlAbrir(row, { sesion: session });
     if (r.accion === ACCION.APROBADO && !porChoque) {
       const url = urlInformePublico(row, window.location.origin);
       if (url) { window.location.replace(url); return r; }
@@ -2795,9 +2843,9 @@ function MainApp({ session, onLogout }) {
       const payload = {
         ...(draftSlug ? { slug: draftSlug } : {}),
         placa: d.plate, modelo: d.model, motor: d.engine,
-        // El encargado se fija en el PRIMER guardado de la fila y nunca se
-        // reescribe (autorServicio.js): un PATCH no manda `mecanico`.
-        ...campoMecanico({ esFilaNueva: !id, autor: d.autor }),
+        // El autor (la sesión: nombre + id) se fija en el PRIMER guardado de la
+        // fila y nunca se reescribe (autorServicio.js): un PATCH no lo manda.
+        ...campoMecanico({ esFilaNueva: !id, session: d.sesionAutor }),
         servicio_codigo: d.sel, servicio_desc: d.svc?.desc || "",
         km: d.km, combustible: d.fuel, traccion: d.is4m ? "4MATIC" : "RWD",
         // Nunca null encima de lo guardado; en modo edición (aprobado) no viaja.
@@ -2853,6 +2901,15 @@ function MainApp({ session, onLogout }) {
       // La orden ya tiene un servicio vigente (índice único): no hay reintento
       // que valga; se abre ese servicio y lo cargado queda en el dispositivo.
       if (esChoqueVigente(e)) { await resolverChoque('autosave'); return; }
+      // Lo descartaron mientras estaba abierto acá (trigger "un descartado no
+      // vuelve", 19/10): el autosave se congela y se avisa; nada se resucita.
+      if (esServicioDescartado(e)) {
+        conflictoRef.current = true;
+        if (!errorDesdeRef.current) errorDesdeRef.current = new Date().toISOString();
+        setSaveInfo({ estado: 'error', desde: errorDesdeRef.current, msg: 'Este borrador fue descartado: lo que marques no se guarda', intento, reintentoEn: null, sinReintento: true });
+        setDeepLinkMsg({ tipo: 'error', texto: 'Este borrador fue descartado (en el Taller o en otro dispositivo). Lo que marques acá no se guarda: empezá uno nuevo desde la orden.' });
+        return;
+      }
       console.warn("[autoSave] falló:", e);
       if (!errorDesdeRef.current) errorDesdeRef.current = new Date().toISOString();
       const { reintentar, esperaMs } = siguienteReintento(e, intento);
@@ -3007,6 +3064,17 @@ function MainApp({ session, onLogout }) {
       });
     } catch(e) { console.warn('notifyPush failed:', e); }
   };
+  // Push a un destino ya armado ({ to_user_id } o { to_user_nombre }): el del
+  // autor de un servicio (servicioAutor.destinoPushAutor).
+  const notifyPushA = async (destino, title, body) => {
+    try {
+      await apiFetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...destino, title, body }),
+      });
+    } catch(e) { console.warn('notifyPushA failed:', e); }
+  };
 
   // Vuelca `revisiones` (jsonb de la fila o del draft local) al estado del
   // checklist. `colFotos` = columna `fotos` de la fila ({taskId: [urls]}), más
@@ -3062,7 +3130,7 @@ function MainApp({ session, onLogout }) {
     // Para los avisos de la fila abierta (quién la lleva, el rechazo con su
     // motivo). La vista "Por aprobar" la prende quien abre desde el link.
     setServicioCargado({
-      estado: s.estado || null, mecanico: s.mecanico || "",
+      estado: s.estado || null, mecanico: s.mecanico || "", mecanico_id: s.mecanico_id || null,
       rechazado: !!s.rechazado, motivo_rechazo: s.motivo_rechazo || "",
       rechazado_por: s.rechazado_por || "", rechazado_at: s.rechazado_at || null,
       slug: s.slug || "", id: s.id,
@@ -3225,7 +3293,8 @@ function MainApp({ session, onLogout }) {
   const fetchVerTodos = async () => {
     setVerTodosLoading(true);
     try {
-      const res = await apiFetch(`${API_URL}/rest/v1/servicios?select=*&order=created_at.desc&limit=500`);
+      // Sin descartados (feat/autor-por-sesion): un borrador descartado no es un servicio.
+      const res = await apiFetch(`${API_URL}/rest/v1/servicios?select=*&or=(estado.is.null,estado.neq.descartado)&order=created_at.desc&limit=500`);
       {
         const data = await res.json();
         setVerTodosList(Array.isArray(data) ? data : []);
@@ -3361,40 +3430,13 @@ function MainApp({ session, onLogout }) {
               </div>
               <div style={{ display:"flex", flexShrink:0, alignItems:"center" }}>
                 <BotonIcono icono={Ic.Play} title="Continuar el borrador" color={T.accent} onClick={() => { loadService(b); setShowBorradores(false); }} />
-                <BotonIcono icono={Ic.Trash2} title="Eliminar el borrador" color={T.crit} iconoTam={18} onClick={() => setConfirmDelete(b)} />
+                <BotonIcono icono={Ic.Trash2} title="Descartar el borrador" color={T.crit} iconoTam={18} data-descartar-borrador onClick={() => abrirDescarte(b)} />
               </div>
             </div>
           </div>
         );
       })}
     </PanelLateral>
-    {confirmDelete && (
-      <FondoModal zIndex={500} onClick={e => e.stopPropagation()}>
-        <CajaModal icono={Ic.Trash2} colorIcono={T.crit} titulo="Eliminar borrador" ancho={380}
-          pie={<>
-            <Boton tam="modal" onClick={() => setConfirmDelete(null)}>Cancelar</Boton>
-            <Boton tam="modal" jerarquia="peligro" icono={Ic.Trash2} onClick={async () => {
-              // Solo se saca de la lista si el DELETE llegó (antes se daba por hecho).
-              try {
-                await apiFetch(`${API_URL}/rest/v1/servicios?id=eq.${confirmDelete.id}`, { method: 'DELETE' });
-              } catch (e) {
-                console.error('[eliminar borrador]', e);
-                alert(`⚠️ No se pudo eliminar el borrador (${mensajeError(e)}). Sigue en la base; reintentá.`);
-                return;
-              }
-              setAdminDrafts(prev => prev.filter(d => d.id !== confirmDelete.id));
-              setConfirmDelete(null);
-            }}>
-              Eliminar
-            </Boton>
-          </>}>
-          <div>
-            ¿Eliminar el borrador de <strong style={{ color:T.text, fontWeight:600 }}>{confirmDelete.placa || '(sin placa)'}</strong> de <strong style={{ color:T.text, fontWeight:600 }}>{confirmDelete.mecanico || '(sin mecánico)'}</strong>?
-          </div>
-          <div style={{ fontSize:12, color:T.textMuted }}>Esta acción no se puede deshacer.</div>
-        </CajaModal>
-      </FondoModal>
-    )}
     </>
   ) : null;
 
@@ -3893,7 +3935,8 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           headers: { "Content-Type": "application/json", "Prefer": "return=representation" },
           body: JSON.stringify({
             slug, placa: plate, modelo: svcData.vehiculo.modelo, motor: svcData.vehiculo.motor,
-            mecanico: svcData.mecanico, servicio_codigo: svcData.servicio.codigo,
+            // Autor: solo si la fila NACE acá; un PATCH no lo reescribe (19/10).
+            ...campoMecanico({ esFilaNueva: !editingId, session }), servicio_codigo: svcData.servicio.codigo,
             servicio_desc: svcData.servicio.descripcion, km, combustible: fuel, traccion: is4m ? "4MATIC" : "RWD",
             // Nunca null encima de lo guardado; un aprobado no se recalcula.
             ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
@@ -3930,6 +3973,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         await resolverChoque('enviar');
         return;
       }
+      if (esServicioDescartado(e)) { alert("⚠️ Este borrador fue descartado: no se envió nada. Empezá uno nuevo desde la orden."); return; }
       console.error("[enviarAOrden]", e);
       alert(`⚠️ No se pudo enviar el informe a la orden (${mensajeError(e)}). Intentá de nuevo.`);
     }
@@ -3988,9 +4032,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         placa:           plate,
         modelo:          model,
         motor:           engine,
-        // Encargado: solo si la fila NACE acá (sin autosave previo); una fila
-        // existente conserva su mecanico (autorServicio.js).
-        ...campoMecanico({ esFilaNueva: !editingId, autor: autorServicioActual }),
+        // Autor (la sesión): solo si la fila NACE acá (sin autosave previo); una
+        // fila existente conserva el suyo (autorServicio.js).
+        ...campoMecanico({ esFilaNueva: !editingId, session }),
         fecha,
         servicio_codigo: sel,
         servicio_desc:   svc?.desc || "",
@@ -4050,6 +4094,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         await resolverChoque('confirmar');
         return;
       }
+      if (esServicioDescartado(e)) { alert("⚠️ Este borrador fue descartado (en el Taller o en otro dispositivo): no se confirmó. Empezá uno nuevo desde la orden."); return; }
       console.error("[confirmSig] save failed:", e);
       alert(`⚠️ ERROR al guardar el informe: ${mensajeError(e)}.\n\nNo se confirmó. Por favor reintentá. Si persiste, contactá soporte. NO cierres la app (los cambios quedan en este dispositivo).`);
     }
@@ -4087,6 +4132,40 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   // Tus servicios en progreso y el borrador de otra orden con la misma placa:
   // los mismos dos modales en los pasos 1 y 3 (antes iban copiados en cada uno).
+  // Descartar un borrador (feat/autor-por-sesion): motivo opcional y, con ítems
+  // marcados, la confirmación fuerte tildada. La escritura es la RPC.
+  const preguntaFuerte = descarte ? preguntaDescarte(descarte.marcados) : null;
+  const descartePuede = !!descarte && !descarte.enviando && (!preguntaFuerte || descarte.confirmado);
+  const descarteModal = descarte ? (
+    <FondoModal zIndex={600} onClick={e => e.stopPropagation()}>
+      <CajaModal data-modal-descartar icono={Ic.Trash2} colorIcono={T.crit} titulo="Descartar borrador" ancho={420}
+        subtitulo={<>{descarte.servicio.placa ? <><Num>{descarte.servicio.placa}</Num> · </> : null}Serv. <Num>{descarte.servicio.servicio_codigo || sel || "—"}</Num>{descarte.servicio.mecanico ? ` · lo inició ${descarte.servicio.mecanico}` : ""}</>}
+        onCerrar={descarte.enviando ? undefined : () => setDescarte(null)}
+        pie={<>
+          <Boton tam="modal" onClick={() => setDescarte(null)} disabled={descarte.enviando}>Cancelar</Boton>
+          <Boton tam="modal" jerarquia="peligro" icono={Ic.Trash2} data-confirmar-descarte onClick={confirmarDescarte} disabled={!descartePuede}>
+            {descarte.enviando ? "Descartando…" : "Descartar"}
+          </Boton>
+        </>}>
+        <div>La orden vuelve a mostrar «Iniciar» en el Taller. El borrador no se borra: queda guardado como descartado, con quién y cuándo.</div>
+        {preguntaFuerte && (
+          <label data-descarte-confirmacion style={{ display:"flex", alignItems:"flex-start", gap:10, color:T.warn, fontWeight:600, background:T.warn + "1F", border:`1px solid ${T.warn}55`, borderRadius:8, padding:"10px 12px", cursor:"pointer" }}>
+            <input type="checkbox" data-descarte-tilde checked={descarte.confirmado} onChange={e => setDescarte(x => (x ? { ...x, confirmado: e.target.checked } : x))}
+              style={{ width:18, height:18, marginTop:2, flexShrink:0, accentColor:T.warn }} />
+            <span>{preguntaFuerte}</span>
+          </label>
+        )}
+        <div>
+          <Etiqueta>Motivo (opcional)</Etiqueta>
+          <textarea data-descarte-motivo value={descarte.motivo} maxLength={500} rows={2} placeholder="Por ejemplo: se inició por error"
+            onChange={e => setDescarte(x => (x ? { ...x, motivo: e.target.value } : x))}
+            style={{ ...campoMB, width:"100%", boxSizing:"border-box", resize:"vertical", minHeight:64 }} />
+        </div>
+        {descarte.error && <div data-descarte-error style={{ color:T.crit }}>{descarte.error}</div>}
+      </CajaModal>
+    </FondoModal>
+  ) : null;
+
   const draftPromptModal = draftPrompt ? (
     <FondoModal zIndex={500}>
       <CajaModal data-modal-borradores icono={Ic.NotebookPen} titulo="Tus servicios en progreso"
@@ -4118,7 +4197,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               </div>
               <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                 <Boton icono={Ic.Play} onClick={() => continuarDraft(draft)} style={{ flex:1 }}>Continuar</Boton>
-                <BotonIcono icono={Ic.Trash2} title="Descartar el borrador" color={T.crit} iconoTam={18} onClick={() => descartarDraft(draft)} />
+                <BotonIcono icono={Ic.Trash2} title="Descartar el borrador" color={T.crit} iconoTam={18} data-descartar-borrador onClick={() => abrirDescarte(draft)} />
               </div>
             </div>
           );
@@ -4169,6 +4248,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {descarteModal}
       {deepLinkBanner}
       {recetasBanner}
       {conflictoModal}
@@ -4409,6 +4489,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {descarteModal}
       {deepLinkBanner}
       {conflictoModal}
       {centroMandoPanel}
@@ -4566,6 +4647,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       {notificationsPanel}
       {completedPanel}
       {borradoresPanel}
+      {descarteModal}
       {deepLinkBanner}
       {recetasBanner}
       {conflictoModal}
@@ -4650,7 +4732,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
       {/* LO LLEVA OTRO — fijo, no se cierra. El encargado (servicios.mecanico)
           no cambia; lo que marque esta persona queda sellado a su nombre. */}
-      {editingId && servicioCargado?.estado === 'borrador' && esAjeno(servicioCargado, session?.nombre) && (
+      {editingId && servicioCargado?.estado === 'borrador' && esAjeno(servicioCargado, session) && (
         <Aviso data-lo-lleva color={T.warn} icono={Ic.Users} style={{ margin:"10px 16px 0" }}>
           Este servicio lo lleva <strong style={{ fontWeight:600 }}>{servicioCargado.mecanico}</strong>.
           <div style={{ fontSize:12.5, color:T.textSoft, marginTop:2 }}>
@@ -4702,7 +4784,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           El autosave pisa la fila entera, así que el aviso importa: el otro
           puede estar editando AHORA MISMO. (Si lo lleva otro, lo dice el aviso
           fijo de arriba.) */}
-      {servicioIntro && editingId && !(servicioCargado?.estado === 'borrador' && esAjeno(servicioCargado, session?.nombre)) && (
+      {servicioIntro && editingId && !(servicioCargado?.estado === 'borrador' && esAjeno(servicioCargado, session)) && (
         <Aviso data-servicio-intro color={T.info} icono={Ic.Users} style={{ margin:"10px 16px 0" }}
           accion={<BotonIcono icono={Ic.X} title="Cerrar aviso" color={T.textMuted} iconoTam={16} onClick={() => setServicioIntro(null)} style={{ margin:"-8px -6px -8px 0" }} />}>
           {servicioIntro.estimado
@@ -4892,10 +4974,18 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             })}
 
             {/* BOTONES */}
-            <div style={{ display:"flex", gap:8, marginTop:10, marginBottom:16 }}>
-              <Boton icono={Ic.RotateCcw} onClick={handleReset} style={{ flex:1 }}>Reiniciar</Boton>
+            <div style={{ display:"flex", gap:8, marginTop:10, marginBottom: editingId && estadoOriginal === 'borrador' ? 6 : 16 }}>
+              <Boton icono={Ic.RotateCcw} data-reiniciar onClick={reiniciarItems} disabled={!puedeReiniciar} style={{ flex:1 }}>Reiniciar</Boton>
               <Boton icono={Ic.ListChecks} onClick={markAll} style={{ flex:1 }}>Marcar todo</Boton>
             </div>
+            {editingId && estadoOriginal === 'borrador' && !sigDate && puedeDescartarServicio(servicioAbierto(), session).ok && (
+              <div style={{ display:"flex", justifyContent:"center", marginBottom:16 }}>
+                <button type="button" data-descartar-servicio onClick={() => abrirDescarte(servicioAbierto(), marcadosEnPantalla())}
+                  style={{ display:"inline-flex", alignItems:"center", gap:6, background:"none", border:"none", color:T.crit, fontSize:13, fontFamily:T.sans, cursor:"pointer", minHeight:44, padding:"0 6px" }}>
+                  <Ic.Trash2 size={15} />Descartar borrador
+                </button>
+              </div>
+            )}
 
             {/* BOTÓN CONTINUAR */}
             <div className="sticky-action">
@@ -5097,7 +5187,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                           }
                           setAprobado(true);
                           setAprobadoPor(nombre);
-                          if (autorServicioActual) notifyPush([autorServicioActual], "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
+                          // Al AUTOR por mecanico_id; las filas viejas, por nombre (servicioAutor.js).
+                          const destinoAprobado = destinoPushAutor(servicioCargado?.id === editingId ? servicioCargado : { mecanico: session?.nombre, mecanico_id: session?.id });
+                          if (destinoAprobado) notifyPushA(destinoAprobado, "Servicio aprobado", `Aprobado por ${nombre} — ${plate} (${model})`);
                         }}>
                           Revisión de aprobación — {session?.nombre || "—"}
                         </Boton>
@@ -5135,7 +5227,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                     </>
                   )}
 
-                  <Boton ancho icono={Ic.RotateCcw} onClick={()=>{ handleReset(); window.scrollTo({top:0,behavior:"smooth"}); }}>
+                  <Boton ancho icono={Ic.RotateCcw} onClick={()=>{ nuevoServicio(); window.scrollTo({top:0,behavior:"smooth"}); }}>
                     Nuevo servicio
                   </Boton>
                 </div>
