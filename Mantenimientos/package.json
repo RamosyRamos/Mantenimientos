@@ -7,7 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",
-    "test": "node --test src/lib/aceiteServicio.test.mjs src/lib/resolverAceite.test.mjs src/lib/placaOrden.test.mjs src/lib/autorServicio.test.mjs src/lib/fechaServicio.test.mjs src/lib/combustibleVehiculo.test.mjs src/lib/checklistReceta.test.mjs src/lib/traccionVehiculo.test.mjs src/lib/destinatariosPush.test.mjs src/lib/servicioVigente.test.mjs src/lib/vistaCliente.test.mjs"
+    "test": "node --test src/lib/aceiteServicio.test.mjs src/lib/resolverAceite.test.mjs src/lib/placaOrden.test.mjs src/lib/autorServicio.test.mjs src/lib/servicioAutor.test.mjs src/lib/fechaServicio.test.mjs src/lib/combustibleVehiculo.test.mjs src/lib/checklistReceta.test.mjs src/lib/traccionVehiculo.test.mjs src/lib/destinatariosPush.test.mjs src/lib/servicioVigente.test.mjs src/lib/vistaCliente.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

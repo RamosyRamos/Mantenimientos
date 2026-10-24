@@ -1,31 +1,40 @@
-// ── Autor de un servicio = el ENCARGADO, fijado cuando nace la fila (8/10/2026) ──
+// ── Autor de un servicio = la SESIÓN que crea la fila (19/10/2026) ──────────
 //
-// Decisión del dueño: Mantenimientos ya no tiene "firma" (la lista de cinco
-// nombres). `servicios.mecanico` es el encargado: el nombre que trae el link de
-// Taller (`?mecanico=`, el técnico asignado o el elegido en el Piso) o, si el
-// link no lo trae, `session.nombre` de quien crea el servicio. Se escribe UNA
-// sola vez, en el primer guardado de la fila (autosave o confirmSig, el que
-// ocurra primero), y después NUNCA se reescribe: ni el autosave, ni confirmSig,
-// ni el modo edición de jefe, ni un borrador ajeno abierto por otra persona.
-// Los servicios ya guardados conservan el `mecanico` que tienen, aunque esté
-// vacío (los dos sin nombre desde Auth se dejan como están).
+// Decisión del dueño (feat/autor-por-sesion): el autor de un servicio es el
+// usuario logueado que CREA la fila, no el técnico asignado de la orden ni el
+// `?mecanico=` de un link viejo de Taller (Taller ya no lo manda; si llega, se
+// ignora). Se guarda como nombre (`servicios.mecanico`) y como uuid
+// (`servicios.mecanico_id`) UNA sola vez, en el primer guardado de la fila
+// (autosave, confirmSig o enviarAOrden, el que ocurra primero), y después NUNCA
+// se reescribe: ni el autosave, ni confirmSig, ni el modo edición de jefe, ni
+// un borrador ajeno abierto por otra persona (sigue siendo de quien lo inició).
+// Las filas viejas conservan el `mecanico` que tienen.
+//
+// Las reglas compartidas con Taller (cruces por id, descarte) viven en el
+// gemelo servicioAutor.js.
+
+import { camposAutorNuevo } from "./servicioAutor.js";
 
 const limpio = (s) => String(s ?? "").trim();
 
-// El autor con el que nace un servicio: el del link si vino, si no la sesión.
+// El autor con el que nace un servicio: SIEMPRE la sesión. `mecanicoLink` (el
+// ?mecanico= de un link viejo) se acepta para no romper llamadas viejas, pero no
+// se usa.
+// eslint-disable-next-line no-unused-vars
 export function autorInicial({ mecanicoLink, sessionNombre } = {}) {
-  return limpio(mecanicoLink) || limpio(sessionNombre);
+  return limpio(sessionNombre);
 }
 
-// Qué va en el payload de un guardado de `servicios`. Solo una fila NUEVA
-// (sin id todavía) lleva `mecanico`; un PATCH de una fila existente no lo
-// manda, así nunca se pisa lo que la fila ya tiene.
-export function campoMecanico({ esFilaNueva, autor } = {}) {
-  if (!esFilaNueva) return {};
-  const a = limpio(autor);
-  return a ? { mecanico: a } : {};
+// Qué va en el payload de un guardado de `servicios`. Solo una fila NUEVA (sin
+// id todavía) lleva `mecanico` + `mecanico_id`, los de la sesión; un PATCH de
+// una fila existente no los manda, así nunca se pisa lo que la fila ya tiene.
+export function campoMecanico({ esFilaNueva, session } = {}) {
+  return camposAutorNuevo({ esFilaNueva, sesion: session });
 }
 
-// Quién se muestra como encargado en pantalla y en el informe: lo que trajo
-// la fila o el link (mechName), si no la sesión.
-export const autorMostrado = autorInicial;
+// Quién se muestra como encargado en pantalla y en el informe: el autor de la
+// fila cargada (mecanicoFila) o, para un servicio que todavía no existe, la
+// sesión.
+export function autorMostrado({ mecanicoFila, sessionNombre } = {}) {
+  return limpio(mecanicoFila) || limpio(sessionNombre);
+}

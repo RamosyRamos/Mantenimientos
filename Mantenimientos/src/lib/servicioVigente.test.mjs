@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico,
+  servicioVigente, accionAlAbrir, ACCION, esAjeno, esServicioDescartado, urlInformePublico,
   tipoDelLink, seriesVisibles, esChoqueVigente, marcasParaPasar, claveChoque,
   rechazoVigente, LIMPIAR_RECHAZO,
 } from "./servicioVigente.js";
@@ -145,4 +145,21 @@ test("LIMPIAR_RECHAZO: la aprobación limpia la marca y deja el historial", () =
   assert.equal(aprobado.rechazado, false);
   assert.equal(aprobado.motivo_rechazo, "Falta la foto del filtro.");
   assert.equal(aprobado.rechazado_por, "Gustavo Ramos");
+});
+
+test("esAjeno / accionAlAbrir por mecanico_id (feat/autor-por-sesion, 19/10): el id manda sobre el nombre", () => {
+  const fila = s({ mecanico: "Fabián Araya", mecanico_id: "u-fabian" });
+  assert.equal(esAjeno(fila, { id: "u-fabian", nombre: "Nombre distinto" }), false);
+  assert.equal(esAjeno(fila, { id: "u-bryan", nombre: "Fabián Araya" }), true);
+  assert.equal(accionAlAbrir(fila, { sesion: { id: "u-bryan", nombre: "Bryan Brenes" } }).ajeno, true);
+  assert.equal(accionAlAbrir(fila, { sesion: { id: "u-fabian", nombre: "Fabian" } }).ajeno, false);
+  // filas viejas sin id: por nombre, como siempre
+  assert.equal(esAjeno(s({ mecanico: "Fabián Araya" }), { id: "u-x", nombre: "fabian araya" }), false);
+});
+
+test("esServicioDescartado: el 400 del trigger 'servicio_descartado'; nada más", () => {
+  assert.equal(esServicioDescartado({ tipo: "http", status: 400, body: '{"code":"P0001","message":"servicio_descartado"}' }), true);
+  assert.equal(esServicioDescartado({ tipo: "http", status: 409, body: "duplicate key" }), false);
+  assert.equal(esServicioDescartado({ tipo: "red" }), false);
+  assert.equal(esServicioDescartado(null), false);
 });

@@ -18,6 +18,11 @@
 // por acá.
 //
 // Puro, sin React ni red: lo prueba servicioVigente.test.mjs (npm test).
+//
+// "Lo lleva otro" compara por servicios.mecanico_id (feat/autor-por-sesion,
+// 19/10/2026); las filas viejas sin id, por el nombre (gemelo servicioAutor.js).
+
+import { servicioEsDeOtro } from "./servicioAutor.js";
 
 const norm = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
@@ -40,10 +45,10 @@ export const ACCION = {
 };
 
 // ¿El servicio lo lleva otra persona? Sin autor guardado no se afirma nada.
-export function esAjeno(servicio, nombreSesion) {
-  const autor = norm(servicio?.mecanico);
-  if (!autor) return false;
-  return autor !== norm(nombreSesion);
+// `sesion` = { id, nombre } (o solo el nombre, compatibilidad con llamadas viejas).
+export function esAjeno(servicio, sesion) {
+  const s = typeof sesion === "string" || sesion == null ? { nombre: sesion } : sesion;
+  return servicioEsDeOtro(servicio, s);
 }
 
 // ── La marca de rechazo (decisión de Tavo, 18/10/2026) ──
@@ -59,9 +64,9 @@ export const LIMPIAR_RECHAZO = Object.freeze({ rechazado: false });
 // La marca de rechazo vale solo sobre un borrador (rechazoVigente). Un estado
 // desconocido se trata como "Por aprobar": solo lectura, nunca se edita ni se
 // crea otro.
-export function accionAlAbrir(servicio, { nombreSesion } = {}) {
+export function accionAlAbrir(servicio, { sesion = null, nombreSesion } = {}) {
   if (!esVigente(servicio)) return { accion: ACCION.NUEVO, servicio: null, ajeno: false, lleva: null };
-  const ajeno = esAjeno(servicio, nombreSesion);
+  const ajeno = esAjeno(servicio, sesion || { nombre: nombreSesion });
   const lleva = String(servicio.mecanico || "").trim() || null;
   const base = { servicio, ajeno, lleva };
   if (servicio.estado === "borrador") {
@@ -111,6 +116,13 @@ export function esChoqueVigente(err) {
   if (!err || err.tipo !== "http" || err.status !== 409) return false;
   const body = String(err.body || "");
   return body.includes("23505") || body.includes("servicios_un_vigente_por_orden");
+}
+
+// El servicio fue DESCARTADO mientras estaba abierto (feat/autor-por-sesion,
+// 19/10): el trigger de la base "un descartado no vuelve" rechaza el PATCH que
+// lo devolvería a borrador con 'servicio_descartado'. No hay reintento que valga.
+export function esServicioDescartado(err) {
+  return err?.tipo === "http" && /servicio_descartado/.test(String(err.body || ""));
 }
 
 // Las marcas con contenido de un checklist local (el que chocó) que se pueden
