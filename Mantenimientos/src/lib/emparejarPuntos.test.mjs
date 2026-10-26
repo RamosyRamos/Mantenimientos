@@ -242,9 +242,12 @@ test("conAnteriores: la versión anterior se guarda tal cual, con la marca, en s
   assert.equal(puntoDeVersionAnterior({ a: 1 }).version_anterior, true);
 });
 
-test("anterioresVisibles suma lo emparejado con una tarea que el checklist no muestra", () => {
-  const emp = { asignados: [{ id: "GLOW:1", grupo: "Glow", punto: { id: "GLOW_0", status: "ok" } }, { id: "RC:1", grupo: "RC", punto: { id: "RC_0" } }], anteriores: [] };
-  assert.deepEqual(anterioresVisibles(emp, new Set(["RC:1"])), [{ grupo: "Glow", punto: { id: "GLOW_0", status: "ok" } }]);
+test("anterioresVisibles suma lo emparejado con una tarea que el checklist no muestra (salvo lo de un adicional apagado)", () => {
+  const emp = { asignados: [{ id: "19:1", grupo: "DPF", punto: { id: "19_0", status: "ok" } }, { id: "GLOW:1", grupo: "Glow", punto: { id: "GLOW_0", status: "ok" } }, { id: "RC:1", grupo: "RC", punto: { id: "RC_0" } }], anteriores: [] };
+  // El ítem 19 no es un adicional: va a la versión anterior. GLOW con el adicional apagado queda oculto.
+  assert.deepEqual(anterioresVisibles(emp, new Set(["RC:1"]), { glow: false, diferenciales: false }), [{ grupo: "DPF", punto: { id: "19_0", status: "ok" } }]);
+  // Con el adicional marcado pero sin mostrarse (un servicio enviado que muestra solo lo guardado): versión anterior.
+  assert.deepEqual(anterioresVisibles(emp, new Set(["RC:1"]), { glow: true, diferenciales: false }).map(a => a.grupo), ["DPF", "Glow"]);
 });
 
 test("fotosParaGuardar: las movidas cambian de id, las de la versión anterior quedan, borrar una foto la saca", () => {

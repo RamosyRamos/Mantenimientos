@@ -164,23 +164,41 @@ export const nuevaReparacion = () => ({ id: `r${azar()}`.slice(0, 24), descripci
 
 export const RE_ID_REPARACION = /^[A-Za-z0-9_-]{1,64}$/;
 
-// Las reparaciones como las guarda Mantenimientos: { id, descripcion }, con id
-// para las que no lo tenían, y sin ningún monto (costo_estimado se descarta).
-export function reparacionesParaGuardar(lista) {
+// Las reparaciones de un dictamen, con el id que ya tienen: el válido y la
+// primera vez que aparece; si no, null. Nunca inventa uno.
+function conIdGuardado(lista) {
   const usados = new Set();
   return (Array.isArray(lista) ? lista : [])
     .filter(r => r && typeof r === "object")
     .map(r => {
-      let id = typeof r.id === "string" && RE_ID_REPARACION.test(r.id) && !usados.has(r.id) ? r.id : null;
-      while (!id || usados.has(id)) id = nuevaReparacion().id;
-      usados.add(id);
+      const id = typeof r.id === "string" && RE_ID_REPARACION.test(r.id) && !usados.has(r.id) ? r.id : null;
+      if (id) usados.add(id);
       return { id, descripcion: String(r.descripcion ?? "") };
     });
 }
 
-// Las que tienen texto (las vacías no se muestran ni se cotizan).
+// Las reparaciones como las guarda Mantenimientos: { id, descripcion }, con id
+// para las que no lo tenían, y sin ningún monto (costo_estimado se descarta).
+// Es el ÚNICO lugar que da ids (bug 3, 26/10): se llama al crear una reparación
+// o al cargar una sin id, y lo que devuelve se persiste. Nunca para mostrar.
+export function reparacionesParaGuardar(lista) {
+  const usados = new Set();
+  return conIdGuardado(lista).map(r => {
+    let id = r.id && !usados.has(r.id) ? r.id : null;
+    while (!id || usados.has(id)) id = nuevaReparacion().id;
+    usados.add(id);
+    return { id, descripcion: r.descripcion };
+  });
+}
+
+// ¿Alguna reparación sin id válido, o con el id repetido? Entonces hay que
+// dárselo (reparacionesParaGuardar) y guardarlo.
+export const reparacionesSinId = (lista) => conIdGuardado(lista).some(r => !r.id);
+
+// Las que tienen texto (las vacías no se muestran ni se cotizan), con su id
+// guardado o null: una sin id se muestra sin precio. No inventa ids (bug 3).
 export const reparacionesConTexto = (lista) =>
-  reparacionesParaGuardar(lista).filter(r => r.descripcion.trim() !== "");
+  conIdGuardado(lista).filter(r => r.descripcion.trim() !== "");
 
 export const formatoColones = (n) => {
   const v = Math.round(Number(n));
@@ -206,7 +224,7 @@ export function bloqueDictamenInforme({ codigo, dictamen, precios = null }) {
   if (reps.length) {
     lineas.push("Reparaciones sugeridas:");
     for (const r of reps) {
-      const monto = Number(precios?.[r.id]);
+      const monto = r.id ? Number(precios?.[r.id]) : 0;   // sin id no hay precio
       const desc = r.descripcion.trim().replace(/\s*\n+\s*/g, "; ");
       if (monto > 0) { total += monto; conPrecio++; lineas.push(`- ${desc} — ${formatoColones(monto)}`); }
       else lineas.push(`- ${desc}`);

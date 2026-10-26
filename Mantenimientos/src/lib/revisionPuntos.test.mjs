@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   itemDeIdPunto, esClaveEstable, puntoSeguible, faltantesDeRevisiones, problemaCierreRevision,
-  mensajeCierre, tipoRevision, textoDictamen, reparacionesParaGuardar, reparacionesConTexto,
+  mensajeCierre, tipoRevision, textoDictamen, reparacionesParaGuardar, reparacionesConTexto, reparacionesSinId,
   bloqueDictamenInforme, conBloqueDictamen, formatoColones, normalizarTextoPunto, MARCA_DICTAMEN,
 } from "./revisionPuntos.js";
 
@@ -100,6 +100,24 @@ test("reparacionesParaGuardar: cada una con id propio y sin ningún monto", () =
     assert.match(r.id, /^[A-Za-z0-9_-]{1,64}$/);
   }
   assert.deepEqual(reparacionesConTexto([{ id: "a", descripcion: " " }, { id: "b", descripcion: "x" }]).map(r => r.id), ["b"]);
+});
+
+test("bug 3: mostrar o cotizar no inventa ids — la que no tiene id sale con null, siempre igual", () => {
+  const lista = [{ descripcion: "Frenos" }, { id: "r1", descripcion: "Alinear" }, { id: "r1", descripcion: "Repetida" }, { id: "mal id", descripcion: "Otra" }];
+  const a = reparacionesConTexto(lista);
+  const b = reparacionesConTexto(lista);
+  assert.deepEqual(a, b, "dos renders dan lo mismo");
+  assert.deepEqual(a.map(r => r.id), [null, "r1", null, null]);
+  assert.equal(reparacionesSinId(lista), true);
+  assert.equal(reparacionesSinId([{ id: "r1", descripcion: "x" }, { id: "r2", descripcion: "" }]), false);
+  assert.equal(reparacionesSinId(null), false);
+  // El id se da una sola vez, al guardar: y lo guardado ya no necesita otro.
+  const guardadas = reparacionesParaGuardar(lista);
+  assert.equal(reparacionesSinId(guardadas), false);
+  assert.deepEqual(reparacionesParaGuardar(guardadas), guardadas, "volver a guardar no cambia ningún id");
+  // El bloque del informe: una sin id se lista sin precio (el precio cuelga del id).
+  const bloque = bloqueDictamenInforme({ codigo: "RC", dictamen: { recomendacion: "apto_reparaciones", reparaciones: [{ descripcion: "Frenos" }] }, precios: { null: 5000, undefined: 5000 } });
+  assert.equal(bloque, `${MARCA_DICTAMEN} Apto con reparaciones\nReparaciones sugeridas:\n- Frenos`);
 });
 
 test("formatoColones", () => {

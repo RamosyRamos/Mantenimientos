@@ -27,9 +27,9 @@ import { puedeDescartarServicio, itemsMarcados, preguntaDescarte, argumentosDesc
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
 import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from './lib/combustibleVehiculo.js';
 import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
-import { buildTasks, stripInterna, adicionalesDeTareas, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
-import { emparejarPuntos, estadoDesdeAsignados, instantaneaEmparejada, anterioresVisibles, conAnteriores, fotosParaGuardar } from './lib/emparejarPuntos.js';
-import { problemaCierreRevision, tipoRevision, nuevaReparacion, reparacionesParaGuardar, bloqueDictamenInforme, conBloqueDictamen } from './lib/revisionPuntos.js';
+import { buildTasks, stripInterna, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
+import { emparejarPuntos, estadoDesdeAsignados, instantaneaEmparejada, anterioresVisibles, conAnteriores, fotosParaGuardar, tareasOcultas, ocultosParaGuardar, adicionalesAlAbrir, adicionalesParaGuardar, pendientesDeRevisiones, detallesDeRevisiones } from './lib/emparejarPuntos.js';
+import { problemaCierreRevision, tipoRevision, nuevaReparacion, reparacionesParaGuardar, reparacionesSinId, bloqueDictamenInforme, conBloqueDictamen } from './lib/revisionPuntos.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
 import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, esServicioDescartado, marcasParaPasar, claveChoque, TIPO, LIMPIAR_RECHAZO } from './lib/servicioVigente.js';
 const ACEITE_VACIO = { litros: null, spec: null };
@@ -1846,6 +1846,9 @@ const DICTAMEN_OPCIONES = {
 // La huella "cargada" se calcula en el primer render con el checklist armado
 // después de abrir un servicio (ver huellaCargadaRef).
 const HUELLA_PENDIENTE = "pendiente";
+// El dictamen cargado tenía reparaciones sin id: nunca es igual a lo que se
+// guardaría, así el primer guardado persiste los ids que recibieron al cargar.
+const DICTAMEN_SIN_IDS = "reparaciones-sin-id";
 
 function MainApp({ session, onLogout }) {
   const isMobile = useIsMobile();
@@ -1956,6 +1959,8 @@ function MainApp({ session, onLogout }) {
   const [ordenPlaca,    setOrdenPlaca]    = useState(null);
   const placaAlEnfocarRef    = useRef("");   // la placa al entrar al campo, para volver si se cancela
   const avisoPlacaInformeRef = useRef("");   // ordenId ya avisado por regenerarInformeOrden
+  // Igual para los precios (menor 8, 26/10): sin leerlos no se reescribe el informe, y se dice.
+  const avisoPreciosInformeRef = useRef(null);
   const continuarRef          = useRef(null); // el botón Continuar del paso 1 (relatedTarget del blur)
   const continuarPresionadoRef = useRef(false); // pointerdown sobre Continuar: el blur que sigue no pregunta
   const [vehAnio,       setVehAnio]       = useState("");
@@ -2045,6 +2050,9 @@ function MainApp({ session, onLogout }) {
   const pendienteRevRef = useRef(null);
   // El dictamen tal como se cargó o se guardó (JSON): el autosave lo compara aparte.
   const dictamenCargadoRef = useRef(null);
+  // Los adicionales y los puntos ocultos como se cargaron o se guardaron (JSON):
+  // no entran en la huella (gemela con Taller), se comparan aparte.
+  const extrasCargadoRef = useRef(null);
   const conflictoRef  = useRef(false);
   const deepLinkRef   = useRef(false);
 
@@ -2058,7 +2066,8 @@ function MainApp({ session, onLogout }) {
   const [recetasError, setRecetasError] = useState(null);
   const [recetasNonce, setRecetasNonce] = useState(0);
   // Adicionales elegidos en el paso 2 (decisión 11): apagados por defecto. En un
-  // servicio guardado se deducen de sus tareas (aplicarRevisiones).
+  // servicio guardado manda servicios.adicionales (26/10, adicionalesAlAbrir);
+  // los puntos de un adicional apagado quedan en servicios.puntos_ocultos.
   const [adicionales, setAdicionales] = useState(SIN_ADICIONALES);
   // Ítems que el servicio cargado tiene guardados: en uno que ya no es borrador
   // se muestran solo esos (lo que se hizo), aunque la receta de hoy sume algo.
@@ -2251,7 +2260,7 @@ function MainApp({ session, onLogout }) {
   // servicio que todavía no existe, la sesión. Lo que se ESCRIBE en el primer
   // guardado es siempre la sesión (nombre + id, campoMecanico).
   const autorServicioActual = autorMostrado({ mecanicoFila: mechName, sessionNombre: session?.nombre });
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sesionAutor: session, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, emparejado, estadoOriginal, modoEdicionJefe, aceiteFila };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sesionAutor: session, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, emparejado, estadoOriginal, modoEdicionJefe, aceiteFila, adicionales, activeItems };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
@@ -2285,7 +2294,7 @@ function MainApp({ session, onLogout }) {
     dirtyRef.current = false;
     // Servicio nuevo: sin fila previa que respetar ni sellos que conservar.
     baselineRef.current = null;
-    huellaCargadaRef.current = null; dictamenCargadoRef.current = null; colFotosCargadaRef.current = null; pendienteRevRef.current = null;
+    huellaCargadaRef.current = null; dictamenCargadoRef.current = null; extrasCargadoRef.current = null; colFotosCargadaRef.current = null; pendienteRevRef.current = null;
     setEmparejado({ asignados: [], anteriores: [] });
     itemStampsRef.current = {}; itemSnapRef.current = {};
     conflictoRef.current = false;
@@ -2805,9 +2814,9 @@ function MainApp({ session, onLogout }) {
   };
 
   // Revisiones crudas (sin sellar) del checklist de hoy.
-  const armarCrudo = (d, { conOutOfAssyst = false } = {}) => {
+  const armarCrudo = (d, { conOutOfAssyst = false, tasks = d.tasks } = {}) => {
     const crudo = {};
-    d.tasks.forEach(t => {
+    tasks.forEach(t => {
       if (!crudo[t.grp]) crudo[t.grp] = [];
       const hasDetail = !!d.taskIssue[t.id];
       const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
@@ -2818,17 +2827,30 @@ function MainApp({ session, onLogout }) {
   // fix/revisiones-fase1 (25/10): los "Puntos de la versión anterior" — lo que al
   // abrir no calzó con ninguna tarea de hoy, más lo que calzó con una tarea que
   // este checklist no muestra. Se guardan tal cual, con version_anterior.
-  const anterioresDe = (d) => anterioresVisibles(d.emparejado || { asignados: [], anteriores: [] }, new Set(d.tasks.map(t => t.id)));
+  // Lo de un adicional desmarcado no: queda oculto (ocultosDe, 26/10).
+  const anterioresDe = (d) => anterioresVisibles(d.emparejado || { asignados: [], anteriores: [] }, new Set(d.tasks.map(t => t.id)), d.adicionales);
+  const sellarCon = (crudo) => sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || null, new Date().toISOString());
   // Lo que se guarda en revisiones: el checklist (sellado: lo que cambió queda
   // con quien está logueado) + la versión anterior, sin tocarla, al final de su grupo.
   const revisionesParaGuardar = (d, { sellar = true, conOutOfAssyst = false } = {}) => {
     const crudo = armarCrudo(d, { conOutOfAssyst });
-    const base = sellar ? sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || null, new Date().toISOString()) : crudo;
+    const base = sellar ? sellarCon(crudo) : crudo;
     return conAnteriores(base, anterioresDe(d));
   };
+  // servicios.puntos_ocultos (26/10): las tareas de un adicional desmarcado que
+  // tienen algo marcado, armadas y selladas como las del checklist, más lo que
+  // vino oculto y hoy no tiene tarea. Nunca van en revisiones: el cliente no las ve.
+  const ocultosDe = (d, { sellar = true } = {}) => {
+    const idsTareas = new Set(d.tasks.map(t => t.id));
+    const ocultas = tareasOcultas({ items: d.activeItems, adicionales: d.adicionales, idsTareas, taskStatus: d.taskStatus, taskIssue: d.taskIssue, taskPhotos: d.taskPhotos, checked: d.checked });
+    const crudo = ocultas.length ? armarCrudo(d, { tasks: ocultas }) : {};
+    return ocultosParaGuardar({ crudoOcultos: sellar ? sellarCon(crudo) : crudo, emparejado: d.emparejado, idsTareas, adicionales: d.adicionales });
+  };
+  // Lo que se compara aparte de la huella: los adicionales elegidos y lo oculto.
+  const extrasDe = (d) => JSON.stringify({ adicionales: adicionalesParaGuardar(d.adicionales), puntos_ocultos: ocultosDe(d, { sellar: false }) });
   // La columna fotos: las del checklist de hoy + las que la fila tenía bajo un id
   // que no pasó a una tarea de hoy (la versión anterior), para no perderlas.
-  const fotosDe = (d) => fotosParaGuardar({ taskPhotos: d.taskPhotos, idsTareas: new Set(d.tasks.map(t => t.id)), asignados: d.emparejado?.asignados || [], colFotosCargada: colFotosCargadaRef.current });
+  const fotosDe = (d) => fotosParaGuardar({ taskPhotos: d.taskPhotos, idsTareas: new Set(d.tasks.map(t => t.id)), asignados: d.emparejado?.asignados || [], colFotosCargada: colFotosCargadaRef.current, adicionales: d.adicionales });
   const huellaDe = (d) => huellaServicio({ revisiones: revisionesParaGuardar(d, { sellar: false }), observaciones: d.notes, fotos: fotosDe(d) });
   // El dictamen como se guarda (sin montos: el precio lo pone Taller).
   const dictamenDe = (d) => d.esRC ? { recomendacion: d.dictamenRec, reparaciones: reparacionesParaGuardar(d.reparaciones) } : null;
@@ -2856,6 +2878,8 @@ function MainApp({ session, onLogout }) {
       const byGrpMap = revisionesParaGuardar(d);
       const fotosFila = fotosDe(d);
       const dictamenFila = dictamenDe(d);
+      const ocultosFila = ocultosDe(d);
+      const extrasFila = extrasDe(d);
 
       // Abrir un servicio ya no lo re-escribe: si el contenido es idéntico al
       // que trajimos del servidor no hay nada que guardar. Esto evita que dos
@@ -2871,7 +2895,9 @@ function MainApp({ session, onLogout }) {
         || (aceiteNuevo.aceite_litros === d.aceiteFila?.litros && aceiteNuevo.aceite_spec === d.aceiteFila?.spec);
       // El dictamen no está en la huella (gemelo con Taller): se compara aparte.
       const dictamenSinCambio = JSON.stringify(dictamenFila) === dictamenCargadoRef.current;
-      if (id && huellaLocal === huellaCargadaRef.current && aceiteSinCambio && dictamenSinCambio) {
+      // Los adicionales y lo oculto tampoco (columnas propias): se comparan aparte.
+      const extrasSinCambio = extrasFila === extrasCargadoRef.current;
+      if (id && huellaLocal === huellaCargadaRef.current && aceiteSinCambio && dictamenSinCambio && extrasSinCambio) {
         dirtyRef.current = false;
         borrarDraft(claveDraftActual());
         errorDesdeRef.current = null;
@@ -2909,10 +2935,13 @@ function MainApp({ session, onLogout }) {
         // Nunca null encima de lo guardado; en modo edición (aprobado) no viaja.
         ...camposAceite({ litros: d.oilLiters, spec: d.oilSpec, llevaAceite: d.llevaAceite, guardado: d.aceiteFila, congelado: aceiteCongelado(d.estadoOriginal) }),
         revisiones: byGrpMap, observaciones: d.notes,
-        pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
+        // De lo que se guarda (con la versión anterior, sin lo oculto): 26/10.
+        pendientes: pendientesDeRevisiones(byGrpMap),
         progreso: { completadas: d.doneN, total: d.total },
         fotos: fotosFila,
         dictamen: dictamenFila,
+        adicionales: adicionalesParaGuardar(d.adicionales),
+        puntos_ocultos: ocultosFila,
         orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
         anio: d.vehAnio || null, version: d.vehVersion || null,
       };
@@ -2946,6 +2975,7 @@ function MainApp({ session, onLogout }) {
         // Lo guardado ya tiene los ids de hoy: su huella es la nueva base.
         huellaCargadaRef.current = baselineRef.current;
         dictamenCargadoRef.current = JSON.stringify(dictamenFila);
+        extrasCargadoRef.current = extrasFila;
         colFotosCargadaRef.current = saved[0].fotos || null;
       }
       if (saved?.[0]) setAceiteFila(aceiteGuardado(saved[0]));
@@ -2997,6 +3027,7 @@ function MainApp({ session, onLogout }) {
     if (pendienteRevRef.current || step !== 3 || !tasks.length) return;
     if (huellaCargadaRef.current === HUELLA_PENDIENTE) huellaCargadaRef.current = huellaDe(autoSaveRef.current);
     if (dictamenCargadoRef.current === HUELLA_PENDIENTE) dictamenCargadoRef.current = JSON.stringify(dictamenDe(autoSaveRef.current));
+    if (extrasCargadoRef.current === HUELLA_PENDIENTE) extrasCargadoRef.current = extrasDe(autoSaveRef.current);
   });
 
   // Auto-save: debounce 2 s whenever checklist state changes while in step 3.
@@ -3011,14 +3042,14 @@ function MainApp({ session, onLogout }) {
       const hayContenido = Object.values(crudo).flat().some(itemTieneContenido) || !!d.notes;
       if (huella !== huellaCargadaRef.current && hayContenido) {
         dirtyRef.current = true;
-        guardarDraft(claveDraftActual(), { revisiones: crudo, observaciones: d.notes, km: d.km }, huella);
+        guardarDraft(claveDraftActual(), { revisiones: crudo, observaciones: d.notes, km: d.km, adicionales: adicionalesParaGuardar(d.adicionales), puntos_ocultos: ocultosDe(d, { sellar: false }) }, huella);
       }
     }
     clearTimeout(autoSaveTimer.current);
     clearTimeout(retryTimer.current); // un cambio nuevo reemplaza el reintento pendiente: el debounce guarda
     autoSaveTimer.current = setTimeout(() => guardarAhoraRef.current(0), 2000);
     return () => clearTimeout(autoSaveTimer.current);
-  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce, oilLiters, oilSpec]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce, oilLiters, oilSpec, adicionales]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "hace Xs" vivo mientras haya algo que mostrar.
   useEffect(() => {
@@ -3036,20 +3067,29 @@ function MainApp({ session, onLogout }) {
 
   // Al entrar a un servicio (existente o nuevo por link de orden): si quedó un
   // draft local más nuevo que la base, se ofrece restaurarlo. Una vez por clave.
+  // Menor 10 (26/10): mientras lo guardado espera al catálogo (o la huella cargada
+  // no se calculó), todavía no se sabe si el draft es igual a la base: se espera
+  // (sin marcarlo ofrecido) y se vuelve a mirar cuando se aplica lo guardado.
   useEffect(() => {
     if (step !== 3 || !tasks.length) return;
+    if (pendienteRevRef.current || huellaCargadaRef.current === HUELLA_PENDIENTE) return;
     const key = draftKey(editingId, ordenId);
     if (!key || draftOfrecidoRef.current === key) return;
     draftOfrecidoRef.current = key;
     const dr = leerDraft(key);
     if (draftRestaurable(dr, huellaCargadaRef.current)) setDraftLocal({ key, draft: dr });
     else if (dr) borrarDraft(key); // igual a la base: ya estaba guardado
-  }, [step, editingId, ordenId, tasks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, editingId, ordenId, tasks.length, emparejado]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const restaurarDraftLocal = () => {
     const c = draftLocal?.draft?.contenido;
     if (c) {
-      if (c.revisiones) aplicarRevisiones(c.revisiones, null);
+      // Los adicionales y lo oculto del draft (26/10); un draft viejo no los
+      // trae: quedan los que hay en pantalla, nunca se deducen de los puntos.
+      if (c.revisiones) aplicarRevisiones(c.revisiones, null, {
+        ocultos: c.puntos_ocultos !== undefined ? c.puntos_ocultos : ocultosDe(autoSaveRef.current, { sellar: false }),
+        adicionalesFijos: c.adicionales ? { ...adicionales, glow: !!c.adicionales.glow, diferenciales: !!c.adicionales.diferenciales } : adicionales,
+      });
       if (c.observaciones != null) setNotes(c.observaciones);
       if (c.km != null && c.km !== "") setKm(c.km);
     }
@@ -3155,12 +3195,16 @@ function MainApp({ session, onLogout }) {
   // fix/revisiones-fase1 (25/10): cada punto guardado va a SU tarea de hoy —por
   // clave estable, si no por texto (lib/emparejarPuntos.js)—, nunca por posición.
   // Lo que no calza queda en "Puntos de la versión anterior" (emparejado).
-  const aplicarRevisiones = (revisiones, colFotos) => {
-    const emp = emparejarPuntos(revisiones, activeItems);
-    // En un servicio guardado manda lo guardado: los adicionales elegidos y los
-    // ítems que tiene salen de sus tareas (las de hoy y las de la versión anterior).
-    const idsGuardados = [...emp.asignados.map(a => a.id), ...emp.anteriores.map(a => a.punto?.id).filter(Boolean)];
-    setAdicionales(adicionalesDeTareas(idsGuardados));
+  //   ocultos            = servicios.puntos_ocultos (o el del draft)
+  //   columnaAdicionales = servicios.adicionales (null en un servicio de antes del 26/10)
+  //   adicionalesFijos   = los que se usan tal cual (restaurar un draft)
+  const aplicarRevisiones = (revisiones, colFotos, { ocultos = null, columnaAdicionales = null, adicionalesFijos = null } = {}) => {
+    const emp = emparejarPuntos(revisiones, activeItems, { ocultos });
+    // Los adicionales: manda la columna (26/10), nunca la presencia de puntos;
+    // sin columna, lo que se veía en main. Los ítems guardados (lo que se muestra
+    // en un servicio enviado) salen de sus tareas, sin lo oculto.
+    setAdicionales(adicionalesFijos || adicionalesAlAbrir({ columna: columnaAdicionales, emparejado: emp }));
+    const idsGuardados = [...emp.asignados.filter(a => !a.deOcultos).map(a => a.id), ...emp.anteriores.filter(a => !a.deOcultos).map(a => a.punto?.id).filter(Boolean)];
     setItemsGuardados(new Set(idsGuardados.map(itemDeTareaId).filter(Boolean)));
     const est = estadoDesdeAsignados(emp.asignados, colFotos);
     setTaskStatus(est.status);
@@ -3174,8 +3218,8 @@ function MainApp({ session, onLogout }) {
 
   // Aplica lo guardado y deja la firma y el autor por id de HOY: abrir un
   // servicio viejo no vuelve a sellar a nadie.
-  const aplicarYFirmar = (revisiones, colFotos) => {
-    const emp = aplicarRevisiones(revisiones, colFotos);
+  const aplicarYFirmar = (revisiones, colFotos, opciones = {}) => {
+    const emp = aplicarRevisiones(revisiones, colFotos, opciones);
     const { snap, stamps } = instantaneaEmparejada(emp.asignados, emp.anteriores);
     itemSnapRef.current = snap; itemStampsRef.current = stamps; setItemStamps(stamps);
   };
@@ -3183,7 +3227,7 @@ function MainApp({ session, onLogout }) {
     const p = pendienteRevRef.current;
     if (!p || !Object.keys(activeItems).length) return;
     pendienteRevRef.current = null;
-    aplicarYFirmar(p.revisiones, p.fotos);
+    aplicarYFirmar(p.revisiones, p.fotos, p.opciones);
   }, [activeItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadService = (s) => {
@@ -3238,7 +3282,14 @@ function MainApp({ session, onLogout }) {
     // existente, y en uno existente el 4MATIC del vehículo solo avisa (si se
     // tratara como nuevo, se prendería solo y el modo edición lo reescribiría).
     setTracGuardada(traccion || "");
-    if (!revisiones) { setAdicionales(SIN_ADICIONALES); setItemsGuardados(null); }
+    // Lo que el servicio tiene guardado aparte (26/10): los adicionales elegidos
+    // y los puntos de un adicional desmarcado.
+    const ocultosFila = s.puntos_ocultos && typeof s.puntos_ocultos === "object" ? s.puntos_ocultos : null;
+    const columnaAdicionales = s.adicionales ?? null;
+    if (!revisiones && !ocultosFila) {
+      setAdicionales(columnaAdicionales ? adicionalesAlAbrir({ columna: columnaAdicionales }) : SIN_ADICIONALES);
+      setItemsGuardados(null);
+    }
     // ?? y no ||: si la fila tiene null, el campo queda VACÍO — no debe
     // conservarse el año/versión del vehículo que estaba antes en memoria.
     setVehAnio(s.anio ?? "");
@@ -3250,11 +3301,12 @@ function MainApp({ session, onLogout }) {
     setReparaciones(reparacionesParaGuardar(s.dictamen?.reparaciones));
 
     pendienteRevRef.current = null;
-    if (revisiones) {
+    if (revisiones || ocultosFila) {
       // Sin el catálogo de ítems no se puede emparejar (todo iría a la versión
       // anterior): se aplica cuando llegue (efecto de activeItems).
-      if (Object.keys(activeItems).length) aplicarYFirmar(revisiones, s.fotos || {});
-      else pendienteRevRef.current = { revisiones, fotos: s.fotos || {} };
+      const opciones = { ocultos: ocultosFila, columnaAdicionales };
+      if (Object.keys(activeItems).length) aplicarYFirmar(revisiones || {}, s.fotos || {}, opciones);
+      else pendienteRevRef.current = { revisiones: revisiones || {}, fotos: s.fotos || {}, opciones };
     } else {
       setEmparejado({ asignados: [], anteriores: [] });
       colFotosCargadaRef.current = s.fotos || null;
@@ -3263,13 +3315,17 @@ function MainApp({ session, onLogout }) {
     // con el checklist armado: pasar los ids viejos a los de hoy no cuenta como
     // cambio, así que abrir no reescribe nada. Sin revisiones guardadas manda la
     // fila del servidor, como siempre. El dictamen se compara siempre así.
-    huellaCargadaRef.current = revisiones ? HUELLA_PENDIENTE : baselineRef.current;
-    dictamenCargadoRef.current = HUELLA_PENDIENTE;
+    huellaCargadaRef.current = (revisiones || ocultosFila) ? HUELLA_PENDIENTE : baselineRef.current;
+    // Una reparación guardada sin id recibe el suyo al cargar (reparacionesParaGuardar)
+    // y se PERSISTE en el primer guardado (bug 3, 26/10): con la base sin ids el
+    // dictamen cuenta como cambiado. Si no, se compara contra lo cargado.
+    dictamenCargadoRef.current = reparacionesSinId(s.dictamen?.reparaciones) ? DICTAMEN_SIN_IDS : HUELLA_PENDIENTE;
+    extrasCargadoRef.current = HUELLA_PENDIENTE;
 
     const existingSlug = s.slug || "";
     setSigDate("");
     if (!existingSlug) setClientUrl("");
-    if (!revisiones) { setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setChk({}); }
+    if (!revisiones && !ocultosFila) { setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setChk({}); }
     setEditingId(s.id);
     setEditingTrelloCardId(d.trello_card_id || null);
     setAprobado(s.aprobado || false);
@@ -3858,7 +3914,8 @@ function MainApp({ session, onLogout }) {
       aceite: aceite.litros ? { litros: aceite.litros, especificacion: aceite.spec } : null,
       revisiones: byGrpMap,
       observaciones: notes,
-      pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
+      // De lo que se guarda: la versión anterior cuenta como antes, lo oculto nunca (26/10).
+      pendientes: pendientesDeRevisiones(byGrpMap),
       progreso: { completadas: doneN, total },
     };
   };
@@ -3899,7 +3956,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   // (portal.ramosyramoscr.com/?m=<servicios.id>) al compartirlo con el cliente.
   // La vista pública vieja /servicio/<slug> (clientUrl) queda solo para la UI.
   const buildInformeMarkdown = ({ correccion = false, precios = {} } = {}) => {
-    const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
+    // Los hallazgos de lo que se guarda: también los de la versión anterior (el
+    // cliente ya los vio, igual que el informe de Taller); lo oculto nunca (26/10).
+    const issueTasks = detallesDeRevisiones(revisionesParaGuardar(autoSaveRef.current, { sellar: false }));
     // Un aprobado reabierto no tiene sigDate (loadService la limpia): la fecha
     // del título sale de la fila original, nunca de la corrección.
     // El encabezado lleva SOLO EL DÍA, igual que cuando aprueba Taller (decisión
@@ -3916,7 +3975,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     if (issueTasks.length > 0) {
       txt += `\n\n⚠️ Detalles marcados en el checklist:\n`;
       issueTasks.forEach(t => {
-        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id].replace(/\n+/g, "; ")}` : " (sin detalle escrito)";
+        const detail = t.detail ? ` → ${String(t.detail).replace(/\n+/g, "; ")}` : " (sin detalle escrito)";
         txt += `- ${t.text}${detail}\n`;
       });
     }
@@ -3972,7 +4031,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       if (v.estado === "incompleto") console.warn("[regenerarInformeOrden] guard placa omitido: datos incompletos", v);
       // Sin los precios no se reescribe el informe: se perdería el monto que puso Taller.
       const pr = await leerPreciosReparaciones();
-      if (!pr.ok) { console.warn("[regenerarInformeOrden] no se leyeron los precios: el informe no se reescribe"); return; }
+      if (!pr.ok) {
+        console.warn("[regenerarInformeOrden] no se leyeron los precios: el informe no se reescribe");
+        if (avisoPreciosInformeRef.current !== ordenId) {
+          avisoPreciosInformeRef.current = ordenId;
+          alert("No se pudieron leer los precios de las reparaciones: el informe de la orden no se actualizó. Los cambios del checklist sí quedaron guardados.");
+        }
+        return;
+      }
       const markdown = buildInformeMarkdown({ correccion, precios: pr.precios });
       await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
@@ -4057,6 +4123,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             revisiones: svcData.revisiones, observaciones: svcData.observaciones,
             pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: fotosDe(autoSaveRef.current),
             dictamen: dictamenDe(autoSaveRef.current),
+            adicionales: adicionalesParaGuardar(adicionales), puntos_ocultos: ocultosDe(autoSaveRef.current),
             // Toda aprobación limpia la marca de rechazo; el motivo queda de historial.
             ...LIMPIAR_RECHAZO,
             orden_id: ordenId || null, orden_numero: ordenNumero || null,
@@ -4153,11 +4220,13 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
         revisiones:      byGrpMap,
         observaciones:   notes,
-        pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
+        pendientes:      pendientesDeRevisiones(byGrpMap),
         progreso:        { completadas: doneN, total },
         estado:          "pendiente",
         aprobado:        false,
         fotos:           fotosDe(autoSaveRef.current),
+        adicionales:     adicionalesParaGuardar(adicionales),
+        puntos_ocultos:  ocultosDe(autoSaveRef.current),
         orden_id:        ordenId     || null,
         orden_numero:    ordenNumero || null,
         anio:            vehAnio     || null,
@@ -4215,7 +4284,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   }, {});
   // "Puntos de la versión anterior" (fix/revisiones-fase1): lo guardado que no
   // corresponde a ninguna tarea del checklist de hoy. Solo lectura.
-  const anterioresEnPantalla = anterioresVisibles(emparejado, new Set(tasks.map(t => t.id)));
+  const anterioresEnPantalla = anterioresVisibles(emparejado, new Set(tasks.map(t => t.id)), adicionales);
   // ¿Se puede cerrar la revisión? (B3) Para avisar antes de confirmar.
   const cierreActual = esRC ? cierreDe(autoSaveRef.current) : null;
 

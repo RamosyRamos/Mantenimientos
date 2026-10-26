@@ -19,9 +19,16 @@
 // Lo que no calza va a "Puntos de la versión anterior" (solo lectura, con su
 // estado, detalle y fotos), y al guardar se conserva tal cual, con su id viejo
 // y `version_anterior: true`. Nunca se pega por posición.
+//
+// Adicionales (decisión de Tavo del 26/10): los puntos de un adicional
+// DESMARCADO (GLOW, 4M_DIFF, 4M_FDIFF) no van a la versión anterior: quedan
+// OCULTOS, se guardan aparte (servicios.puntos_ocultos, nunca en `revisiones`,
+// así el cliente no los ve ni los cuenta) y vuelven al checklist con sus marcas
+// si se vuelve a marcar el adicional. Lo elegido se guarda en
+// servicios.adicionales: al reabrir manda la columna, nunca los puntos.
 
-import { esClaveEstable, itemDeIdPunto, normalizarTextoPunto, puntosDeRevisiones } from "./revisionPuntos.js";
-import { stripInterna, idDeTarea } from "./checklistReceta.js";
+import { esClaveEstable, itemDeIdPunto, normalizarTextoPunto, puntosDeRevisiones, esVersionAnterior, esFilaInformativa } from "./revisionPuntos.js";
+import { stripInterna, idDeTarea, ADICIONALES, adicionalesDeTareas } from "./checklistReceta.js";
 import { firmaItem } from "../servicioConcurrencia.js";
 
 // Todas las tareas posibles de hoy, con el id que les da buildTasks.
@@ -40,13 +47,18 @@ export function indiceDeTareas(items) {
 
 //   revisiones = servicios.revisiones ({ grupo: [puntos] })
 //   items      = mant_items cargado ({ clave: { tasks, claves } })
+//   ocultos    = servicios.puntos_ocultos (misma forma que revisiones) o null
 // → { asignados: [{ id, grupo, punto }], anteriores: [{ grupo, punto }] }
-//   `id` = el de la tarea de hoy; `punto` = el guardado, sin tocar.
-export function emparejarPuntos(revisiones, items) {
+//   `id` = el de la tarea de hoy; `punto` = el guardado, sin tocar. Lo que vino
+//   de puntos_ocultos lleva además `deOcultos: true`.
+export function emparejarPuntos(revisiones, items, { ocultos = null } = {}) {
   const tareas = indiceDeTareas(items);
   const porId = new Map(tareas.map(t => [t.id, t]));
   const usadas = new Set();
-  const entradas = puntosDeRevisiones(revisiones).map(e => ({ ...e, id: null }));
+  const entradas = [
+    ...puntosDeRevisiones(revisiones).map(e => ({ ...e, id: null })),
+    ...puntosDeRevisiones(ocultos).map(e => ({ ...e, id: null, deOcultos: true })),
+  ];
 
   const tomar = (e, t) => { e.id = t.id; usadas.add(t.id); };
   const buscar = (pred) => tareas.find(t => !usadas.has(t.id) && pred(t));
@@ -83,8 +95,9 @@ export function emparejarPuntos(revisiones, items) {
 
   const asignados = [], anteriores = [];
   for (const e of entradas) {
-    if (e.id) asignados.push({ id: e.id, grupo: e.grupo, punto: e.punto });
-    else anteriores.push({ grupo: e.grupo, punto: e.punto });
+    const marca = e.deOcultos ? { deOcultos: true } : {};
+    if (e.id) asignados.push({ id: e.id, grupo: e.grupo, punto: e.punto, ...marca });
+    else anteriores.push({ grupo: e.grupo, punto: e.punto, ...marca });
   }
   return { asignados, anteriores };
 }
@@ -124,16 +137,98 @@ export function instantaneaEmparejada(asignados, anteriores) {
 // Un punto de la versión anterior, como se guarda: tal cual, con la marca.
 export const puntoDeVersionAnterior = (punto) => ({ ...punto, version_anterior: true });
 
+const comoSet = (ids) => ids instanceof Set ? ids : new Set(ids || []);
+
+// Los ítems que esconde un adicional apagado ({ glow, diferenciales }).
+export function itemsOcultosPorAdicionales(adicionales) {
+  const out = new Set();
+  for (const [k, items] of Object.entries(ADICIONALES)) if (!adicionales?.[k]) items.forEach(i => out.add(i));
+  return out;
+}
+
+// Un punto emparejado que el checklist no muestra: ¿lo esconde un adicional
+// apagado (o ya venía de puntos_ocultos)? Entonces no es de la versión anterior.
+const esOculto = (a, apagados) => a.deOcultos === true || apagados.has(itemDeIdPunto(a.id));
+
 // Lo que va a "Puntos de la versión anterior": lo que no calzó, más lo que
 // calzó con una tarea que el checklist de hoy no muestra (un ítem que la receta
 // ya no tiene para este código). Esos se conservan con su id guardado.
-export function anterioresVisibles({ asignados, anteriores }, idsTareas) {
-  const enPantalla = idsTareas instanceof Set ? idsTareas : new Set(idsTareas || []);
+// Lo de un adicional desmarcado NO: queda oculto (ocultosParaGuardar).
+//   adicionales = los elegidos en el paso 2 ({ glow, diferenciales }).
+export function anterioresVisibles({ asignados, anteriores }, idsTareas, adicionales = null) {
+  const enPantalla = comoSet(idsTareas);
+  const apagados = itemsOcultosPorAdicionales(adicionales);
   return [
-    ...anteriores,
-    ...asignados.filter(a => !enPantalla.has(a.id)).map(a => ({ grupo: a.grupo, punto: a.punto })),
+    ...anteriores.filter(a => !a.deOcultos).map(a => ({ grupo: a.grupo, punto: a.punto })),
+    ...asignados.filter(a => !enPantalla.has(a.id) && !esOculto(a, apagados)).map(a => ({ grupo: a.grupo, punto: a.punto })),
   ];
 }
+
+// Las tareas que esconde un adicional apagado y tienen algo marcado (estado,
+// detalle o fotos): se arman como las del checklist (armarCrudo) y se guardan
+// en puntos_ocultos. Mismo { id, grp, icon, text } que buildTasks.
+export function tareasOcultas({ items, adicionales, idsTareas, taskStatus = {}, taskIssue = {}, taskPhotos = {}, checked = {} }) {
+  const enPantalla = comoSet(idsTareas);
+  const out = [];
+  for (const item of itemsOcultosPorAdicionales(adicionales)) {
+    const block = items?.[item];
+    const tasks = Array.isArray(block?.tasks) ? block.tasks : [];
+    tasks.forEach((t, i) => {
+      const id = idDeTarea(item, block, i);
+      if (enPantalla.has(id)) return;
+      const st = taskStatus?.[id];
+      const fotos = taskPhotos?.[id];
+      const marcado = (st && st !== "pending") || !!checked?.[id] || !!taskIssue?.[id] || (Array.isArray(fotos) && fotos.length > 0);
+      if (marcado) out.push({ id, grp: block.label, icon: block.icon, text: stripInterna(t) });
+    });
+  }
+  return out;
+}
+
+// servicios.puntos_ocultos para guardar ({ grupo: [puntos] } o null):
+//   · las tareas ocultas marcadas, armadas y selladas por el caller (crudoOcultos);
+//   · lo que vino de puntos_ocultos y hoy no tiene una tarea donde caer (o cae en
+//     una que el checklist no muestra por otra razón), tal cual.
+export function ocultosParaGuardar({ crudoOcultos, emparejado, idsTareas, adicionales }) {
+  const enPantalla = comoSet(idsTareas);
+  const apagados = itemsOcultosPorAdicionales(adicionales);
+  const out = {};
+  for (const [g, lista] of Object.entries(crudoOcultos || {})) if (Array.isArray(lista) && lista.length) out[g] = [...lista];
+  const fijos = [
+    ...(emparejado?.anteriores || []).filter(a => a.deOcultos),
+    ...(emparejado?.asignados || []).filter(a => a.deOcultos && !enPantalla.has(a.id) && !apagados.has(itemDeIdPunto(a.id))),
+  ];
+  for (const { grupo, punto } of fijos) (out[grupo] ||= []).push(punto);
+  return Object.keys(out).length ? out : null;
+}
+
+// Los adicionales al abrir un servicio guardado. Manda la columna
+// servicios.adicionales; sin columna (guardado antes del 26/10) se deducen como
+// lo hacía main: de las tareas que tiene, sin la versión anterior ni lo oculto.
+export function adicionalesAlAbrir({ columna, emparejado }) {
+  if (columna && typeof columna === "object" && !Array.isArray(columna)) {
+    return { glow: !!columna.glow, diferenciales: !!columna.diferenciales, legado: true };
+  }
+  const ids = (emparejado?.asignados || []).filter(a => !a.deOcultos && !esVersionAnterior(a.punto)).map(a => a.id);
+  return adicionalesDeTareas(ids);
+}
+
+// La columna servicios.adicionales como se guarda.
+export const adicionalesParaGuardar = (a) => ({ glow: !!a?.glow, diferenciales: !!a?.diferenciales });
+
+// Los puntos con hallazgo de lo que se guarda (revisiones, con la versión
+// anterior): el cliente los ve como antes. Las filas informativas (⚠) no cuentan.
+const tieneTexto = (d) => d != null && String(d).trim() !== "";
+const conHallazgo = (revisiones) => puntosDeRevisiones(revisiones).map(e => e.punto)
+  .filter(p => !esFilaInformativa(p) && (p.status === "issue" || tieneTexto(p.detail)));
+
+// servicios.pendientes: el detalle de cada hallazgo, como lo armaba main.
+export const pendientesDeRevisiones = (revisiones) => conHallazgo(revisiones)
+  .map(p => p.detail).filter(tieneTexto);
+
+// Los hallazgos para el informe de la orden: { text, detail } por punto.
+export const detallesDeRevisiones = (revisiones) => conHallazgo(revisiones)
+  .map(p => ({ text: stripInterna(p.text), detail: tieneTexto(p.detail) ? p.detail : null }));
 
 // Revisiones para guardar: lo armado desde el checklist de hoy + los puntos de
 // la versión anterior, cada uno en su grupo, sin cambiarles nada.
@@ -151,19 +246,25 @@ export function conAnteriores(crudo, anteriores) {
 //     (los puntos de la versión anterior y cualquier otra clave) queda como estaba;
 //   · las fotos del checklist de hoy salen del estado (borrar una foto la saca);
 //   · lo emparejado con una tarea que no se muestra conserva su id guardado.
+//   · lo oculto por un adicional apagado no va a la columna: sus fotos viajan
+//     dentro del punto, en puntos_ocultos.
 //   idsTareas = ids del checklist que se muestra; asignados = los emparejados.
-export function fotosParaGuardar({ taskPhotos, idsTareas, asignados = [], colFotosCargada = null }) {
-  const enPantalla = idsTareas instanceof Set ? idsTareas : new Set(idsTareas || []);
-  const movidos = new Set(asignados.filter(a => enPantalla.has(a.id)).map(a => a.punto?.id).filter(id => id != null && id !== ""));
+export function fotosParaGuardar({ taskPhotos, idsTareas, asignados = [], colFotosCargada = null, adicionales = null }) {
+  const enPantalla = comoSet(idsTareas);
+  const apagados = itemsOcultosPorAdicionales(adicionales);
+  const conId = (id) => id != null && id !== "";
+  const movidos = new Set(asignados.filter(a => enPantalla.has(a.id)).map(a => a.punto?.id).filter(conId));
+  const ocultos = new Set(asignados.filter(a => !enPantalla.has(a.id) && esOculto(a, apagados)).map(a => a.punto?.id).filter(conId));
   const out = {};
   const base = colFotosCargada && typeof colFotosCargada === "object" && !Array.isArray(colFotosCargada) ? colFotosCargada : {};
   for (const [k, v] of Object.entries(base)) {
-    if (movidos.has(k) || enPantalla.has(k)) continue;
+    if (movidos.has(k) || enPantalla.has(k) || ocultos.has(k) || apagados.has(itemDeIdPunto(k))) continue;
     if (Array.isArray(v) && v.length) out[k] = v;
   }
-  const fueraDePantalla = new Set(asignados.filter(a => !enPantalla.has(a.id)).map(a => a.id));
+  // Las del checklist de hoy salen del estado. Las de una tarea que no se
+  // muestra no: quedan con su id guardado (versión anterior) o en su punto (oculto).
   for (const [k, v] of Object.entries(taskPhotos || {})) {
-    if (fueraDePantalla.has(k) && !enPantalla.has(k)) continue;
+    if (!enPantalla.has(k)) continue;
     if (Array.isArray(v) && v.length) out[k] = v;
   }
   return out;
