@@ -20,6 +20,8 @@
 // tareas (adicionalesDeTareas), también en la serie C de un borrador viejo que
 // trae GLOW marcado (así no pierde las marcas).
 
+import { itemDeIdPunto, esClaveEstable } from "./revisionPuntos.js";
+
 // Prefijo "~" en mant_items.tasks = procedimiento interno del mecánico: se
 // muestra la task sin el símbolo (lo filtra Taller en los documentos).
 export const stripInterna = t => String(t || "").replace(/^~\s*/, "");
@@ -35,14 +37,19 @@ export const ADICIONALES = Object.freeze({
 export const SIN_ADICIONALES = Object.freeze({ glow: false, diferenciales: false, legado: false });
 export const REVISION_ELECTRICA = Object.freeze({ RC: "RC_EV", RG_PTS: "RG_EV" });
 
-// El ítem de una tarea a partir de su id: se quita SOLO el último "_n".
-// "3_0" → "3", "GLOW_1" → "GLOW", "GLOW_TEST_0" → "GLOW_TEST", "4M_INSP_0" →
-// "4M_INSP". NUNCA por prefijo: "GLOW_TEST_0" empieza con "GLOW_".
-export function itemDeTareaId(id) {
-  const s = String(id ?? "");
-  const i = s.lastIndexOf("_");
-  if (i <= 0 || !/^\d+$/.test(s.slice(i + 1))) return null;
-  return s.slice(0, i);
+// El ítem de una tarea a partir de su id. Clave estable (fix/revisiones-fase1,
+// 25/10): lo que va antes de los dos puntos ("RC:19" → "RC"). Id viejo por
+// posición: se quita SOLO el último "_n" ("3_0" → "3", "GLOW_TEST_0" →
+// "GLOW_TEST"; NUNCA por prefijo: "GLOW_TEST_0" empieza con "GLOW_"). La regla
+// vive en el gemelo revisionPuntos.js, la misma que usa Taller.
+export const itemDeTareaId = itemDeIdPunto;
+
+// El id de la tarea i de un ítem: su clave estable (mant_items.tareas_claves,
+// "<ítem>:<n>") si la base la tiene; si no (migración 20261025000021 sin
+// aplicar), el viejo por posición, que es lo que había.
+export function idDeTarea(clave, block, i) {
+  const k = Array.isArray(block?.claves) ? block.claves[i] : null;
+  return typeof k === "string" && esClaveEstable(k) ? k : `${clave}_${i}`;
 }
 
 // Los adicionales que trae un checklist guardado (ids de sus tareas).
@@ -88,9 +95,10 @@ export function itemsDelServicio(def, { fuel = "gasolina", is4m = false, adicion
   return ids;
 }
 
-// Las tareas del checklist: { id: `${item}_${i}`, grp, icon, text, outOfAssyst }.
+// Las tareas del checklist: { id, grp, icon, text, outOfAssyst }. El id es la
+// clave estable de la tarea (idDeTarea), nunca su posición si la base la tiene.
 //   codes  = { [codigo]: { items, serie, ev, … } }
-//   items  = { [clave]: { label, icon, tasks, outOfAssyst } }
+//   items  = { [clave]: { label, icon, tasks, claves, outOfAssyst } }
 //   soloItems: en un servicio que ya no es borrador (pendiente / aprobado), solo
 //              los ítems que tiene guardados: lo que se muestra es lo que se hizo,
 //              aunque la receta de hoy sume algo nuevo (GLOW_TEST, 4M_INSP).
@@ -102,7 +110,7 @@ export function buildTasks(code, fuel, is4m, codes, items, { adicionales = SIN_A
     if (soloItems && !soloItems.has(id)) continue;
     const block = items?.[id];
     if (block) block.tasks.forEach((text, i) =>
-      result.push({ id: `${id}_${i}`, grp: block.label, icon: block.icon, text: stripInterna(text), outOfAssyst: !!block.outOfAssyst })
+      result.push({ id: idDeTarea(id, block, i), grp: block.label, icon: block.icon, text: stripInterna(text), outOfAssyst: !!block.outOfAssyst })
     );
   }
   return result;

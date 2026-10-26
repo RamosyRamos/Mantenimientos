@@ -91,9 +91,10 @@ export const sellarRevisiones = (revisiones, snap, stamps, quien, ahora) => {
 
 // "Revisiones completadas: N/M" — mismo criterio que el contador del checklist
 // de Mantenimientos: las filas informativas (texto que abre con ⚠) no cuentan,
-// y 'na' cuenta como resuelto.
+// y 'na' cuenta como resuelto. Los "Puntos de la versión anterior"
+// (`version_anterior: true`, fix/revisiones-fase1) tampoco cuentan.
 export const progresoDeRevisiones = (revisiones) => {
-  const trackable = Object.values(revisiones || {}).flat().filter(it => it && !(it.text || "").startsWith("⚠"));
+  const trackable = Object.values(revisiones || {}).flat().filter(it => it && !(it.text || "").startsWith("⚠") && it.version_anterior !== true);
   return {
     completadas: trackable.filter(it => it.status && it.status !== "pending").length,
     total: trackable.length,
