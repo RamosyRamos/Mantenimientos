@@ -27,7 +27,9 @@ import { puedeDescartarServicio, itemsMarcados, preguntaDescarte, argumentosDesc
 import { formatoFechaCR, fechaServicioCorta } from './lib/fechaServicio.js';
 import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from './lib/combustibleVehiculo.js';
 import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
-import { buildTasks, stripInterna, adicionalesDeTareas, idsDeRevisiones, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
+import { buildTasks, stripInterna, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
+import { emparejarPuntos, estadoDesdeAsignados, instantaneaEmparejada, anterioresVisibles, conAnteriores, fotosParaGuardar, tareasOcultas, ocultosParaGuardar, adicionalesAlAbrir, adicionalesParaGuardar, pendientesDeRevisiones, detallesDeRevisiones } from './lib/emparejarPuntos.js';
+import { problemaCierreRevision, tipoRevision, nuevaReparacion, reparacionesParaGuardar, reparacionesSinId, bloqueDictamenInforme, conBloqueDictamen } from './lib/revisionPuntos.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
 import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, esServicioDescartado, marcasParaPasar, claveChoque, TIPO, LIMPIAR_RECHAZO } from './lib/servicioVigente.js';
 const ACEITE_VACIO = { litros: null, spec: null };
@@ -1812,10 +1814,6 @@ export default function App() {
 // esRC = pertenece a la serie 'C' (comparten todo: sin aceite, dictamen,
 // informe al comprador/dueño). tipoRevision distingue, por código exacto,
 // el set de opciones del dictamen y los textos de branding.
-const tipoRevision = (codigo) => {
-  const c = (codigo || "").toUpperCase();
-  return c === "RG" ? "general" : c === "RC" ? "compra" : null;
-};
 // Combustible para mostrar (tema B): texto sin emoji y su ícono. fuelLabel
 // queda para el informe en markdown, que no cambia.
 const fuelTexto = f => f === "diesel" ? "Diesel" : f === "electrico" ? "Eléctrico" : "Gasolina";
@@ -1844,6 +1842,13 @@ const DICTAMEN_OPCIONES = {
     { key:"critico",               label:"Estado crítico",             color:T.crit },
   ],
 };
+
+// La huella "cargada" se calcula en el primer render con el checklist armado
+// después de abrir un servicio (ver huellaCargadaRef).
+const HUELLA_PENDIENTE = "pendiente";
+// El dictamen cargado tenía reparaciones sin id: nunca es igual a lo que se
+// guardaría, así el primer guardado persiste los ids que recibieron al cargar.
+const DICTAMEN_SIN_IDS = "reparaciones-sin-id";
 
 function MainApp({ session, onLogout }) {
   const isMobile = useIsMobile();
@@ -1954,6 +1959,8 @@ function MainApp({ session, onLogout }) {
   const [ordenPlaca,    setOrdenPlaca]    = useState(null);
   const placaAlEnfocarRef    = useRef("");   // la placa al entrar al campo, para volver si se cancela
   const avisoPlacaInformeRef = useRef("");   // ordenId ya avisado por regenerarInformeOrden
+  // Igual para los precios (menor 8, 26/10): sin leerlos no se reescribe el informe, y se dice.
+  const avisoPreciosInformeRef = useRef(null);
   const continuarRef          = useRef(null); // el botón Continuar del paso 1 (relatedTarget del blur)
   const continuarPresionadoRef = useRef(false); // pointerdown sobre Continuar: el blur que sigue no pregunta
   const [vehAnio,       setVehAnio]       = useState("");
@@ -2027,6 +2034,25 @@ function MainApp({ session, onLogout }) {
   // Huella de la fila tal como la devolvió el servidor la última vez que la
   // vimos. El autosave la compara antes de PATCHear (guarda anti-pisado).
   const baselineRef   = useRef(null);
+  // fix/revisiones-fase1 (25/10): la huella de lo que el checklist GUARDARÍA justo
+  // después de abrir el servicio (los puntos ya emparejados con las tareas de hoy,
+  // con su clave estable). Con eso se decide "nadie tocó nada" (no se escribe, no
+  // hay draft): abrir un servicio viejo no lo reescribe aunque sus ids cambien.
+  // baselineRef sigue siendo la huella CRUDA del servidor, para la guarda.
+  // PENDIENTE = recién cargado: la calcula el primer render con el checklist armado.
+  const huellaCargadaRef = useRef(null);
+  // Los puntos guardados ya emparejados (lib/emparejarPuntos): asignados a una
+  // tarea de hoy y los de la versión anterior. La columna fotos cargada, para no
+  // perder las fotos de la versión anterior.
+  const [emparejado, setEmparejado] = useState({ asignados: [], anteriores: [] });
+  const colFotosCargadaRef = useRef(null);
+  // Lo guardado que llegó antes que el catálogo de ítems (se aplica al llegar).
+  const pendienteRevRef = useRef(null);
+  // El dictamen tal como se cargó o se guardó (JSON): el autosave lo compara aparte.
+  const dictamenCargadoRef = useRef(null);
+  // Los adicionales y los puntos ocultos como se cargaron o se guardaron (JSON):
+  // no entran en la huella (gemela con Taller), se comparan aparte.
+  const extrasCargadoRef = useRef(null);
   const conflictoRef  = useRef(false);
   const deepLinkRef   = useRef(false);
 
@@ -2040,13 +2066,15 @@ function MainApp({ session, onLogout }) {
   const [recetasError, setRecetasError] = useState(null);
   const [recetasNonce, setRecetasNonce] = useState(0);
   // Adicionales elegidos en el paso 2 (decisión 11): apagados por defecto. En un
-  // servicio guardado se deducen de sus tareas (aplicarRevisiones).
+  // servicio guardado manda servicios.adicionales (26/10, adicionalesAlAbrir);
+  // los puntos de un adicional apagado quedan en servicios.puntos_ocultos.
   const [adicionales, setAdicionales] = useState(SIN_ADICIONALES);
   // Ítems que el servicio cargado tiene guardados: en uno que ya no es borrador
   // se muestran solo esos (lo que se hizo), aunque la receta de hoy sume algo.
   const [itemsGuardados, setItemsGuardados] = useState(null);
   const [dictamenRec,  setDictamenRec]  = useState("");        // clave del dictamen — RC: apto/apto_reparaciones/no_recomendable · RG: excelente/bueno/requiere_reparaciones/critico
-  const [reparaciones, setReparaciones] = useState([]);        // [{ descripcion, costo_estimado }]
+  // [{ id, descripcion }] — sin montos: el precio lo pone Taller (servicio_reparacion_precios, 25/10).
+  const [reparaciones, setReparaciones] = useState([]);
 
   useEffect(() => {
     const SURL = import.meta.env.VITE_SUPABASE_URL;
@@ -2062,7 +2090,8 @@ function MainApp({ session, onLogout }) {
         setRecetasError("La base no devolvió las recetas de mantenimiento."); return;
       }
       const newItems = Object.fromEntries(
-        itemsArr.map(i => [i.clave, { label: i.label, icon: i.icon, tasks: i.tasks, outOfAssyst: !!i.out_of_assyst }])
+        // claves = la clave estable de cada tarea (mant_items.tareas_claves, fix/revisiones-fase1).
+        itemsArr.map(i => [i.clave, { label: i.label, icon: i.icon, tasks: i.tasks, claves: Array.isArray(i.tareas_claves) ? i.tareas_claves : null, outOfAssyst: !!i.out_of_assyst }])
       );
       const newCodes = Object.fromEntries(
         recetas.map(r => [r.codigo, { color: r.color, desc: r.descripcion, items: r.items, fuelLock: r.fuel_lock || null, ev: r.serie === 'EV', serie: r.serie }])
@@ -2102,7 +2131,6 @@ function MainApp({ session, onLogout }) {
   const dictamenOpciones = DICTAMEN_OPCIONES[tipoRev] || DICTAMEN_OPCIONES.compra;
   const llevaAceite    = Array.isArray(svc.items) && svc.items.includes("3");         // la receta incluye cambio de aceite (ítem "3")
   const servicioTitulo = esRC ? revisionLabel : `Servicio ${sel}`;
-  const dictamenTotal  = reparaciones.reduce((s, r) => s + (Number(r.costo_estimado) || 0), 0);
   const fuelLock     = svc.fuelLock || null;
   const fuelMismatch = fuelLock && fuelLock !== fuel;
 
@@ -2232,13 +2260,15 @@ function MainApp({ session, onLogout }) {
   // servicio que todavía no existe, la sesión. Lo que se ESCRIBE en el primer
   // guardado es siempre la sesión (nombre + id, campoMecanico).
   const autorServicioActual = autorMostrado({ mecanicoFila: mechName, sessionNombre: session?.nombre });
-  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sesionAutor: session, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, dictamenTotal, estadoOriginal, modoEdicionJefe, aceiteFila };
+  autoSaveRef.current = { tasks, taskStatus, taskIssue, taskPhotos, checked, plate, model, engine, mechName, autor: autorServicioActual, sesionAutor: session, sel, svc, km, fuel, is4m, oilLiters, oilSpec, notes, doneN, total, sigDate, ordenId, ordenNumero, vehAnio, vehVersion, esRC, llevaAceite, dictamenRec, reparaciones, emparejado, estadoOriginal, modoEdicionJefe, aceiteFila, adicionales, activeItems };
 
   const toggle   = id  => setChk(p => ({ ...p, [id]: !p[id] }));
   const toggleEx = id  => setExChk(p => ({ ...p, [id]: !p[id] }));
+  // "Marcar todo" (fix/revisiones-fase1, B2): marca OK SOLO lo que no tiene
+  // estado. Un N/A o un hallazgo ya puestos no se pisan.
   const markAll  = ()  => {
     const newStatus = {};
-    trackable.forEach(t => { newStatus[t.id] = "ok"; });
+    trackable.forEach(t => { if (!taskStatus[t.id] && !checked[t.id]) newStatus[t.id] = "ok"; });
     setTaskStatus(p => ({ ...p, ...newStatus }));
   };
   const resetAll = ()  => {
@@ -2264,6 +2294,8 @@ function MainApp({ session, onLogout }) {
     dirtyRef.current = false;
     // Servicio nuevo: sin fila previa que respetar ni sellos que conservar.
     baselineRef.current = null;
+    huellaCargadaRef.current = null; dictamenCargadoRef.current = null; extrasCargadoRef.current = null; colFotosCargadaRef.current = null; pendienteRevRef.current = null;
+    setEmparejado({ asignados: [], anteriores: [] });
     itemStampsRef.current = {}; itemSnapRef.current = {};
     conflictoRef.current = false;
     setItemStamps({}); setServicioIntro(null); setConflicto(null); setDeepLinkMsg(null);
@@ -2659,12 +2691,23 @@ function MainApp({ session, onLogout }) {
     setSaveInfo({ estado: 'idle' });
   };
 
+  // La copia local, con cada punto en el id de SU tarea de hoy (clave o texto,
+  // nunca posición): lo que no calza no se pasa (fix/revisiones-fase1).
+  const crudoAIdsDeHoy = (crudo) => {
+    const { asignados, anteriores } = emparejarPuntos(crudo || {}, activeItems);
+    const out = {};
+    for (const { id, grupo, punto } of asignados) (out[grupo] ||= []).push({ ...punto, id });
+    // Lo que no calza va con un id que ningún checklist tiene: cuenta como "no existe".
+    anteriores.forEach(({ grupo, punto }, i) => (out[grupo] ||= []).push({ ...punto, id: `sin-tarea-${i}` }));
+    return out;
+  };
+
   // Pasar las marcas de la copia local al servicio abierto: solo ítems con
   // contenido que existan en este checklist y que no estén ya marcados acá.
   // El autosave las guarda a nombre de quien está logueado.
   const pasarMarcasDelChoque = () => {
     if (!choque) return;
-    const m = marcasParaPasar(choque.crudo, { idsDestino: tasks.map(t => t.id), statusDestino: taskStatus });
+    const m = marcasParaPasar(crudoAIdsDeHoy(choque.crudo), { idsDestino: tasks.map(t => t.id), statusDestino: taskStatus });
     setTaskStatus(p => ({ ...p, ...m.status }));
     setTaskIssue(p => ({ ...p, ...m.detail }));
     setTaskPhotos(p => ({ ...p, ...m.fotos }));
@@ -2770,17 +2813,49 @@ function MainApp({ session, onLogout }) {
     return true;
   };
 
-  // Revisiones crudas (sin sellar) desde el estado actual.
-  const armarCrudo = (d) => {
+  // Revisiones crudas (sin sellar) del checklist de hoy.
+  const armarCrudo = (d, { conOutOfAssyst = false, tasks = d.tasks } = {}) => {
     const crudo = {};
-    d.tasks.forEach(t => {
+    tasks.forEach(t => {
       if (!crudo[t.grp]) crudo[t.grp] = [];
       const hasDetail = !!d.taskIssue[t.id];
       const rawStatus = d.taskStatus[t.id] || (d.checked[t.id] ? "ok" : "pending");
-      crudo[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null });
+      crudo[t.grp].push({ id: t.id, text: t.text, status: hasDetail ? "issue" : rawStatus, detail: d.taskIssue[t.id] || null, fotos: d.taskPhotos[t.id] || null, ...(conOutOfAssyst ? { outOfAssyst: t.outOfAssyst || false } : {}) });
     });
     return crudo;
   };
+  // fix/revisiones-fase1 (25/10): los "Puntos de la versión anterior" — lo que al
+  // abrir no calzó con ninguna tarea de hoy, más lo que calzó con una tarea que
+  // este checklist no muestra. Se guardan tal cual, con version_anterior.
+  // Lo de un adicional desmarcado no: queda oculto (ocultosDe, 26/10).
+  const anterioresDe = (d) => anterioresVisibles(d.emparejado || { asignados: [], anteriores: [] }, new Set(d.tasks.map(t => t.id)), d.adicionales);
+  const sellarCon = (crudo) => sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || null, new Date().toISOString());
+  // Lo que se guarda en revisiones: el checklist (sellado: lo que cambió queda
+  // con quien está logueado) + la versión anterior, sin tocarla, al final de su grupo.
+  const revisionesParaGuardar = (d, { sellar = true, conOutOfAssyst = false } = {}) => {
+    const crudo = armarCrudo(d, { conOutOfAssyst });
+    const base = sellar ? sellarCon(crudo) : crudo;
+    return conAnteriores(base, anterioresDe(d));
+  };
+  // servicios.puntos_ocultos (26/10): las tareas de un adicional desmarcado que
+  // tienen algo marcado, armadas y selladas como las del checklist, más lo que
+  // vino oculto y hoy no tiene tarea. Nunca van en revisiones: el cliente no las ve.
+  const ocultosDe = (d, { sellar = true } = {}) => {
+    const idsTareas = new Set(d.tasks.map(t => t.id));
+    const ocultas = tareasOcultas({ items: d.activeItems, adicionales: d.adicionales, idsTareas, taskStatus: d.taskStatus, taskIssue: d.taskIssue, taskPhotos: d.taskPhotos, checked: d.checked });
+    const crudo = ocultas.length ? armarCrudo(d, { tasks: ocultas }) : {};
+    return ocultosParaGuardar({ crudoOcultos: sellar ? sellarCon(crudo) : crudo, emparejado: d.emparejado, idsTareas, adicionales: d.adicionales });
+  };
+  // Lo que se compara aparte de la huella: los adicionales elegidos y lo oculto.
+  const extrasDe = (d) => JSON.stringify({ adicionales: adicionalesParaGuardar(d.adicionales), puntos_ocultos: ocultosDe(d, { sellar: false }) });
+  // La columna fotos: las del checklist de hoy + las que la fila tenía bajo un id
+  // que no pasó a una tarea de hoy (la versión anterior), para no perderlas.
+  const fotosDe = (d) => fotosParaGuardar({ taskPhotos: d.taskPhotos, idsTareas: new Set(d.tasks.map(t => t.id)), asignados: d.emparejado?.asignados || [], colFotosCargada: colFotosCargadaRef.current, adicionales: d.adicionales });
+  const huellaDe = (d) => huellaServicio({ revisiones: revisionesParaGuardar(d, { sellar: false }), observaciones: d.notes, fotos: fotosDe(d) });
+  // El dictamen como se guarda (sin montos: el precio lo pone Taller).
+  const dictamenDe = (d) => d.esRC ? { recomendacion: d.dictamenRec, reparaciones: reparacionesParaGuardar(d.reparaciones) } : null;
+  // ¿Se puede cerrar la revisión? (B3) null = sí. Mismo criterio en Taller (gemelo).
+  const cierreDe = (d) => problemaCierreRevision({ codigo: d.sel, revisiones: armarCrudo(d), dictamen: dictamenDe(d) });
 
   const claveDraftActual = () => draftKey(editingIdRef.current, autoSaveRef.current.ordenId);
 
@@ -2796,24 +2871,33 @@ function MainApp({ session, onLogout }) {
     const id = editingIdRef.current;
     setSaveInfo(s => ({ ...s, estado: 'saving', intento }));
     try {
-      const crudo = armarCrudo(d);
       // Trazabilidad: regla compartida con Taller (servicioConcurrencia.js) —
       // lo que cambió se sella con quien está logueado, lo demás conserva su autor.
       // F4: el sello es de QUIEN ESTÁ LOGUEADO (identidad), nunca del mechName
       // (que es el técnico asignado del servicio, un dato).
-      const byGrpMap = sellarRevisiones(crudo, itemSnapRef.current, itemStampsRef.current, session?.nombre || null, new Date().toISOString());
+      const byGrpMap = revisionesParaGuardar(d);
+      const fotosFila = fotosDe(d);
+      const dictamenFila = dictamenDe(d);
+      const ocultosFila = ocultosDe(d);
+      const extrasFila = extrasDe(d);
 
       // Abrir un servicio ya no lo re-escribe: si el contenido es idéntico al
       // que trajimos del servidor no hay nada que guardar. Esto evita que dos
       // pestañas abiertas se peleen sin que nadie haya tocado nada.
-      const huellaLocal = huellaServicio({ revisiones: byGrpMap, observaciones: d.notes, fotos: d.taskPhotos });
+      // La comparación es contra la huella CARGADA (lo emparejado al abrir), no
+      // contra la cruda del servidor: un servicio viejo cambia de ids al abrirse.
+      const huellaLocal = huellaServicio({ revisiones: byGrpMap, observaciones: d.notes, fotos: fotosFila });
       // El aceite no entra en la huella (servicioConcurrencia.js es gemelo con
       // Taller): se compara aparte, así una cantidad nueva de resolver-aceite o
       // la opción que eligió el mecánico se guardan aunque el checklist no cambie.
       const aceiteNuevo = camposAceite({ litros: d.oilLiters, spec: d.oilSpec, llevaAceite: d.llevaAceite, guardado: d.aceiteFila, congelado: aceiteCongelado(d.estadoOriginal) });
       const aceiteSinCambio = !('aceite_litros' in aceiteNuevo)
         || (aceiteNuevo.aceite_litros === d.aceiteFila?.litros && aceiteNuevo.aceite_spec === d.aceiteFila?.spec);
-      if (id && huellaLocal === baselineRef.current && aceiteSinCambio) {
+      // El dictamen no está en la huella (gemelo con Taller): se compara aparte.
+      const dictamenSinCambio = JSON.stringify(dictamenFila) === dictamenCargadoRef.current;
+      // Los adicionales y lo oculto tampoco (columnas propias): se comparan aparte.
+      const extrasSinCambio = extrasFila === extrasCargadoRef.current;
+      if (id && huellaLocal === huellaCargadaRef.current && aceiteSinCambio && dictamenSinCambio && extrasSinCambio) {
         dirtyRef.current = false;
         borrarDraft(claveDraftActual());
         errorDesdeRef.current = null;
@@ -2851,10 +2935,13 @@ function MainApp({ session, onLogout }) {
         // Nunca null encima de lo guardado; en modo edición (aprobado) no viaja.
         ...camposAceite({ litros: d.oilLiters, spec: d.oilSpec, llevaAceite: d.llevaAceite, guardado: d.aceiteFila, congelado: aceiteCongelado(d.estadoOriginal) }),
         revisiones: byGrpMap, observaciones: d.notes,
-        pendientes: Object.entries(d.taskIssue).filter(([,v]) => v).map(([,v]) => v),
+        // De lo que se guarda (con la versión anterior, sin lo oculto): 26/10.
+        pendientes: pendientesDeRevisiones(byGrpMap),
         progreso: { completadas: d.doneN, total: d.total },
-        fotos: d.taskPhotos,
-        dictamen: d.esRC ? { recomendacion: d.dictamenRec, reparaciones: d.reparaciones, total_estimado: d.dictamenTotal } : null,
+        fotos: fotosFila,
+        dictamen: dictamenFila,
+        adicionales: adicionalesParaGuardar(d.adicionales),
+        puntos_ocultos: ocultosFila,
         orden_id: d.ordenId || null, orden_numero: d.ordenNumero || null,
         anio: d.vehAnio || null, version: d.vehVersion || null,
       };
@@ -2883,7 +2970,14 @@ function MainApp({ session, onLogout }) {
       // La huella y los sellos se recalculan sobre lo que DEVOLVIÓ el servidor
       // (jsonb reordena claves: comparar contra el payload local daría falsos
       // conflictos en el guardado siguiente).
-      if (saved?.[0]) registrarFilaVista(saved[0]);
+      if (saved?.[0]) {
+        registrarFilaVista(saved[0]);
+        // Lo guardado ya tiene los ids de hoy: su huella es la nueva base.
+        huellaCargadaRef.current = baselineRef.current;
+        dictamenCargadoRef.current = JSON.stringify(dictamenFila);
+        extrasCargadoRef.current = extrasFila;
+        colFotosCargadaRef.current = saved[0].fotos || null;
+      }
       if (saved?.[0]) setAceiteFila(aceiteGuardado(saved[0]));
       if (saved?.[0]?.editado_por) editadoPorRef.current = saved[0].editado_por;
       // Modo edición: el informe del cliente en la orden se regenera en cada
@@ -2926,26 +3020,36 @@ function MainApp({ session, onLogout }) {
     guardarAhoraRef.current(0);
   };
 
+  // La huella "cargada" (fix/revisiones-fase1): en el primer render con el
+  // checklist armado después de abrir un servicio, lo que se guardaría sin que
+  // nadie toque nada. Va ANTES del efecto del autosave (corren en orden).
+  useEffect(() => {
+    if (pendienteRevRef.current || step !== 3 || !tasks.length) return;
+    if (huellaCargadaRef.current === HUELLA_PENDIENTE) huellaCargadaRef.current = huellaDe(autoSaveRef.current);
+    if (dictamenCargadoRef.current === HUELLA_PENDIENTE) dictamenCargadoRef.current = JSON.stringify(dictamenDe(autoSaveRef.current));
+    if (extrasCargadoRef.current === HUELLA_PENDIENTE) extrasCargadoRef.current = extrasDe(autoSaveRef.current);
+  });
+
   // Auto-save: debounce 2 s whenever checklist state changes while in step 3.
   // Además, en el MISMO cambio (sin esperar el debounce) el estado va al draft
   // local si difiere de lo que trajimos del servidor.
   useEffect(() => {
     if (step !== 3) return;
     const d = autoSaveRef.current;
-    if (autosaveAplica(d)) {
-      const crudo = armarCrudo(d);
-      const huella = huellaServicio({ revisiones: crudo, observaciones: d.notes, fotos: d.taskPhotos });
+    if (autosaveAplica(d) && huellaCargadaRef.current !== HUELLA_PENDIENTE) {
+      const crudo = revisionesParaGuardar(d, { sellar: false });
+      const huella = huellaServicio({ revisiones: crudo, observaciones: d.notes, fotos: fotosDe(d) });
       const hayContenido = Object.values(crudo).flat().some(itemTieneContenido) || !!d.notes;
-      if (huella !== baselineRef.current && hayContenido) {
+      if (huella !== huellaCargadaRef.current && hayContenido) {
         dirtyRef.current = true;
-        guardarDraft(claveDraftActual(), { revisiones: crudo, observaciones: d.notes, km: d.km }, huella);
+        guardarDraft(claveDraftActual(), { revisiones: crudo, observaciones: d.notes, km: d.km, adicionales: adicionalesParaGuardar(d.adicionales), puntos_ocultos: ocultosDe(d, { sellar: false }) }, huella);
       }
     }
     clearTimeout(autoSaveTimer.current);
     clearTimeout(retryTimer.current); // un cambio nuevo reemplaza el reintento pendiente: el debounce guarda
     autoSaveTimer.current = setTimeout(() => guardarAhoraRef.current(0), 2000);
     return () => clearTimeout(autoSaveTimer.current);
-  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce, oilLiters, oilSpec]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, taskStatus, taskIssue, taskPhotos, mechName, notes, exChk, dictamenRec, reparaciones, saveNonce, oilLiters, oilSpec, adicionales]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "hace Xs" vivo mientras haya algo que mostrar.
   useEffect(() => {
@@ -2963,20 +3067,29 @@ function MainApp({ session, onLogout }) {
 
   // Al entrar a un servicio (existente o nuevo por link de orden): si quedó un
   // draft local más nuevo que la base, se ofrece restaurarlo. Una vez por clave.
+  // Menor 10 (26/10): mientras lo guardado espera al catálogo (o la huella cargada
+  // no se calculó), todavía no se sabe si el draft es igual a la base: se espera
+  // (sin marcarlo ofrecido) y se vuelve a mirar cuando se aplica lo guardado.
   useEffect(() => {
     if (step !== 3 || !tasks.length) return;
+    if (pendienteRevRef.current || huellaCargadaRef.current === HUELLA_PENDIENTE) return;
     const key = draftKey(editingId, ordenId);
     if (!key || draftOfrecidoRef.current === key) return;
     draftOfrecidoRef.current = key;
     const dr = leerDraft(key);
-    if (draftRestaurable(dr, baselineRef.current)) setDraftLocal({ key, draft: dr });
+    if (draftRestaurable(dr, huellaCargadaRef.current)) setDraftLocal({ key, draft: dr });
     else if (dr) borrarDraft(key); // igual a la base: ya estaba guardado
-  }, [step, editingId, ordenId, tasks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, editingId, ordenId, tasks.length, emparejado]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const restaurarDraftLocal = () => {
     const c = draftLocal?.draft?.contenido;
     if (c) {
-      if (c.revisiones) aplicarRevisiones(c.revisiones, null);
+      // Los adicionales y lo oculto del draft (26/10); un draft viejo no los
+      // trae: quedan los que hay en pantalla, nunca se deducen de los puntos.
+      if (c.revisiones) aplicarRevisiones(c.revisiones, null, {
+        ocultos: c.puntos_ocultos !== undefined ? c.puntos_ocultos : ocultosDe(autoSaveRef.current, { sellar: false }),
+        adicionalesFijos: c.adicionales ? { ...adicionales, glow: !!c.adicionales.glow, diferenciales: !!c.adicionales.diferenciales } : adicionales,
+      });
       if (c.observaciones != null) setNotes(c.observaciones);
       if (c.km != null && c.km !== "") setKm(c.km);
     }
@@ -3077,45 +3190,45 @@ function MainApp({ session, onLogout }) {
   };
 
   // Vuelca `revisiones` (jsonb de la fila o del draft local) al estado del
-  // checklist. `colFotos` = columna `fotos` de la fila ({taskId: [urls]}), más
-  // completa que las fotos por ítem; null cuando viene del draft (sin fotos).
-  const aplicarRevisiones = (revisiones, colFotos) => {
-    const newStatus  = {};
-    const newIssue   = {};
-    const newChecked = {};
-    const textToId   = {};
-    // Claves SIN el prefijo ~ (interno): los snapshots de servicios siempre
-    // guardan el texto limpio (buildTasks stripea), y los borradores previos
-    // al marcado tampoco lo tienen — matcheo consistente en ambos casos.
-    Object.keys(activeItems).forEach(k => {
-      activeItems[k].tasks.forEach((t, i) => { textToId[stripInterna(t)] = `${k}_${i}`; });
-    });
-    // En un servicio guardado manda lo guardado: los adicionales elegidos y los
-    // ítems que tiene salen de sus tareas (por id; el ítem se saca quitando el
-    // último "_n", nunca por prefijo: GLOW_TEST_0 empieza con "GLOW_").
-    const idsGuardados = idsDeRevisiones(revisiones).length ? idsDeRevisiones(revisiones)
-      : Object.values(revisiones).flat().map(it => textToId[stripInterna(it?.text)]).filter(Boolean);
-    setAdicionales(adicionalesDeTareas(idsGuardados));
+  // checklist. `colFotos` = columna `fotos` de la fila ({id guardado: [urls]}),
+  // más completa que las fotos por ítem; null cuando viene del draft (sin fotos).
+  // fix/revisiones-fase1 (25/10): cada punto guardado va a SU tarea de hoy —por
+  // clave estable, si no por texto (lib/emparejarPuntos.js)—, nunca por posición.
+  // Lo que no calza queda en "Puntos de la versión anterior" (emparejado).
+  //   ocultos            = servicios.puntos_ocultos (o el del draft)
+  //   columnaAdicionales = servicios.adicionales (null en un servicio de antes del 26/10)
+  //   adicionalesFijos   = los que se usan tal cual (restaurar un draft)
+  const aplicarRevisiones = (revisiones, colFotos, { ocultos = null, columnaAdicionales = null, adicionalesFijos = null } = {}) => {
+    const emp = emparejarPuntos(revisiones, activeItems, { ocultos });
+    // Los adicionales: manda la columna (26/10), nunca la presencia de puntos;
+    // sin columna, lo que se veía en main. Los ítems guardados (lo que se muestra
+    // en un servicio enviado) salen de sus tareas, sin lo oculto.
+    setAdicionales(adicionalesFijos || adicionalesAlAbrir({ columna: columnaAdicionales, emparejado: emp }));
+    const idsGuardados = [...emp.asignados.filter(a => !a.deOcultos).map(a => a.id), ...emp.anteriores.filter(a => !a.deOcultos).map(a => a.punto?.id).filter(Boolean)];
     setItemsGuardados(new Set(idsGuardados.map(itemDeTareaId).filter(Boolean)));
-    const newPhotos = {};
-    Object.values(revisiones).flat().forEach(item => {
-      const taskId = item.id || textToId[stripInterna(item.text)] || null;
-      if (taskId && item.status && item.status !== "pending") {
-        newStatus[taskId]  = item.status;
-        newChecked[taskId] = true;
-        if (item.detail) newIssue[taskId] = item.detail;
-        if (item.fotos?.length) newPhotos[taskId] = item.fotos;
-      }
-    });
-    setTaskStatus(newStatus);
-    setTaskIssue(newIssue);
-    // La columna fotos ({taskId: [urls]}) es más completa que las fotos por
-    // ítem de revisiones (los ítems "pending" con foto no llegan a newPhotos).
-    const base = (colFotos && typeof colFotos === "object" && !Array.isArray(colFotos)) ? colFotos : {};
-    if (colFotos !== null) setTaskPhotos({ ...base, ...newPhotos });
-    else setTaskPhotos(p => ({ ...p, ...newPhotos })); // draft: conserva las fotos ya cargadas
-    setChk(newChecked);
+    const est = estadoDesdeAsignados(emp.asignados, colFotos);
+    setTaskStatus(est.status);
+    setTaskIssue(est.issue);
+    if (colFotos !== null) { setTaskPhotos(est.fotos); colFotosCargadaRef.current = colFotos || null; }
+    else setTaskPhotos(p => ({ ...p, ...est.fotos })); // draft: conserva las fotos ya cargadas
+    setChk(est.checked);
+    setEmparejado(emp);
+    return emp;
   };
+
+  // Aplica lo guardado y deja la firma y el autor por id de HOY: abrir un
+  // servicio viejo no vuelve a sellar a nadie.
+  const aplicarYFirmar = (revisiones, colFotos, opciones = {}) => {
+    const emp = aplicarRevisiones(revisiones, colFotos, opciones);
+    const { snap, stamps } = instantaneaEmparejada(emp.asignados, emp.anteriores);
+    itemSnapRef.current = snap; itemStampsRef.current = stamps; setItemStamps(stamps);
+  };
+  useEffect(() => {
+    const p = pendienteRevRef.current;
+    if (!p || !Object.keys(activeItems).length) return;
+    pendienteRevRef.current = null;
+    aplicarYFirmar(p.revisiones, p.fotos, p.opciones);
+  }, [activeItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadService = (s) => {
     // Reset ANTES de repoblar: nada del vehículo/orden anterior debe sobrevivir
@@ -3169,21 +3282,50 @@ function MainApp({ session, onLogout }) {
     // existente, y en uno existente el 4MATIC del vehículo solo avisa (si se
     // tratara como nuevo, se prendería solo y el modo edición lo reescribiría).
     setTracGuardada(traccion || "");
-    if (!revisiones) { setAdicionales(SIN_ADICIONALES); setItemsGuardados(null); }
+    // Lo que el servicio tiene guardado aparte (26/10): los adicionales elegidos
+    // y los puntos de un adicional desmarcado.
+    const ocultosFila = s.puntos_ocultos && typeof s.puntos_ocultos === "object" ? s.puntos_ocultos : null;
+    const columnaAdicionales = s.adicionales ?? null;
+    if (!revisiones && !ocultosFila) {
+      setAdicionales(columnaAdicionales ? adicionalesAlAbrir({ columna: columnaAdicionales }) : SIN_ADICIONALES);
+      setItemsGuardados(null);
+    }
     // ?? y no ||: si la fila tiene null, el campo queda VACÍO — no debe
     // conservarse el año/versión del vehículo que estaba antes en memoria.
     setVehAnio(s.anio ?? "");
     setVehVersion(s.version ?? "");
     setSel(servCodigo); setMechName(mecanico); setNotes(observaciones);
     setDictamenRec(s.dictamen?.recomendacion || "");
-    setReparaciones(Array.isArray(s.dictamen?.reparaciones) ? s.dictamen.reparaciones : []);
+    // Las reparaciones sin monto (el precio lo pone Taller) y con id propio:
+    // las viejas con costo_estimado lo pierden al guardar.
+    setReparaciones(reparacionesParaGuardar(s.dictamen?.reparaciones));
 
-    if (revisiones) aplicarRevisiones(revisiones, s.fotos || {});
+    pendienteRevRef.current = null;
+    if (revisiones || ocultosFila) {
+      // Sin el catálogo de ítems no se puede emparejar (todo iría a la versión
+      // anterior): se aplica cuando llegue (efecto de activeItems).
+      const opciones = { ocultos: ocultosFila, columnaAdicionales };
+      if (Object.keys(activeItems).length) aplicarYFirmar(revisiones || {}, s.fotos || {}, opciones);
+      else pendienteRevRef.current = { revisiones: revisiones || {}, fotos: s.fotos || {}, opciones };
+    } else {
+      setEmparejado({ asignados: [], anteriores: [] });
+      colFotosCargadaRef.current = s.fotos || null;
+    }
+    // Con revisiones guardadas, la huella "cargada" se toma en el primer render
+    // con el checklist armado: pasar los ids viejos a los de hoy no cuenta como
+    // cambio, así que abrir no reescribe nada. Sin revisiones guardadas manda la
+    // fila del servidor, como siempre. El dictamen se compara siempre así.
+    huellaCargadaRef.current = (revisiones || ocultosFila) ? HUELLA_PENDIENTE : baselineRef.current;
+    // Una reparación guardada sin id recibe el suyo al cargar (reparacionesParaGuardar)
+    // y se PERSISTE en el primer guardado (bug 3, 26/10): con la base sin ids el
+    // dictamen cuenta como cambiado. Si no, se compara contra lo cargado.
+    dictamenCargadoRef.current = reparacionesSinId(s.dictamen?.reparaciones) ? DICTAMEN_SIN_IDS : HUELLA_PENDIENTE;
+    extrasCargadoRef.current = HUELLA_PENDIENTE;
 
     const existingSlug = s.slug || "";
     setSigDate("");
     if (!existingSlug) setClientUrl("");
-    if (!revisiones) { setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setChk({}); }
+    if (!revisiones && !ocultosFila) { setTaskStatus({}); setTaskIssue({}); setTaskPhotos({}); setChk({}); }
     setEditingId(s.id);
     setEditingTrelloCardId(d.trello_card_id || null);
     setAprobado(s.aprobado || false);
@@ -3762,19 +3904,9 @@ function MainApp({ session, onLogout }) {
   const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin;
 
   const buildServiceData = () => {
-    const byGrpMap = {};
-    tasks.forEach(t => {
-      if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
-      const hasDetail = !!taskIssue[t.id];
-      const rawStatus = taskStatus[t.id] || (checked[t.id] ? "ok" : "pending");
-      byGrpMap[t.grp].push({
-        id: t.id, text: t.text,
-        status: hasDetail ? "issue" : rawStatus,
-        detail: taskIssue[t.id] || null,
-        fotos: taskPhotos[t.id] || null,
-        outOfAssyst: t.outOfAssyst || false,
-      });
-    });
+    // Sellado (lo que cambió queda con quien está logueado) + los puntos de la
+    // versión anterior, sin tocarlos (fix/revisiones-fase1).
+    const byGrpMap = revisionesParaGuardar(autoSaveRef.current, { conOutOfAssyst: true });
     return {
       taller: "Ramos y Ramos", fecha: sigDate, mecanico: autorServicioActual,
       servicio: { codigo: sel, descripcion: svc.desc },
@@ -3782,7 +3914,8 @@ function MainApp({ session, onLogout }) {
       aceite: aceite.litros ? { litros: aceite.litros, especificacion: aceite.spec } : null,
       revisiones: byGrpMap,
       observaciones: notes,
-      pendientes: Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
+      // De lo que se guarda: la versión anterior cuenta como antes, lo oculto nunca (26/10).
+      pendientes: pendientesDeRevisiones(byGrpMap),
       progreso: { completadas: doneN, total },
     };
   };
@@ -3822,8 +3955,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   // El texto del informe NO lleva link: el Taller agrega el del Portal
   // (portal.ramosyramoscr.com/?m=<servicios.id>) al compartirlo con el cliente.
   // La vista pública vieja /servicio/<slug> (clientUrl) queda solo para la UI.
-  const buildInformeMarkdown = ({ correccion = false } = {}) => {
-    const issueTasks = tasks.filter(t => taskStatus[t.id] === "issue" || taskIssue[t.id]);
+  const buildInformeMarkdown = ({ correccion = false, precios = {} } = {}) => {
+    // Los hallazgos de lo que se guarda: también los de la versión anterior (el
+    // cliente ya los vio, igual que el informe de Taller); lo oculto nunca (26/10).
+    const issueTasks = detallesDeRevisiones(revisionesParaGuardar(autoSaveRef.current, { sellar: false }));
     // Un aprobado reabierto no tiene sigDate (loadService la limpia): la fecha
     // del título sale de la fila original, nunca de la corrección.
     // El encabezado lleva SOLO EL DÍA, igual que cuando aprueba Taller (decisión
@@ -3840,7 +3975,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     if (issueTasks.length > 0) {
       txt += `\n\n⚠️ Detalles marcados en el checklist:\n`;
       issueTasks.forEach(t => {
-        const detail = taskIssue[t.id] ? ` → ${taskIssue[t.id].replace(/\n+/g, "; ")}` : " (sin detalle escrito)";
+        const detail = t.detail ? ` → ${String(t.detail).replace(/\n+/g, "; ")}` : " (sin detalle escrito)";
         txt += `- ${t.text}${detail}\n`;
       });
     }
@@ -3850,7 +3985,24 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     // Sin observaciones, el último ítem del checklist deja un \n suelto y el
     // informe termina en una línea vacía (se veía al pie de la card de Taller,
     // que ya no imprime nada después del checklist). trimEnd solo recorta la cola.
-    return txt.trimEnd();
+    // El dictamen de una revisión RC / RG va arriba, después del encabezado
+    // (fix/revisiones-fase1): mismo bloque que escribe Taller (revisionPuntos.js).
+    return conBloqueDictamen(txt.trimEnd(), bloqueDictamenInforme({ codigo: sel, dictamen: dictamenDe(autoSaveRef.current), precios }));
+  };
+
+  // Los precios de las reparaciones sugeridas los pone Taller (tabla
+  // servicio_reparacion_precios, RLS jefe/admin). Solo una sesión de jefe o admin
+  // los lee; un mecánico nunca pide montos. → { ok, precios: { [id]: monto } }
+  const leerPreciosReparaciones = async () => {
+    if (!esRC || !editingId || !["jefe", "admin"].includes(session?.rol)) return { ok: true, precios: {} };
+    try {
+      const r = await apiFetch(`${SUPABASE_URL}/rest/v1/servicio_reparacion_precios?servicio_id=eq.${editingId}&select=reparacion_id,monto`);
+      const rows = await r.json();
+      return { ok: true, precios: Object.fromEntries((Array.isArray(rows) ? rows : []).map(p => [p.reparacion_id, Number(p.monto)])) };
+    } catch (e) {
+      console.warn("[leerPreciosReparaciones]", e);
+      return { ok: false, precios: {} };
+    }
   };
 
   // Paso 3 de enviarAOrden, extraído para reuso desde el modo edición de jefe:
@@ -3877,7 +4029,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         return;
       }
       if (v.estado === "incompleto") console.warn("[regenerarInformeOrden] guard placa omitido: datos incompletos", v);
-      const markdown = buildInformeMarkdown({ correccion });
+      // Sin los precios no se reescribe el informe: se perdería el monto que puso Taller.
+      const pr = await leerPreciosReparaciones();
+      if (!pr.ok) {
+        console.warn("[regenerarInformeOrden] no se leyeron los precios: el informe no se reescribe");
+        if (avisoPreciosInformeRef.current !== ordenId) {
+          avisoPreciosInformeRef.current = ordenId;
+          alert("No se pudieron leer los precios de las reparaciones: el informe de la orden no se actualizó. Los cambios del checklist sí quedaron guardados.");
+        }
+        return;
+      }
+      const markdown = buildInformeMarkdown({ correccion, precios: pr.precios });
       await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -3888,14 +4050,24 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
   // ── Save informe to ordenes.informe_mantenimiento ──
   const enviarAOrden = async () => {
+    // B3 (fix/revisiones-fase1): una revisión RC / RG incompleta no se aprueba
+    // por ningún camino. Es lo que se va a escribir como aprobado.
+    const cierre = cierreDe(autoSaveRef.current);
+    if (cierre) { alert(`⚠️ ${cierre.mensaje}`); return; }
     setOrdenEnvioStatus("sending");
     try {
       // 1. Guard de placa + check de informe existente — antes de CUALQUIER
       // escritura (el guardado a servicios de abajo también cuenta).
       let checkData = null;
       try {
-        const checkRes = await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=informe_mantenimiento,vehiculo_id,vehiculos(patente)`);
+        const checkRes = await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&select=vehiculo_id,vehiculos(patente)`);
         checkData = await checkRes.json();
+        // ¿Ya tiene informe? Se pregunta sin leer su texto (puede traer montos).
+        if (checkData?.[0]) {
+          const exRes = await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}&informe_mantenimiento=not.is.null&select=id`);
+          const ex = await exRes.json();
+          checkData[0].tieneInforme = Array.isArray(ex) && ex.length > 0;
+        }
       } catch (e) { console.warn("[enviarAOrden] check orden falló:", e); }
       const ordenRow = checkData?.[0] || null;
       // Guard compartido con regenerarInformeOrden y Taller (lib/placaOrden.js):
@@ -3909,7 +4081,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         setOrdenEnvioStatus("idle");
         return;
       }
-      if (ordenRow?.informe_mantenimiento) {
+      if (ordenRow?.tieneInforme) {
         const ok = confirm("⚠️ Esta orden ya tiene un informe guardado. ¿Sobrescribir?");
         if (!ok) { setOrdenEnvioStatus("idle"); return; }
       }
@@ -3926,6 +4098,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         const plateClean = (plate || "XX").replace(/[^A-Z0-9]/gi, "").toUpperCase();
         slug = `${plateClean}-${sel}-${dd}${mm}${yyyy}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
       }
+      // Los precios de las reparaciones (Taller) van en el informe: sin poder
+      // leerlos no se escribe nada (el informe quedaría sin los montos).
+      const pr = await leerPreciosReparaciones();
+      if (!pr.ok) {
+        alert("⚠️ No se pudieron leer los precios de las reparaciones: no se envió nada. Reintentá.");
+        setOrdenEnvioStatus("idle");
+        return;
+      }
       // Si el guardado a servicios falla se ABORTA acá: antes seguía y escribía
       // el informe en la orden con un servicio que no quedó aprobado.
       const svcData = buildServiceData();
@@ -3941,7 +4121,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             // Nunca null encima de lo guardado; un aprobado no se recalcula.
             ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
             revisiones: svcData.revisiones, observaciones: svcData.observaciones,
-            pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: taskPhotos,
+            pendientes: svcData.pendientes, progreso: svcData.progreso, aprobado: true, estado: 'aprobado', fotos: fotosDe(autoSaveRef.current),
+            dictamen: dictamenDe(autoSaveRef.current),
+            adicionales: adicionalesParaGuardar(adicionales), puntos_ocultos: ocultosDe(autoSaveRef.current),
             // Toda aprobación limpia la marca de rechazo; el motivo queda de historial.
             ...LIMPIAR_RECHAZO,
             orden_id: ordenId || null, orden_numero: ordenNumero || null,
@@ -3958,7 +4140,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
       setServicioCargado(p => (p ? { ...p, estado: 'aprobado', rechazado: false } : p));
 
       // 3. PATCH ordenes.informe_mantenimiento
-      const markdown = buildInformeMarkdown();
+      const markdown = buildInformeMarkdown({ precios: pr.precios });
       await apiFetch(`${SUPABASE_URL}/rest/v1/ordenes?id=eq.${ordenId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -3980,6 +4162,10 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
   };
 
   const confirmSig = async () => {
+    // B3 (fix/revisiones-fase1): una revisión RC / RG no se manda a aprobar con
+    // puntos sin estado (OK, hallazgo o N/A) ni sin dictamen.
+    const cierre = cierreDe(autoSaveRef.current);
+    if (cierre) { alert(`⚠️ ${cierre.mensaje}`); return; }
     if (esRC && !dictamenRec) {
       alert(tipoRev === "general"
         ? "⚠️ Seleccioná el estado del vehículo (Excelente / Bueno / Requiere reparaciones / Crítico) antes de firmar la revisión."
@@ -3998,20 +4184,9 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     try {
       const SURL = import.meta.env.VITE_SUPABASE_URL;
 
-      // Construir revisiones con los datos actuales del estado
-      const byGrpMap = {};
-      tasks.forEach(t => {
-        if (!byGrpMap[t.grp]) byGrpMap[t.grp] = [];
-        const hasDetail = !!taskIssue[t.id];
-        const rawStatus = taskStatus[t.id] || (checked[t.id] ? "ok" : "pending");
-        byGrpMap[t.grp].push({
-          id: t.id,
-          text: t.text,
-          status: hasDetail ? "issue" : rawStatus,
-          detail: taskIssue[t.id] || null,
-          fotos: taskPhotos[t.id] || null,
-        });
-      });
+      // Revisiones con los datos actuales: selladas, más los puntos de la
+      // versión anterior sin tocar (fix/revisiones-fase1).
+      const byGrpMap = revisionesParaGuardar(autoSaveRef.current);
 
       // Generar o reutilizar slug
       let slug = "";
@@ -4045,16 +4220,18 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         ...camposAceite({ litros: oilLiters, spec: oilSpec, llevaAceite, guardado: aceiteFila, congelado: aceiteCongelado(estadoOriginal) }),
         revisiones:      byGrpMap,
         observaciones:   notes,
-        pendientes:      Object.entries(taskIssue).filter(([,v])=>v).map(([,v])=>v),
+        pendientes:      pendientesDeRevisiones(byGrpMap),
         progreso:        { completadas: doneN, total },
         estado:          "pendiente",
         aprobado:        false,
-        fotos:           taskPhotos,
+        fotos:           fotosDe(autoSaveRef.current),
+        adicionales:     adicionalesParaGuardar(adicionales),
+        puntos_ocultos:  ocultosDe(autoSaveRef.current),
         orden_id:        ordenId     || null,
         orden_numero:    ordenNumero || null,
         anio:            vehAnio     || null,
         version:         vehVersion  || null,
-        dictamen:        esRC ? { recomendacion: dictamenRec, reparaciones, total_estimado: dictamenTotal } : null,
+        dictamen:        dictamenDe(autoSaveRef.current),
       };
 
       console.log("[confirmSig] payload:", JSON.stringify(payload).slice(0, 300));
@@ -4105,6 +4282,11 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
     a[t.grp].tasks.push(t);
     return a;
   }, {});
+  // "Puntos de la versión anterior" (fix/revisiones-fase1): lo guardado que no
+  // corresponde a ninguna tarea del checklist de hoy. Solo lectura.
+  const anterioresEnPantalla = anterioresVisibles(emparejado, new Set(tasks.map(t => t.id)), adicionales);
+  // ¿Se puede cerrar la revisión? (B3) Para avisar antes de confirmar.
+  const cierreActual = esRC ? cierreDe(autoSaveRef.current) : null;
 
   // Botón de una marca del checklist (hallazgo / N/A), 44 de lado: activo con
   // el color del significado al 12 % y su borde.
@@ -4746,7 +4928,7 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           Lo cargado quedó en este dispositivo hasta que se pase o se descarte. */}
       {choque && (() => {
         const editable = editingId && estadoOriginal === 'borrador' && !sigDate;
-        const m = marcasParaPasar(choque.crudo, { idsDestino: tasks.map(t => t.id), statusDestino: taskStatus });
+        const m = marcasParaPasar(crudoAIdsDeHoy(choque.crudo), { idsDestino: tasks.map(t => t.id), statusDestino: taskStatus });
         const conNotas = !!(choque.notas && choque.notas.trim());
         return (
           <Aviso data-choque color={T.warn} style={{ margin:"10px 16px 0" }}
@@ -4973,6 +5155,51 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
               );
             })}
 
+            {/* PUNTOS DE LA VERSIÓN ANTERIOR — lo marcado con una versión vieja de
+                la receta que no calza con ninguna tarea de hoy. No se pega por
+                posición en otra tarea: se muestra acá y se guarda tal cual. */}
+            {anterioresEnPantalla.length > 0 && (
+              <div data-version-anterior style={{ marginBottom:18, padding:12, borderRadius:12, border:`1px dashed ${T.borderDefault}`, background:T.panel }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                  <Ic.History size={16} color={T.textMuted} />
+                  <h3 style={{ ...tituloB, minWidth:0 }}>Puntos de la versión anterior</h3>
+                </div>
+                <div style={{ fontSize:12.5, color:T.textMuted, marginBottom:10, lineHeight:1.45 }}>
+                  Se marcaron con una versión anterior del checklist y no corresponden a ninguna tarea de hoy. Solo lectura: se conservan tal cual.
+                </div>
+                {anterioresEnPantalla.map(({ grupo, punto }, i) => {
+                  const est = punto.status;
+                  const etiqueta = est === "ok" ? "OK" : est === "issue" ? "Hallazgo" : est === "na" ? "N/A" : "Sin marcar";
+                  const color = est === "ok" ? T.ok : est === "issue" ? T.crit : T.textMuted;
+                  const fotos = (Array.isArray(punto.fotos) && punto.fotos.length ? punto.fotos : (colFotosCargadaRef.current?.[punto.id] || [])) || [];
+                  return (
+                    <div key={`${grupo}-${punto.id || i}`} data-punto-anterior={punto.id || ""} data-estado-tarea={est || ""} style={{ padding:"8px 10px", marginBottom:6, borderRadius:10, border:`1px solid ${T.borderSubtle}` }}>
+                      <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                        <span style={{ flex:1, minWidth:0, fontSize:13.5, lineHeight:1.4, color:T.text, overflowWrap:"anywhere" }}>
+                          <span style={{ color:T.textMuted }}>{grupo} · </span>{stripInterna(punto.text || "")}
+                        </span>
+                        <Insignia color={color}>{etiqueta}</Insignia>
+                      </div>
+                      {punto.detail && (
+                        <div style={{ display:"flex", gap:6, fontSize:12.5, color:T.textSoft, lineHeight:1.45, marginTop:4 }}>
+                          <Ic.PenLine size={12} color={T.textMuted} style={{ marginTop:3 }} /><span style={{ minWidth:0, overflowWrap:"anywhere" }}>{punto.detail}</span>
+                        </div>
+                      )}
+                      {fotos.length > 0 && (
+                        <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginTop:6 }}>
+                          {fotos.map((url, idx) => (
+                            <a key={idx} href={url} target="_blank" rel="noreferrer">
+                              <img src={url} alt="" style={{ width:40, height:40, objectFit:"cover", borderRadius:6, border:`1px solid ${T.borderDefault}` }} />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* BOTONES */}
             <div style={{ display:"flex", gap:8, marginTop:10, marginBottom: editingId && estadoOriginal === 'borrador' ? 6 : 16 }}>
               <Boton icono={Ic.RotateCcw} data-reiniciar onClick={reiniciarItems} disabled={!puedeReiniciar} style={{ flex:1 }}>Reiniciar</Boton>
@@ -5043,33 +5270,25 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                 {/* Reparaciones sugeridas */}
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10, marginBottom:8 }}>
                   <Sobretitulo>Reparaciones sugeridas</Sobretitulo>
-                  <Boton icono={Ic.Plus} onClick={()=>setReparaciones(p=>[...p, { descripcion:"", costo_estimado:"" }])} style={{ padding:"0 12px" }}>
+                  <Boton icono={Ic.Plus} onClick={()=>setReparaciones(p=>[...p, nuevaReparacion()])} style={{ padding:"0 12px" }}>
                     Agregar
                   </Boton>
                 </div>
                 {reparaciones.length === 0 && (
                   <div style={{ fontSize:12.5, color:T.textMuted, marginBottom:12 }}>Sin reparaciones sugeridas.</div>
                 )}
-                {reparaciones.map((r, i) => (
-                  <div key={i} data-reparacion style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center", flexWrap:"wrap" }}>
+                {/* Sin montos (fix/revisiones-fase1, B5): el precio lo pone Taller. */}
+                {reparaciones.map((r) => (
+                  <div key={r.id} data-reparacion style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
                     <input value={r.descripcion} placeholder="Descripción de la reparación"
-                      onChange={e=>setReparaciones(p=>p.map((x,j)=>j===i?{...x, descripcion:e.target.value}:x))}
-                      style={{ ...campoMB, flex:"1 1 180px", minWidth:0, width:"auto" }} />
-                    <div style={{ display:"flex", alignItems:"center", gap:6, flex:"0 0 auto", marginLeft:"auto" }}>
-                      <Num style={{ fontSize:13, color:T.textMuted }}>₡</Num>
-                      <input value={r.costo_estimado} placeholder="0" inputMode="numeric"
-                        onChange={e=>setReparaciones(p=>p.map((x,j)=>j===i?{...x, costo_estimado:e.target.value.replace(/[^\d]/g,"")}:x))}
-                        style={{ ...campoMB, ...monoB, width:110, textAlign:"right" }} />
-                      <BotonIcono icono={Ic.Trash2} title="Quitar reparación" color={T.crit} iconoTam={17}
-                        onClick={()=>setReparaciones(p=>p.filter((_,j)=>j!==i))} />
-                    </div>
+                      onChange={e=>setReparaciones(p=>p.map(x=>x.id===r.id?{...x, descripcion:e.target.value}:x))}
+                      style={{ ...campoMB, flex:"1 1 auto", minWidth:0, width:"auto" }} />
+                    <BotonIcono icono={Ic.Trash2} title="Quitar reparación" color={T.crit} iconoTam={17}
+                      onClick={()=>setReparaciones(p=>p.filter(x=>x.id!==r.id))} />
                   </div>
                 ))}
                 {reparaciones.length > 0 && (
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8, padding:"10px 12px", borderRadius:10, background:T.panel, border:`1px solid ${T.borderDefault}` }}>
-                    <Sobretitulo>Total estimado</Sobretitulo>
-                    <Num style={{ fontSize:15, fontWeight:600, color:T.text }}>₡{dictamenTotal.toLocaleString("es-CR")}</Num>
-                  </div>
+                  <div data-reparaciones-nota style={{ fontSize:12, color:T.textMuted, marginTop:6 }}>El precio de cada reparación lo pone el Taller.</div>
                 )}
               </div>
             )}
@@ -5100,6 +5319,12 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
 
               {/* Botón confirmar. Con un servicio que se abrió desde el link ya
                   fuera del mecánico (por aprobar o aprobado) no hay acción. */}
+              {/* B3: la revisión no se cierra con puntos sin estado ni sin dictamen. */}
+              {cierreActual && !vistaPorAprobar && (
+                <Aviso data-cierre-bloqueado color={T.warn} icono={Ic.TriangleAlert} titulo="Falta completar la revisión" style={{ marginBottom:10 }}>
+                  <div style={{ fontSize:12.5, lineHeight:1.45 }}>{cierreActual.mensaje}</div>
+                </Aviso>
+              )}
               {vistaPorAprobar ? (
                 estadoOriginal === 'aprobado'
                   ? <Aviso data-sin-accion color={T.ok} icono={Ic.CircleCheck} titulo="Servicio aprobado" />
@@ -5156,6 +5381,18 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
                         {/* F4: un solo botón; aprobado_por = session.nombre (identidad de Auth). Antes: tres botones por nombre fijo. */}
                         <Boton ancho color={T.ok} icono={Ic.CircleCheck} data-aprobar-servicio onClick={async () => {
                           const nombre = session?.nombre || "—";
+                          // B3 (fix/revisiones-fase1): lo que se aprueba es la fila guardada;
+                          // se relee y tiene que estar completa (puntos con estado y dictamen).
+                          if (esRC) {
+                            let fila = null;
+                            try {
+                              const r = await apiFetch(`${SUPABASE_URL}/rest/v1/servicios?id=eq.${editingId}&select=servicio_codigo,revisiones,dictamen`);
+                              fila = (await r.json())?.[0] || null;
+                            } catch (e) { console.warn("[aprobar] relectura falló:", e); }
+                            if (!fila) { alert("⚠️ No se pudo leer el servicio guardado: no se aprobó. Reintentá."); return; }
+                            const pc = problemaCierreRevision({ codigo: fila.servicio_codigo || sel, revisiones: fila.revisiones, dictamen: fila.dictamen });
+                            if (pc) { alert(`⚠️ ${pc.mensaje}`); return; }
+                          }
                           // Guard de placa (fix #3049): con orden vinculada, aprobar exige que la
                           // placa de la orden coincida; ilegible o distinta → no se aprueba.
                           if (ordenId) {

@@ -242,16 +242,13 @@ function ReportView({ data }) {
             {dictamen.reparaciones?.length > 0 && (
               <div style={{ marginTop:12, background:T.card2, border:`1px solid ${T.borde}`, borderRadius:10, padding:"14px 16px" }}>
                 <div style={{ fontSize:10, color:T.muted, letterSpacing:2, marginBottom:10, fontWeight:700 }}>REPARACIONES SUGERIDAS</div>
+                {/* Sin montos (fix/revisiones-fase1): el precio lo pone el Taller y el
+                    cliente lo ve en el Portal. Este link viejo muestra solo la lista. */}
                 {dictamen.reparaciones.map((r, i) => (
-                  <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"8px 0", borderBottom: i < dictamen.reparaciones.length - 1 ? `1px solid ${T.borde}` : "none" }}>
-                    <span style={{ fontSize:13, color:T.texto, flex:1 }}>{r.descripcion || "—"}</span>
-                    <span style={{ fontSize:13, color:T.success, fontWeight:700, flexShrink:0 }}>₡{Number(r.costo_estimado || 0).toLocaleString("es-CR")}</span>
+                  <div key={r.id || i} style={{ padding:"8px 0", borderBottom: i < dictamen.reparaciones.length - 1 ? `1px solid ${T.borde}` : "none" }}>
+                    <span style={{ fontSize:13, color:T.texto }}>{r.descripcion || "—"}</span>
                   </div>
                 ))}
-                <div style={{ display:"flex", justifyContent:"space-between", marginTop:10, paddingTop:10, borderTop:`2px solid ${T.borde}` }}>
-                  <span style={{ fontSize:12, color:T.dim, letterSpacing:1, fontWeight:700 }}>TOTAL ESTIMADO</span>
-                  <span style={{ fontSize:16, color:T.texto, fontWeight:700 }}>₡{Number(dictamen.total_estimado || 0).toLocaleString("es-CR")}</span>
-                </div>
               </div>
             )}
           </div>
