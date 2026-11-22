@@ -20,7 +20,7 @@ import { huellaServicio, instantaneaServicio, sellarRevisiones, hace, ultimaActi
 import { apiFetch, authHeaders, SURL as API_URL, siguienteReintento, mensajeError, haceCorto, draftKey, guardarDraft, leerDraft, borrarDraft, draftRestaurable } from './lib/apiFetch.js';
 import { supabase } from './lib/supabase.js';
 import { aceiteGuardado, aceiteCongelado, aceiteDelServicio, camposAceite } from './lib/aceiteServicio.js';
-import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO } from './lib/resolverAceite.js';
+import { llamarResolverAceite, aceiteDeRespuesta, aceiteCalculadoDeResolver, esUuid, MENSAJE_SIN_DATO, laminaDeRespuesta } from './lib/resolverAceite.js';
 import { normalizarPlaca, verificarPlacaOrden, mensajePlacaDistinta, preguntaDesvincular, decidirPlacaPaso1, placaAlCancelar, blurVaAContinuar } from './lib/placaOrden.js';
 import { autorMostrado, campoMecanico } from './lib/autorServicio.js';
 import { puedeDescartarServicio, itemsMarcados, preguntaDescarte, argumentosDescarte, resultadoDescarte, mensajeDescarte, destinoPushAutor, esAutorDelServicio } from './lib/servicioAutor.js';
@@ -2154,7 +2154,7 @@ function MainApp({ session, onLogout }) {
     const t = setTimeout(async () => {
       const r = await resolverAceiteDeVehiculo({ ordenId: ordenUuidAc, placa: placaAc });
       if (!vivo) return;
-      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo, traccion: r.ok ? es4maticDeRespuesta(r.datos) : null });
+      setResolverAc({ estado: r.ok ? 'ok' : 'error', clave: claveAc, res: r.ok ? aceiteDeRespuesta(r.datos) : null, motivo: r.ok ? null : r.motivo, traccion: r.ok ? es4maticDeRespuesta(r.datos) : null, lamina: r.ok ? laminaDeRespuesta(r.datos) : null });
     }, ordenUuidAc ? 0 : 700);
     return () => { vivo = false; clearTimeout(t); };
   }, [claveAc]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2166,6 +2166,8 @@ function MainApp({ session, onLogout }) {
   // resolver-aceite el interruptor se prende solo y queda bloqueado; sin dato,
   // libre. En un servicio guardado manda lo guardado (aviso si difiere).
   const es4maticVeh = resolverAc.clave === claveAc ? resolverAc.traccion : null;
+  // La lámina técnica de la carrocería (resolver-aceite, imagenes.lamina): solo se muestra.
+  const laminaVeh = resolverAc.clave === claveAc ? (resolverAc.lamina ?? null) : null;
   const estTrac = estadoTraccion({ es4maticVehiculo: es4maticVeh, is4mActual: is4m, servicioExistente: tracGuardada != null });
   useEffect(() => {
     if (estTrac.autoseleccionar) setIs4m(true);
@@ -3865,11 +3867,11 @@ function MainApp({ session, onLogout }) {
     const isLight = root.style.filter.includes('invert');
     if (isLight) {
       root.style.filter = '';
-      root.querySelectorAll('img, canvas').forEach(el => el.style.filter = '');
+      root.querySelectorAll('img, canvas').forEach(el => { if (!el.closest('[data-tema-fijo]')) el.style.filter = ''; });
       try { localStorage.setItem('theme', 'dark'); } catch(e) {}
     } else {
       root.style.filter = 'invert(1) hue-rotate(180deg)';
-      root.querySelectorAll('img, canvas').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)');
+      root.querySelectorAll('img, canvas').forEach(el => { if (!el.closest('[data-tema-fijo]')) el.style.filter = 'invert(1) hue-rotate(180deg)'; });
       try { localStorage.setItem('theme', 'light'); } catch(e) {}
     }
   };
@@ -4849,6 +4851,22 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <Boton icono={Ic.Pencil} onClick={()=>setStep(2)} style={{ flexShrink:0, padding:"0 12px" }}>Editar</Boton>
         </div>
+        {/* Lámina técnica del carro (feat/lamina-carroceria): solo se muestra. Los carros van
+            rellenos de blanco con líneas oscuras sobre fondo transparente, así que va
+            sobre el claro de la placa (T.plateBg). Sin lámina, o si la URL falla, nada. El
+            bloque nace oculto y se muestra cuando la imagen cargó: así no deja una franja
+            vacía ni empuja el checklist a medio cargar. data-tema-fijo: se ve IGUAL en los
+            dos temas. En el claro (el invert de #root) el bloque entero se vuelve a invertir
+            por CSS (index.html) y su imagen queda fuera de la re-inversión por imagen de
+            alternarTema y main.jsx; si no, se invertiría tres veces. */}
+        {laminaVeh && (
+          <div key={laminaVeh} data-lamina-carroceria data-tema-fijo style={{ marginTop:8, background:T.plateBg, borderRadius:T.radio.control, padding:6, display:"none", justifyContent:"center" }}>
+            <img src={laminaVeh} alt="Lámina técnica del vehículo"
+              onLoad={e => { e.currentTarget.parentElement.style.display = 'flex'; }}
+              onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
+              style={{ display:"block", width:"100%", maxWidth:520, height:"auto", maxHeight:220, objectFit:"contain" }} />
+          </div>
+        )}
         {estComb.aviso && <MensajeCampo data-combustible-aviso style={{ color:T.warn }}><span style={{ display:"inline-flex", alignItems:"flex-start", gap:5 }}><Ic.TriangleAlert size={13} style={{ marginTop:1 }} />{estComb.aviso}</span></MensajeCampo>}
         {aceite.litros > 0 && (
           <div data-aceite-paso3 style={{ marginTop:8, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", minHeight:36, padding:"6px 10px", borderRadius:8, background:T.card, border:`1px solid ${T.borderDefault}` }}>

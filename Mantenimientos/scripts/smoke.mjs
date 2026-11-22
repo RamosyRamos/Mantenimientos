@@ -242,8 +242,15 @@ const RESP = {
   otroValor: { vehiculo_id: VEH_ID, build: 'smoke', avisos: [], atf: null,
     aceite: { estado: 'auto', litros: 6, spec: 'MB 229.5', viscosidad: '5W40', origen: { tipo: 'catalogo', etiqueta: null }, motivo: null, opciones: [], fuentes: [] } },
 };
+// La lámina técnica (feat/lamina-carroceria): imagenes.lamina de resolver-aceite. El host
+// es inventado: el escenario responde la imagen (o un 404) por su cuenta.
+const LAMINA_URL = 'https://lamina.smoke/W204/lamina.webp?v=1';
+const LAMINA_ROTA = 'https://lamina.smoke/W204/rota.webp?v=1';
+const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+RESP.conLamina = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_URL, mascara: null } };
+RESP.laminaRota = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_ROTA, mascara: null } };
 const JEFE = { ...USUARIO, rol: 'jefe' };
-async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null }) {
+async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null, lamina = 'ausente', tema = null }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const errores = [];
@@ -286,9 +293,13 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
       if (u.includes('/rest/v1/')) return req.respond(json([]));
       return req.respond(json({}));
     }
+    if (u === LAMINA_URL) return req.respond({ status: 200, contentType: 'image/png', headers: CORS, body: PNG_1X1 });
+    if (u === LAMINA_ROTA) return req.respond({ status: 404, headers: CORS, body: '' });
     return req.respond({ status: 204, headers: CORS, body: '' });
   });
   await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
+  // tema 'claro': la app arranca con el tema claro guardado (el restore de main.jsx).
+  if (tema === 'claro') await page.evaluateOnNewDocument(() => { try { localStorage.setItem('theme', 'light'); } catch { /* sin storage */ } });
   try {
     await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
   } catch (e) { errores.push(`goto: ${e.message}`); }
@@ -321,6 +332,52 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
   if (origen && !texto.includes(origen)) errores.push(`no muestra el origen "${origen}" junto a la cantidad`);
   for (const t of presentes) if (!texto.includes(t)) errores.push(`la pantalla no muestra "${t}"`);
   for (const t of ausentes) if (texto.includes(t)) errores.push(`la pantalla muestra "${t}" y no debía`);
+  // La lámina: 'visible' (se dibuja con su URL, sobre un fondo, y sigue al tema con él),
+  // 'oculta' (la URL falló: el bloque no ocupa lugar) o 'ausente' (sin lámina, sin bloque).
+  const lam = await page.evaluate(() => {
+    const c = document.querySelector('[data-lamina-carroceria]');
+    if (!c) return null;
+    const i = c.querySelector('img');
+    const cs = getComputedStyle(c);
+    return { src: i?.getAttribute('src') ?? null, alto: c.getBoundingClientRect().height, display: cs.display, fondo: cs.backgroundColor, temaFijo: c.hasAttribute('data-tema-fijo'), cargada: !!(i && i.complete && i.naturalWidth > 0) };
+  }).catch(() => null);
+  if (lamina === 'ausente' && lam) errores.push(`dibuja la lámina y no debía (${JSON.stringify(lam)})`);
+  if (lamina === 'visible') {
+    if (!lam) errores.push('no dibuja la lámina');
+    else {
+      if (lam.src !== LAMINA_URL) errores.push(`la lámina apunta a ${lam.src}`);
+      if (!lam.cargada || lam.display === 'none' || !(lam.alto > 0)) errores.push(`la lámina no se ve (${JSON.stringify(lam)})`);
+      if (!lam.fondo || lam.fondo === 'rgba(0, 0, 0, 0)') errores.push('la lámina no tiene fondo propio');
+      if (!lam.temaFijo) errores.push('la lámina no lleva data-tema-fijo');
+    }
+  }
+  if (lamina === 'oculta' && (!lam || lam.display !== 'none')) errores.push(`la lámina con la URL rota no se ocultó (${JSON.stringify(lam)})`);
+  // El tema claro invierte #root y re-invierte cada img para que se vea normal. El bloque
+  // de la lámina (data-tema-fijo) se ve IGUAL en los dos temas: se re-invierte ENTERO por
+  // CSS y su imagen no lleva filtro propio (si lo llevara, se invertiría tres veces).
+  // Se mira al arrancar en claro (main.jsx, 300 ms) y después de alternar dos veces (App.jsx).
+  if (tema === 'claro') {
+    const filtros = () => page.evaluate(() => ({
+      root: document.getElementById('root').style.filter || '',
+      bloque: getComputedStyle(document.querySelector('[data-lamina-carroceria]')).filter,
+      lamina: getComputedStyle(document.querySelector('[data-lamina-carroceria] img')).filter,
+      logo: getComputedStyle(document.querySelector('[data-cabecera] img')).filter,
+    })).catch(() => null);
+    await new Promise((r) => setTimeout(r, 600));
+    const mirar = (f, cuando) => {
+      if (!f) return errores.push(`tema claro (${cuando}): no se pudo medir`);
+      if (!/invert/.test(f.root)) errores.push(`tema claro (${cuando}): #root no está invertido`);
+      if (!/invert/.test(f.bloque)) errores.push(`tema claro (${cuando}): el bloque de la lámina no se re-invierte (${f.bloque})`);
+      if (f.lamina !== 'none') errores.push(`tema claro (${cuando}): la imagen de la lámina lleva filtro propio (${f.lamina}) y queda invertida`);
+      if (!/invert/.test(f.logo)) errores.push(`tema claro (${cuando}): el logo dejó de re-invertirse (${f.logo})`);
+    };
+    mirar(await filtros(), 'al arrancar');
+    await page.click('[data-tema-toggle]').catch(() => {});
+    const oscuro = await filtros();
+    if (oscuro && oscuro.bloque !== 'none') errores.push(`tema oscuro: el bloque de la lámina quedó con filtro (${oscuro.bloque})`);
+    await page.click('[data-tema-toggle]').catch(() => {});
+    mirar(await filtros(), 'después de alternar dos veces');
+  }
   await context.close();
   const ok = errores.length === 0;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (PATCH: ${sinPatch ? 'ninguno' : JSON.stringify({ aceite_litros: p.aceite_litros, aceite_spec: p.aceite_spec })} · resolver: ${llamadas.length})`);
@@ -789,6 +846,21 @@ try {
     nombre: 'control: servicio APROBADO → aceite congelado, ni PATCH ni consulta al resolvedor',
     fila: { estado: 'aprobado', aprobado: true, aceite_litros: 8.5, aceite_spec: 'MB 229.51' }, resolver: 'otroValor', usuario: JEFE,
     esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true, sinPatch: true, sinResolver: true, ausentes: ['6 L'],
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'lámina: resolver-aceite la devuelve → se dibuja en el checklist, sobre su fondo',
+    fila: { orden_id: ORDEN_ID }, resolver: 'conLamina', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'visible',
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'lámina: la URL falla → el bloque se oculta y el resto sigue igual',
+    fila: { orden_id: ORDEN_ID }, resolver: 'laminaRota', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'oculta',
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'lámina en el tema claro → se ve igual que en el oscuro: el bloque se re-invierte entero y la imagen no (al arrancar y al alternar)',
+    fila: { orden_id: ORDEN_ID }, resolver: 'conLamina', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'visible', tema: 'claro',
   }));
   const rC = [];
   rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) con RC_EV de punta a punta: 22 tareas, sin escape ni faja, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC_EV }));

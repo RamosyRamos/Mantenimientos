@@ -148,3 +148,12 @@ export function aceiteCalculadoDeResolver(res, { elegida = null, guardado = null
   }
   return { litros: null, spec: null, origen: null, elegida: null };
 }
+
+// La lámina técnica de la carrocería (feat/lamina-carroceria, 18/10): resolver-aceite
+// devuelve imagenes: { foto, lamina } (URLs públicas del bucket vehiculos-carrocerias
+// de Taller). Puede venir ausente (una versión vieja de la función) o en null: las dos
+// cosas son "sin lámina". Solo se acepta una URL https.
+export function laminaDeRespuesta(datos) {
+  const u = datos?.imagenes?.lamina;
+  return typeof u === "string" && u.trim().toLowerCase().startsWith("https://") ? u.trim() : null;
+}
