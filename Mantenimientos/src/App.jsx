@@ -4853,13 +4853,17 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
         </div>
         {/* Lámina técnica del carro (feat/lamina-carroceria): solo se muestra. Son líneas
             oscuras sobre fondo transparente, así que va sobre el claro de la placa
-            (T.plateBg). Sin lámina, o si la URL falla, nada. data-sigue-tema: en el tema
+            (T.plateBg). Sin lámina, o si la URL falla, nada. El bloque nace oculto y se
+            muestra cuando la imagen cargó: así no deja una franja vacía ni empuja el
+            checklist a medio cargar. data-sigue-tema: en el tema
             claro (el invert de alternarTema) la imagen NO se vuelve a invertir sola; se
             invierte con su fondo. Si se re-invirtiera, quedarían líneas oscuras sobre el
             fondo ya invertido y no se vería. */}
         {laminaVeh && (
-          <div key={laminaVeh} data-lamina-carroceria data-sigue-tema style={{ marginTop:8, background:T.plateBg, borderRadius:T.radio.control, padding:6, display:"flex", justifyContent:"center" }}>
-            <img src={laminaVeh} alt="Lámina técnica del vehículo" onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
+          <div key={laminaVeh} data-lamina-carroceria data-sigue-tema style={{ marginTop:8, background:T.plateBg, borderRadius:T.radio.control, padding:6, display:"none", justifyContent:"center" }}>
+            <img src={laminaVeh} alt="Lámina técnica del vehículo"
+              onLoad={e => { e.currentTarget.parentElement.style.display = 'flex'; }}
+              onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}
               style={{ display:"block", width:"100%", maxWidth:520, height:"auto", maxHeight:220, objectFit:"contain" }} />
           </div>
         )}

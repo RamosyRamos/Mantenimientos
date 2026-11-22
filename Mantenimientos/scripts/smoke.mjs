@@ -250,7 +250,7 @@ const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0l
 RESP.conLamina = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_URL, mascara: null } };
 RESP.laminaRota = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_ROTA, mascara: null } };
 const JEFE = { ...USUARIO, rol: 'jefe' };
-async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null, lamina = 'ausente' }) {
+async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null, lamina = 'ausente', tema = null }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const errores = [];
@@ -298,6 +298,8 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
     return req.respond({ status: 204, headers: CORS, body: '' });
   });
   await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
+  // tema 'claro': la app arranca con el tema claro guardado (el restore de main.jsx).
+  if (tema === 'claro') await page.evaluateOnNewDocument(() => { try { localStorage.setItem('theme', 'light'); } catch { /* sin storage */ } });
   try {
     await page.goto(`${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
   } catch (e) { errores.push(`goto: ${e.message}`); }
@@ -350,6 +352,27 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
     }
   }
   if (lamina === 'oculta' && (!lam || lam.display !== 'none')) errores.push(`la lámina con la URL rota no se ocultó (${JSON.stringify(lam)})`);
+  // El tema claro invierte #root y re-invierte cada img para que se vea normal. La lámina
+  // NO: se invierte con su fondo. Re-invertida quedan líneas oscuras sobre fondo oscuro.
+  // Se mira al arrancar en claro (main.jsx, 300 ms) y después de alternar dos veces (App.jsx).
+  if (tema === 'claro') {
+    const filtros = () => page.evaluate(() => ({
+      root: document.getElementById('root').style.filter || '',
+      lamina: getComputedStyle(document.querySelector('[data-lamina-carroceria] img')).filter,
+      logo: getComputedStyle(document.querySelector('[data-cabecera] img')).filter,
+    })).catch(() => null);
+    await new Promise((r) => setTimeout(r, 600));
+    const mirar = (f, cuando) => {
+      if (!f) return errores.push(`tema claro (${cuando}): no se pudo medir`);
+      if (!/invert/.test(f.root)) errores.push(`tema claro (${cuando}): #root no está invertido`);
+      if (f.lamina !== 'none') errores.push(`tema claro (${cuando}): la lámina se re-invirtió sola (${f.lamina}) y no se ve`);
+      if (!/invert/.test(f.logo)) errores.push(`tema claro (${cuando}): el logo dejó de re-invertirse (${f.logo})`);
+    };
+    mirar(await filtros(), 'al arrancar');
+    await page.click('[data-tema-toggle]').catch(() => {});
+    await page.click('[data-tema-toggle]').catch(() => {});
+    mirar(await filtros(), 'después de alternar dos veces');
+  }
   await context.close();
   const ok = errores.length === 0;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (PATCH: ${sinPatch ? 'ninguno' : JSON.stringify({ aceite_litros: p.aceite_litros, aceite_spec: p.aceite_spec })} · resolver: ${llamadas.length})`);
@@ -828,6 +851,11 @@ try {
     nombre: 'lámina: la URL falla → el bloque se oculta y el resto sigue igual',
     fila: { orden_id: ORDEN_ID }, resolver: 'laminaRota', cuerpo: { orden_id: ORDEN_ID },
     esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'oculta',
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'lámina en el tema claro → se invierte con su fondo, no se re-invierte sola (al arrancar y al alternar)',
+    fila: { orden_id: ORDEN_ID }, resolver: 'conLamina', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'visible', tema: 'claro',
   }));
   const rC = [];
   rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) con RC_EV de punta a punta: 22 tareas, sin escape ni faja, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC_EV }));

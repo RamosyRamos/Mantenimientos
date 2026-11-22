@@ -106,6 +106,11 @@
       [data-theme="light"] #root canvas {
         filter: invert(1) hue-rotate(180deg);
       }
+      /* Lo que lleva data-sigue-tema se invierte con su fondo (la lámina del checklist). */
+      [data-theme="light"] #root [data-sigue-tema] img,
+      [data-theme="light"] #root [data-sigue-tema] canvas {
+        filter: none;
+      }
 
       /* ── MOBILE OPTIMIZATION ─────────────────────────────────────────────── */
       @media (max-width: 768px) {
