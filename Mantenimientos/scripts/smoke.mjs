@@ -339,7 +339,7 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
     if (!c) return null;
     const i = c.querySelector('img');
     const cs = getComputedStyle(c);
-    return { src: i?.getAttribute('src') ?? null, alto: c.getBoundingClientRect().height, display: cs.display, fondo: cs.backgroundColor, sigueTema: c.hasAttribute('data-sigue-tema'), cargada: !!(i && i.complete && i.naturalWidth > 0) };
+    return { src: i?.getAttribute('src') ?? null, alto: c.getBoundingClientRect().height, display: cs.display, fondo: cs.backgroundColor, temaFijo: c.hasAttribute('data-tema-fijo'), cargada: !!(i && i.complete && i.naturalWidth > 0) };
   }).catch(() => null);
   if (lamina === 'ausente' && lam) errores.push(`dibuja la lámina y no debía (${JSON.stringify(lam)})`);
   if (lamina === 'visible') {
@@ -348,16 +348,18 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
       if (lam.src !== LAMINA_URL) errores.push(`la lámina apunta a ${lam.src}`);
       if (!lam.cargada || lam.display === 'none' || !(lam.alto > 0)) errores.push(`la lámina no se ve (${JSON.stringify(lam)})`);
       if (!lam.fondo || lam.fondo === 'rgba(0, 0, 0, 0)') errores.push('la lámina no tiene fondo propio');
-      if (!lam.sigueTema) errores.push('la lámina no lleva data-sigue-tema');
+      if (!lam.temaFijo) errores.push('la lámina no lleva data-tema-fijo');
     }
   }
   if (lamina === 'oculta' && (!lam || lam.display !== 'none')) errores.push(`la lámina con la URL rota no se ocultó (${JSON.stringify(lam)})`);
-  // El tema claro invierte #root y re-invierte cada img para que se vea normal. La lámina
-  // NO: se invierte con su fondo. Re-invertida quedan líneas oscuras sobre fondo oscuro.
+  // El tema claro invierte #root y re-invierte cada img para que se vea normal. El bloque
+  // de la lámina (data-tema-fijo) se ve IGUAL en los dos temas: se re-invierte ENTERO por
+  // CSS y su imagen no lleva filtro propio (si lo llevara, se invertiría tres veces).
   // Se mira al arrancar en claro (main.jsx, 300 ms) y después de alternar dos veces (App.jsx).
   if (tema === 'claro') {
     const filtros = () => page.evaluate(() => ({
       root: document.getElementById('root').style.filter || '',
+      bloque: getComputedStyle(document.querySelector('[data-lamina-carroceria]')).filter,
       lamina: getComputedStyle(document.querySelector('[data-lamina-carroceria] img')).filter,
       logo: getComputedStyle(document.querySelector('[data-cabecera] img')).filter,
     })).catch(() => null);
@@ -365,11 +367,14 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
     const mirar = (f, cuando) => {
       if (!f) return errores.push(`tema claro (${cuando}): no se pudo medir`);
       if (!/invert/.test(f.root)) errores.push(`tema claro (${cuando}): #root no está invertido`);
-      if (f.lamina !== 'none') errores.push(`tema claro (${cuando}): la lámina se re-invirtió sola (${f.lamina}) y no se ve`);
+      if (!/invert/.test(f.bloque)) errores.push(`tema claro (${cuando}): el bloque de la lámina no se re-invierte (${f.bloque})`);
+      if (f.lamina !== 'none') errores.push(`tema claro (${cuando}): la imagen de la lámina lleva filtro propio (${f.lamina}) y queda invertida`);
       if (!/invert/.test(f.logo)) errores.push(`tema claro (${cuando}): el logo dejó de re-invertirse (${f.logo})`);
     };
     mirar(await filtros(), 'al arrancar');
     await page.click('[data-tema-toggle]').catch(() => {});
+    const oscuro = await filtros();
+    if (oscuro && oscuro.bloque !== 'none') errores.push(`tema oscuro: el bloque de la lámina quedó con filtro (${oscuro.bloque})`);
     await page.click('[data-tema-toggle]').catch(() => {});
     mirar(await filtros(), 'después de alternar dos veces');
   }
@@ -853,7 +858,7 @@ try {
     esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'oculta',
   }));
   rA.push(await escenarioAceite(browser, baseUrl, {
-    nombre: 'lámina en el tema claro → se invierte con su fondo, no se re-invierte sola (al arrancar y al alternar)',
+    nombre: 'lámina en el tema claro → se ve igual que en el oscuro: el bloque se re-invierte entero y la imagen no (al arrancar y al alternar)',
     fila: { orden_id: ORDEN_ID }, resolver: 'conLamina', cuerpo: { orden_id: ORDEN_ID },
     esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'visible', tema: 'claro',
   }));

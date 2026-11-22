@@ -39,8 +39,9 @@ try {
     // Re-invertir imágenes después de que React renderice
     setTimeout(() => {
       rootEl.querySelectorAll('img, canvas').forEach(el => {
-        // Lo que lleva data-sigue-tema se invierte con su fondo (la lámina del checklist).
-        if (el.closest('[data-sigue-tema]')) return;
+        // Un bloque data-tema-fijo ya se re-invierte entero por CSS (index.html): su
+        // imagen no se toca (la lámina del checklist).
+        if (el.closest('[data-tema-fijo]')) return;
         el.style.filter = 'invert(1) hue-rotate(180deg)';
       });
     }, 300);

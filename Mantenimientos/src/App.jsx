@@ -3867,11 +3867,11 @@ function MainApp({ session, onLogout }) {
     const isLight = root.style.filter.includes('invert');
     if (isLight) {
       root.style.filter = '';
-      root.querySelectorAll('img, canvas').forEach(el => { if (!el.closest('[data-sigue-tema]')) el.style.filter = ''; });
+      root.querySelectorAll('img, canvas').forEach(el => { if (!el.closest('[data-tema-fijo]')) el.style.filter = ''; });
       try { localStorage.setItem('theme', 'dark'); } catch(e) {}
     } else {
       root.style.filter = 'invert(1) hue-rotate(180deg)';
-      root.querySelectorAll('img, canvas').forEach(el => { if (!el.closest('[data-sigue-tema]')) el.style.filter = 'invert(1) hue-rotate(180deg)'; });
+      root.querySelectorAll('img, canvas').forEach(el => { if (!el.closest('[data-tema-fijo]')) el.style.filter = 'invert(1) hue-rotate(180deg)'; });
       try { localStorage.setItem('theme', 'light'); } catch(e) {}
     }
   };
@@ -4851,16 +4851,16 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
           </div>
           <Boton icono={Ic.Pencil} onClick={()=>setStep(2)} style={{ flexShrink:0, padding:"0 12px" }}>Editar</Boton>
         </div>
-        {/* Lámina técnica del carro (feat/lamina-carroceria): solo se muestra. Son líneas
-            oscuras sobre fondo transparente, así que va sobre el claro de la placa
-            (T.plateBg). Sin lámina, o si la URL falla, nada. El bloque nace oculto y se
-            muestra cuando la imagen cargó: así no deja una franja vacía ni empuja el
-            checklist a medio cargar. data-sigue-tema: en el tema
-            claro (el invert de alternarTema) la imagen NO se vuelve a invertir sola; se
-            invierte con su fondo. Si se re-invirtiera, quedarían líneas oscuras sobre el
-            fondo ya invertido y no se vería. */}
+        {/* Lámina técnica del carro (feat/lamina-carroceria): solo se muestra. Los carros van
+            rellenos de blanco con líneas oscuras sobre fondo transparente, así que va
+            sobre el claro de la placa (T.plateBg). Sin lámina, o si la URL falla, nada. El
+            bloque nace oculto y se muestra cuando la imagen cargó: así no deja una franja
+            vacía ni empuja el checklist a medio cargar. data-tema-fijo: se ve IGUAL en los
+            dos temas. En el claro (el invert de #root) el bloque entero se vuelve a invertir
+            por CSS (index.html) y su imagen queda fuera de la re-inversión por imagen de
+            alternarTema y main.jsx; si no, se invertiría tres veces. */}
         {laminaVeh && (
-          <div key={laminaVeh} data-lamina-carroceria data-sigue-tema style={{ marginTop:8, background:T.plateBg, borderRadius:T.radio.control, padding:6, display:"none", justifyContent:"center" }}>
+          <div key={laminaVeh} data-lamina-carroceria data-tema-fijo style={{ marginTop:8, background:T.plateBg, borderRadius:T.radio.control, padding:6, display:"none", justifyContent:"center" }}>
             <img src={laminaVeh} alt="Lámina técnica del vehículo"
               onLoad={e => { e.currentTarget.parentElement.style.display = 'flex'; }}
               onError={e => { e.currentTarget.parentElement.style.display = 'none'; }}

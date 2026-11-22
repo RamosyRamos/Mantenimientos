@@ -106,9 +106,16 @@
       [data-theme="light"] #root canvas {
         filter: invert(1) hue-rotate(180deg);
       }
-      /* Lo que lleva data-sigue-tema se invierte con su fondo (la lámina del checklist). */
-      [data-theme="light"] #root [data-sigue-tema] img,
-      [data-theme="light"] #root [data-sigue-tema] canvas {
+      /* data-tema-fijo: un bloque que se ve IGUAL en los dos temas (la lámina del
+         checklist). El tema claro vive en el style de #root (alternarTema en App.jsx y
+         el restore de main.jsx), así que se detecta por ese atributo: el bloque entero
+         se vuelve a invertir y sus imágenes no llevan filtro propio. */
+      #root[style*="invert"] [data-tema-fijo],
+      [data-theme="light"] #root [data-tema-fijo] {
+        filter: invert(1) hue-rotate(180deg);
+      }
+      [data-theme="light"] #root [data-tema-fijo] img,
+      [data-theme="light"] #root [data-tema-fijo] canvas {
         filter: none;
       }
 
