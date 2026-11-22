@@ -242,8 +242,15 @@ const RESP = {
   otroValor: { vehiculo_id: VEH_ID, build: 'smoke', avisos: [], atf: null,
     aceite: { estado: 'auto', litros: 6, spec: 'MB 229.5', viscosidad: '5W40', origen: { tipo: 'catalogo', etiqueta: null }, motivo: null, opciones: [], fuentes: [] } },
 };
+// La lámina técnica (feat/lamina-carroceria): imagenes.lamina de resolver-aceite. El host
+// es inventado: el escenario responde la imagen (o un 404) por su cuenta.
+const LAMINA_URL = 'https://lamina.smoke/W204/lamina.webp?v=1';
+const LAMINA_ROTA = 'https://lamina.smoke/W204/rota.webp?v=1';
+const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+RESP.conLamina = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_URL, mascara: null } };
+RESP.laminaRota = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_ROTA, mascara: null } };
 const JEFE = { ...USUARIO, rol: 'jefe' };
-async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null }) {
+async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegir = null, esperado, etiqueta = false, origen = null, textos = [], ausentes = [], presentes = [], sinPatch = false, sinResolver = false, usuario = USUARIO, cuerpo = null, lamina = 'ausente' }) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
   const errores = [];
@@ -286,6 +293,8 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
       if (u.includes('/rest/v1/')) return req.respond(json([]));
       return req.respond(json({}));
     }
+    if (u === LAMINA_URL) return req.respond({ status: 200, contentType: 'image/png', headers: CORS, body: PNG_1X1 });
+    if (u === LAMINA_ROTA) return req.respond({ status: 404, headers: CORS, body: '' });
     return req.respond({ status: 204, headers: CORS, body: '' });
   });
   await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
@@ -321,6 +330,26 @@ async function escenarioAceite(browser, baseUrl, { nombre, fila, resolver, elegi
   if (origen && !texto.includes(origen)) errores.push(`no muestra el origen "${origen}" junto a la cantidad`);
   for (const t of presentes) if (!texto.includes(t)) errores.push(`la pantalla no muestra "${t}"`);
   for (const t of ausentes) if (texto.includes(t)) errores.push(`la pantalla muestra "${t}" y no debía`);
+  // La lámina: 'visible' (se dibuja con su URL, sobre un fondo, y sigue al tema con él),
+  // 'oculta' (la URL falló: el bloque no ocupa lugar) o 'ausente' (sin lámina, sin bloque).
+  const lam = await page.evaluate(() => {
+    const c = document.querySelector('[data-lamina-carroceria]');
+    if (!c) return null;
+    const i = c.querySelector('img');
+    const cs = getComputedStyle(c);
+    return { src: i?.getAttribute('src') ?? null, alto: c.getBoundingClientRect().height, display: cs.display, fondo: cs.backgroundColor, sigueTema: c.hasAttribute('data-sigue-tema'), cargada: !!(i && i.complete && i.naturalWidth > 0) };
+  }).catch(() => null);
+  if (lamina === 'ausente' && lam) errores.push(`dibuja la lámina y no debía (${JSON.stringify(lam)})`);
+  if (lamina === 'visible') {
+    if (!lam) errores.push('no dibuja la lámina');
+    else {
+      if (lam.src !== LAMINA_URL) errores.push(`la lámina apunta a ${lam.src}`);
+      if (!lam.cargada || lam.display === 'none' || !(lam.alto > 0)) errores.push(`la lámina no se ve (${JSON.stringify(lam)})`);
+      if (!lam.fondo || lam.fondo === 'rgba(0, 0, 0, 0)') errores.push('la lámina no tiene fondo propio');
+      if (!lam.sigueTema) errores.push('la lámina no lleva data-sigue-tema');
+    }
+  }
+  if (lamina === 'oculta' && (!lam || lam.display !== 'none')) errores.push(`la lámina con la URL rota no se ocultó (${JSON.stringify(lam)})`);
   await context.close();
   const ok = errores.length === 0;
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (PATCH: ${sinPatch ? 'ninguno' : JSON.stringify({ aceite_litros: p.aceite_litros, aceite_spec: p.aceite_spec })} · resolver: ${llamadas.length})`);
@@ -789,6 +818,16 @@ try {
     nombre: 'control: servicio APROBADO → aceite congelado, ni PATCH ni consulta al resolvedor',
     fila: { estado: 'aprobado', aprobado: true, aceite_litros: 8.5, aceite_spec: 'MB 229.51' }, resolver: 'otroValor', usuario: JEFE,
     esperado: { litros: 8.5, spec: 'MB 229.51' }, etiqueta: true, sinPatch: true, sinResolver: true, ausentes: ['6 L'],
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'lámina: resolver-aceite la devuelve → se dibuja en el checklist, sobre su fondo',
+    fila: { orden_id: ORDEN_ID }, resolver: 'conLamina', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'visible',
+  }));
+  rA.push(await escenarioAceite(browser, baseUrl, {
+    nombre: 'lámina: la URL falla → el bloque se oculta y el resto sigue igual',
+    fila: { orden_id: ORDEN_ID }, resolver: 'laminaRota', cuerpo: { orden_id: ORDEN_ID },
+    esperado: { litros: 8, spec: 'MB 229.5' }, origen: 'WIS', lamina: 'oculta',
   }));
   const rC = [];
   rC.push(await escenarioRevisionEV(browser, baseUrl, { nombre: 'eléctrico → Revisión de compra (RC) con RC_EV de punta a punta: 22 tareas, sin escape ni faja, dictamen y guardado', codigo: 'RC', tareas: TAREAS_RC_EV }));
