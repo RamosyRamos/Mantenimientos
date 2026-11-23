@@ -20,6 +20,7 @@
 
 import { build, preview, loadEnv } from 'vite';
 import puppeteer from 'puppeteer';
+import { readFileSync } from 'node:fs';
 
 const root = process.cwd();
 const env = loadEnv('production', root, 'VITE_');
@@ -804,6 +805,184 @@ async function escenarioVistaCliente(browser, baseUrl, { nombre, ruta, filas, pl
   return ok;
 }
 
+// Detalles de carrocería sobre la lámina (feat/marcas-carroceria, 23/11/2026): en una
+// revisión RC / RG se marcan golpes, rayones y quebraduras. Se abre un servicio por
+// ?servicio= con la red simulada: la tabla carroceria_marcas y sus tres funciones.
+//   pasos: lista de acciones del escenario (ver el switch de abajo).
+const LAMINA_MARCAS = 'https://lamina.smoke/storage/v1/object/public/vehiculos-carrocerias/W204/lamina.webp?v=abc123';
+// Para MIRAR la pantalla (no hace falta para que el smoke pase): con SMOKE_LAMINA=<archivo>
+// la lámina es esa imagen real, y con SMOKE_CAPTURAS=<carpeta> el paso ['captura', nombre]
+// guarda una captura. Sin esas variables, la lámina es un PNG de 1×1 y 'captura' no hace nada.
+const LAMINA_REAL = process.env.SMOKE_LAMINA ? readFileSync(process.env.SMOKE_LAMINA) : null;
+const LAMINA_TIPO = /\.webp$/i.test(process.env.SMOKE_LAMINA || '') ? 'image/webp' : 'image/png';
+RESP.conLaminaMarcas = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_MARCAS, mascara: null } };
+const MARCA_RECEPCION = { id: '00000000-0000-4000-8000-0000000000f1', orden_id: null, servicio_id: SVC_ID, origen: 'recepcion', tipo: 'rayon', tipo_otro: null, descripcion: 'Defensa delantera', foto_url: null, carroceria_codigo: 'W204', lamina_version: 'abc123', x: 0.2, y: 0.3, creado_por: 'Joseline Guzman', creado_por_id: '00000000-0000-4000-8000-000000000009', created_at: '2026-11-23T14:00:00Z', editado_at: null, eliminada_at: null };
+const MARCA_PROPIA = { id: '00000000-0000-4000-8000-0000000000f2', orden_id: null, servicio_id: SVC_ID, origen: 'revision', tipo: 'golpe', tipo_otro: null, descripcion: 'Puerta trasera', foto_url: null, carroceria_codigo: 'W204', lamina_version: 'abc123', x: 0.6, y: 0.7, creado_por: USUARIO.nombre, creado_por_id: UID, created_at: '2026-11-23T15:00:00Z', editado_at: null, eliminada_at: null };
+const MARCA_OTRA_LAMINA = { ...MARCA_PROPIA, id: '00000000-0000-4000-8000-0000000000f3', carroceria_codigo: 'W205', created_at: '2026-11-23T16:00:00Z', descripcion: 'Se marcó sobre otra carrocería' };
+async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver = 'conLaminaMarcas', usuario = USUARIO, iniciales = [], errorRpc = null, tema = null, entrada = 'servicio', pasos = [] }) {
+  const context = await browser.createBrowserContext();
+  const page = await context.newPage();
+  await page.setViewport({ width: 390, height: 844 });
+  const errores = [];
+  const rpcs = [];
+  const lecturas = [];
+  const posts = [];
+  let confirmaciones = 0;
+  let marcas = iniciales.map((m) => ({ ...m }));
+  page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (!['error', 'warning'].includes(m.type())) return;
+    const txt = m.text();
+    if (IGNORAR.some((re) => re.test(txt)) || /keeping defaults/.test(txt)) return;
+    errores.push(`console.${m.type()}: ${txt.slice(0, 300)}`);
+  });
+  // El único diálogo esperado es la confirmación de quitar un detalle.
+  page.on('dialog', (d) => {
+    if (d.type() === 'confirm' && /Quitar este detalle/.test(d.message())) { confirmaciones++; d.accept().catch(() => {}); return; }
+    errores.push(`dialog: ${d.message().slice(0, 200)}`); d.dismiss().catch(() => {});
+  });
+  const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+  const json = (body, status = 200) => ({ status, contentType: 'application/json', headers: CORS, body: JSON.stringify(body) });
+  const row = { id: SVC_ID, estado: 'borrador', aprobado: false, servicio_codigo: 'RC', placa: 'SMK001', mecanico: usuario.nombre, mecanico_id: usuario.id, revisiones: null, observaciones: '', fotos: {}, created_at: new Date().toISOString(), ...fila };
+  await page.setRequestInterception(true);
+  page.on('request', (req) => {
+    const u = req.url();
+    if (u.startsWith(baseUrl)) return req.continue();
+    if (req.method() === 'OPTIONS') return req.respond({ status: 204, headers: CORS, body: '' });
+    if (SUPA && u.startsWith(SUPA)) {
+      if (u.includes('/functions/v1/resolver-aceite')) return req.respond(json(RESP[resolver]));
+      if (u.includes('/rest/v1/rpc/mi_usuario')) return req.respond(json(usuario));
+      if (u.includes('/rest/v1/rpc/carroceria_marca_')) {
+        const fn = u.split('/rpc/')[1].split('?')[0];
+        const a = JSON.parse(req.postData() || '{}');
+        rpcs.push({ fn, a });
+        if (errorRpc) return req.respond(json({ ok: false, error: errorRpc }));
+        if (fn === 'carroceria_marca_agregar') {
+          const m = { id: `00000000-0000-4000-8000-0000000001${String(marcas.length).padStart(2, '0')}`, orden_id: null, servicio_id: a.p_servicio_id, origen: a.p_origen, tipo: a.p_tipo, tipo_otro: a.p_tipo_otro, descripcion: a.p_descripcion, foto_url: a.p_foto_url, carroceria_codigo: a.p_x == null ? null : a.p_carroceria_codigo, lamina_version: a.p_lamina_version, x: a.p_x, y: a.p_y, creado_por: usuario.nombre, creado_por_id: usuario.id, created_at: new Date().toISOString(), editado_at: null, eliminada_at: null };
+          marcas.push(m);
+          return req.respond(json({ ok: true, error: null, marca: m }));
+        }
+        if (fn === 'carroceria_marca_quitar') {
+          marcas = marcas.filter((m) => m.id !== a.p_id);
+          return req.respond(json({ ok: true, error: null, id: a.p_id }));
+        }
+        const i = marcas.findIndex((m) => m.id === a.p_id);
+        if (i < 0) return req.respond(json({ ok: false, error: 'no_encontrado' }));
+        marcas[i] = { ...marcas[i], tipo: a.p_tipo, tipo_otro: a.p_tipo_otro, descripcion: a.p_descripcion, foto_url: a.p_foto_url, ...(a.p_mover ? { x: a.p_x, y: a.p_y, carroceria_codigo: a.p_carroceria_codigo } : null) };
+        return req.respond(json({ ok: true, error: null, marca: marcas[i] }));
+      }
+      if (u.includes('/rest/v1/carroceria_marcas')) { lecturas.push(decodeURIComponent(u)); return req.respond(json(marcas)); }
+      // entrada 'orden': el link de Taller abre el servicio vigente de la orden.
+      if (u.includes('/rest/v1/servicios?orden_id=eq.')) return req.respond(json(entrada === 'orden' ? [row] : []));
+      if (u.includes('/rest/v1/vehiculos_modelos')) return req.respond(json([FILA_SELECTOR]));
+      { const rr = respuestaRecetas(u, json); if (rr) return req.respond(rr); }
+      if (u.includes('/rest/v1/vehiculos?patente=eq.SMK001')) return req.respond(json([{ id: VEH_ID }]));
+      if (u.includes(`/rest/v1/servicios?id=eq.${SVC_ID}`)) {
+        if (req.method() === 'PATCH') { const body = JSON.parse(req.postData() || '{}'); posts.push(body); return req.respond(json([{ ...row, ...body }])); }
+        return req.respond(json([row]));
+      }
+      if (u.includes('/rest/v1/')) return req.respond(json([]));
+      return req.respond(json({}));
+    }
+    if (u === LAMINA_MARCAS) return req.respond({ status: 200, contentType: LAMINA_REAL ? LAMINA_TIPO : 'image/png', headers: CORS, body: LAMINA_REAL || PNG_1X1 });
+    return req.respond({ status: 204, headers: CORS, body: '' });
+  });
+  await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
+  if (tema === 'claro') await page.evaluateOnNewDocument(() => { try { localStorage.setItem('theme', 'light'); } catch { /* sin storage */ } });
+  try {
+    await page.goto(entrada === 'orden' ? `${baseUrl}?placa=SMK001&orden_id=${ORDEN_ID}` : `${baseUrl}?servicio=${SVC_ID}`, { waitUntil: 'networkidle0', timeout: 30000 });
+  } catch (e) { errores.push(`goto: ${e.message}`); }
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+  const hay = (sel) => page.$(sel).then((h) => !!h);
+  const cuenta = (sel) => page.$$eval(sel, (els) => els.length).catch(() => 0);
+  const texto = (sel) => page.$eval(sel, (el) => el.innerText).catch(() => null);
+  const tocar = async (sel) => { try { await page.waitForSelector(sel, { timeout: 4000 }); await page.click(sel); } catch (e) { errores.push(`no se pudo tocar ${sel}: ${e.message.slice(0, 120)}`); } };
+  for (const [paso, arg] of pasos) {
+    switch (paso) {
+      case 'sin-bloque': if (await hay('[data-marcas-carroceria]')) errores.push('un servicio que no es RC ni RG muestra los detalles de carrocería'); break;
+      case 'bloque': if (!await hay('[data-marcas-carroceria] [data-marcas-abrir]')) errores.push('no aparece el bloque de detalles de carrocería'); break;
+      case 'lamina-cabecera': {
+        const l = await page.evaluate(() => {
+          const c = document.querySelector('#root [data-marcas-carroceria] [data-lamina-carroceria]');
+          if (!c) return null;
+          return { display: getComputedStyle(c).display, temaFijo: c.hasAttribute('data-tema-fijo'), src: c.querySelector('img')?.getAttribute('src'), puntos: c.querySelectorAll('[data-marca-punto]').length };
+        });
+        if (arg === 'ausente') { if (l) errores.push(`dibuja una lámina y no debía (${JSON.stringify(l)})`); break; }
+        if (!l || l.display === 'none' || !l.temaFijo || l.src !== LAMINA_MARCAS) errores.push(`la lámina de la cabecera no está bien (${JSON.stringify(l)})`);
+        else if (l.puntos !== arg) errores.push(`la lámina de la cabecera dibuja ${l.puntos} puntos, esperado ${arg}`);
+        break;
+      }
+      case 'resumen': { const t = await texto('[data-marcas-resumen]'); if (t !== arg) errores.push(`el resumen dice "${t}", esperado "${arg}"`); break; }
+      case 'abrir': {
+        await tocar('[data-marcas-abrir]');
+        await page.waitForSelector('[data-marcas-panel]', { timeout: 4000 }).catch(() => errores.push('no abrió el panel de detalles'));
+        const dentro = await page.evaluate(() => { const p = document.querySelector('[data-marcas-panel]'); return p ? { enRoot: !!p.closest('#root'), enBody: p.parentElement === document.body, alto: p.getBoundingClientRect().height, vista: window.innerHeight } : null; });
+        if (!dentro || dentro.enRoot || !dentro.enBody) errores.push(`el panel no va por portal a <body> (${JSON.stringify(dentro)})`);
+        else if (Math.abs(dentro.alto - dentro.vista) > 1) errores.push(`el panel no mide la pantalla (${dentro.alto} de ${dentro.vista})`);
+        break;
+      }
+      case 'cerrar': await tocar('[data-marcas-cerrar]'); await espera(150); if (await hay('[data-marcas-panel]')) errores.push('el panel no cerró'); break;
+      case 'tocar-lamina': {
+        // Toca la imagen en la fracción dada (x, y) y espera el formulario.
+        const caja = await page.$eval('[data-marcas-lamina] img', (i) => { const r = i.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }).catch(() => null);
+        if (!caja || !(caja.w > 20)) { errores.push(`la lámina del panel no tiene tamaño (${JSON.stringify(caja)})`); break; }
+        await page.mouse.click(caja.x + caja.w * arg[0], caja.y + caja.h * arg[1]);
+        await espera(150);
+        break;
+      }
+      case 'form': { const f = await page.$eval('[data-marca-form]', (el) => el.getAttribute('data-modo')).catch(() => null); if (f !== arg) errores.push(`el formulario está en "${f}", esperado "${arg}"`); break; }
+      case 'sin-form': if (await hay('[data-marca-form]')) errores.push('hay un formulario abierto y no debía'); break;
+      case 'punto-pendiente': { const n = await cuenta('[data-marcas-lamina] [data-marca-punto][data-pendiente]'); if (n !== arg) errores.push(`puntos pendientes sobre la lámina: ${n}, esperado ${arg}`); break; }
+      case 'tipo': await tocar(`[data-marca-tipo="${arg}"]`); break;
+      case 'otro': await page.type('[data-marca-otro]', arg).catch((e) => errores.push(`no se pudo escribir el "otro": ${e.message.slice(0, 80)}`)); break;
+      case 'descripcion': await page.type('[data-marca-descripcion]', arg).catch((e) => errores.push(`no se pudo escribir la descripción: ${e.message.slice(0, 80)}`)); break;
+      case 'guardar': await tocar('[data-marca-guardar]'); await espera(350); break;
+      case 'error': { const t = await texto('[data-marca-error]'); if (!t || !t.includes(arg)) errores.push(`el error del formulario dice "${t}", esperado "${arg}"`); break; }
+      case 'agregar-sin-punto': await tocar('[data-marcas-agregar]'); break;
+      case 'sin-agregar': if (await hay('[data-marcas-agregar]')) errores.push('ofrece agregar un detalle y no debía'); if (!await hay('[data-marcas-solo-lectura]')) errores.push('no avisa que la revisión ya se cerró'); break;
+      case 'sin-lamina-aviso': if (!await hay('[data-marcas-sin-lamina]')) errores.push('no avisa que el vehículo no tiene lámina'); if (await hay('[data-marcas-lamina]')) errores.push('dibuja una lámina en el panel y no debía'); break;
+      case 'lista': { const n = await cuenta('[data-marcas-lista] [data-marca]'); if (n !== arg) errores.push(`la lista tiene ${n} detalles, esperado ${arg}`); break; }
+      case 'nombres': { const t = await page.$$eval('[data-marcas-lista] [data-marca]', (els) => els.map((e) => `${e.getAttribute('data-numero')} ${e.querySelector('[data-marca-nombre]')?.innerText}`)).catch(() => []); if (JSON.stringify(t) !== JSON.stringify(arg)) errores.push(`la lista dice ${JSON.stringify(t)}, esperado ${JSON.stringify(arg)}`); break; }
+      case 'puntos-panel': { const n = await page.$$eval('[data-marcas-lamina] [data-marca-punto]:not([data-pendiente])', (els) => els.map((e) => e.getAttribute('data-numero'))).catch(() => []); if (JSON.stringify(n) !== JSON.stringify(arg)) errores.push(`los puntos del panel son ${JSON.stringify(n)}, esperado ${JSON.stringify(arg)}`); break; }
+      case 'editables': { const n = await cuenta('[data-marca-editar]'); if (n !== arg) errores.push(`detalles con lápiz: ${n}, esperado ${arg}`); break; }
+      case 'editar': { const bs = await page.$$('[data-marca-editar]'); if (!bs[arg]) errores.push(`no hay lápiz ${arg}`); else await bs[arg].click(); await espera(150); break; }
+      case 'quitar': await tocar('[data-marca-quitar]'); await espera(350); break;
+      case 'rpc': {
+        const r = rpcs[rpcs.length - 1];
+        if (!r || r.fn !== arg.fn) { errores.push(`la última función llamada es ${r?.fn}, esperado ${arg.fn}`); break; }
+        for (const [k, v] of Object.entries(arg.a || {})) {
+          const real = r.a[k];
+          const igual = typeof v === 'number' ? typeof real === 'number' && Math.abs(real - v) < 0.02 : real === v;
+          if (!igual) errores.push(`${arg.fn}: ${k} = ${JSON.stringify(real)}, esperado ${JSON.stringify(v)}`);
+        }
+        break;
+      }
+      case 'rpcs': if (rpcs.length !== arg) errores.push(`llamadas a las funciones de marcas: ${rpcs.length}, esperado ${arg} (${rpcs.map((r) => r.fn).join(', ')})`); break;
+      case 'tema-panel': {
+        const f = await page.evaluate(() => { const p = document.querySelector('[data-marcas-panel]'); const l = document.querySelector('[data-marcas-lamina]'); return p ? { tema: p.getAttribute('data-tema'), panel: getComputedStyle(p).filter, lamina: l ? getComputedStyle(l).filter : null, img: l ? getComputedStyle(l.querySelector('img')).filter : null } : null; });
+        if (!f) { errores.push('no se pudo medir el tema del panel'); break; }
+        if (arg === 'claro') {
+          if (f.tema !== 'claro' || !/invert/.test(f.panel)) errores.push(`tema claro: el panel no lleva el filtro del tema (${JSON.stringify(f)})`);
+          if (!/invert/.test(f.lamina || '')) errores.push(`tema claro: la lámina del panel no se re-invierte (${f.lamina})`);
+          if (f.img !== 'none') errores.push(`tema claro: la imagen de la lámina lleva filtro propio (${f.img})`);
+        } else if (f.tema !== 'oscuro' || f.panel !== 'none' || (f.lamina && f.lamina !== 'none')) errores.push(`tema oscuro: el panel lleva filtros (${JSON.stringify(f)})`);
+        break;
+      }
+      case 'captura': if (process.env.SMOKE_CAPTURAS) await page.screenshot({ path: `${process.env.SMOKE_CAPTURAS}/${arg}.png` }).catch((e) => errores.push(`captura: ${e.message.slice(0, 80)}`)); break;
+      default: errores.push(`paso desconocido: ${paso}`);
+    }
+  }
+  // Las marcas no pasan por el guardado del checklist: ningún PATCH las lleva.
+  for (const b of posts) if (JSON.stringify(b).includes('carroceria') || 'marcas' in b) errores.push('un PATCH a servicios lleva las marcas');
+  if (pasos.some(([p]) => p === 'bloque') && !lecturas.some((u) => u.includes(`servicio_id.eq.${SVC_ID}`) && u.includes('eliminada_at=is.null'))) errores.push(`no leyó las marcas del servicio (${JSON.stringify(lecturas)})`);
+  if (confirmaciones !== pasos.filter(([p]) => p === 'quitar').length) errores.push(`confirmaciones de quitar: ${confirmaciones}`);
+  await context.close();
+  const ok = errores.length === 0;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${nombre}  (funciones: ${rpcs.map((r) => r.fn.replace('carroceria_marca_', '')).join(', ') || 'ninguna'})`);
+  for (const e of errores) console.log(`  - ${e}`);
+  return ok;
+}
+
 let server, browser, code = 1;
 try {
   console.log('smoke: vite build…');
@@ -895,7 +1074,55 @@ try {
   rV.push(await escenarioVistaCliente(browser, baseUrl, { nombre: 'vista pública: informe /servicio/:slug de un aprobado con historial de rechazo → sin rastro del rechazo', ruta: '/servicio/SMK123-B-14102026-AB1', filas: [filaAprobadaSmoke({ rechazado: false })] }));
   rV.push(await escenarioVistaCliente(browser, baseUrl, { nombre: 'vista pública: informe de una fila vieja aprobada con la marca todavía en true → sin rastro del rechazo', ruta: '/servicio/SMK123-B-14102026-AB1', filas: [filaAprobadaSmoke({ rechazado: true })] }));
   rV.push(await escenarioVistaCliente(browser, baseUrl, { nombre: 'vista pública: historial por placa con los dos casos → sin rastro del rechazo', ruta: '/historial', placa: 'SMK123', filas: [filaAprobadaSmoke({ rechazado: true }), filaAprobadaSmoke({ id: '00000000-0000-4000-8000-0000000000e2', slug: 'SMK123-A-01092026-ZZ9', servicio_codigo: 'A', rechazado: false })] }));
-  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) && rR.every(Boolean) && rV.every(Boolean) ? 0 : 1;
+  const rM = [];
+  rM.push(await escenarioMarcas(browser, baseUrl, { nombre: 'marcas: un mantenimiento A no lleva detalles de carrocería', fila: { servicio_codigo: 'A' }, pasos: [['sin-bloque']] }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: RC con lámina → tocar la lámina, elegir el tipo y guardar: punto numerado en el panel y en la cabecera',
+    pasos: [['bloque'], ['lamina-cabecera', 0], ['resumen', 'Sin detalles'], ['abrir'], ['tema-panel', 'oscuro'], ['tocar-lamina', [0.25, 0.75]], ['form', 'nueva'], ['punto-pendiente', 1],
+      ['guardar'], ['error', 'Elegí el tipo de detalle.'], ['rpcs', 0], ['tipo', 'golpe'], ['descripcion', 'Puerta trasera izquierda'], ['guardar'],
+      ['rpc', { fn: 'carroceria_marca_agregar', a: { p_origen: 'revision', p_servicio_id: SVC_ID, p_orden_id: null, p_tipo: 'golpe', p_tipo_otro: null, p_descripcion: 'Puerta trasera izquierda', p_carroceria_codigo: 'W204', p_lamina_version: 'abc123', p_x: 0.25, p_y: 0.75 } }],
+      ['sin-form'], ['lista', 1], ['nombres', ['1 Golpe']], ['puntos-panel', ['1']], ['cerrar'], ['lamina-cabecera', 1], ['resumen', '1 detalle']],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: RG sin lámina → el detalle es el tipo con su descripción, sin punto; "otro" pide su texto',
+    fila: { servicio_codigo: 'RG' }, resolver: 'automatico',
+    pasos: [['bloque'], ['lamina-cabecera', 'ausente'], ['abrir'], ['sin-lamina-aviso'], ['agregar-sin-punto'], ['form', 'nueva'], ['tipo', 'otro'], ['guardar'], ['error', 'Escribí qué es el detalle.'], ['rpcs', 0],
+      ['otro', 'Óxido'], ['descripcion', 'Bajo la puerta del conductor'], ['guardar'],
+      ['rpc', { fn: 'carroceria_marca_agregar', a: { p_tipo: 'otro', p_tipo_otro: 'Óxido', p_descripcion: 'Bajo la puerta del conductor', p_carroceria_codigo: null, p_x: null, p_y: null } }],
+      ['lista', 1], ['nombres', ['1 Óxido']], ['cerrar'], ['resumen', '1 detalle']],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: la base rechaza el guardado → se ve el motivo, el formulario sigue abierto y la lista no cambia',
+    errorRpc: 'no_es_borrador',
+    pasos: [['abrir'], ['tocar-lamina', [0.5, 0.5]], ['tipo', 'rayon'], ['guardar'], ['rpcs', 1], ['error', 'La revisión ya se cerró'], ['form', 'nueva'], ['lista', 0]],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: lista con una de recepción, una propia y una de otra lámina → el mecánico edita solo las suyas; quitar renumera',
+    iniciales: [MARCA_RECEPCION, MARCA_PROPIA, MARCA_OTRA_LAMINA],
+    pasos: [['bloque'], ['lamina-cabecera', 2], ['resumen', '3 detalles'], ['abrir'], ['lista', 3], ['nombres', ['1 Rayón', '2 Golpe', '3 Golpe']], ['puntos-panel', ['1', '2']], ['editables', 2],
+      ['tocar-lamina', [0.9, 0.1]], ['form', 'nueva'], ['guardar'], ['rpcs', 0]],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: quitar un detalle propio pide confirmación, llama a la base y renumera la lista',
+    iniciales: [MARCA_RECEPCION, MARCA_PROPIA, MARCA_OTRA_LAMINA],
+    pasos: [['abrir'], ['editar', 0], ['form', 'editar'], ['quitar'], ['rpc', { fn: 'carroceria_marca_quitar', a: { p_id: MARCA_PROPIA.id } }], ['sin-form'], ['lista', 2], ['nombres', ['1 Rayón', '2 Golpe']], ['puntos-panel', ['1']], ['editables', 1]],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: revisión ya enviada (pendiente) → el mecánico las ve y no puede agregar ni editar; tocar la lámina no hace nada',
+    entrada: 'orden', fila: { estado: 'pendiente', orden_id: ORDEN_ID }, iniciales: [MARCA_PROPIA],
+    pasos: [['bloque'], ['abrir'], ['sin-agregar'], ['lista', 1], ['editables', 0], ['tocar-lamina', [0.5, 0.5]], ['sin-form'], ['rpcs', 0]],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: un jefe sobre una revisión aprobada (sin lámina: no se consulta) → agrega y edita también las de recepción',
+    fila: { estado: 'aprobado', aprobado: true }, usuario: JEFE, iniciales: [MARCA_RECEPCION],
+    pasos: [['bloque'], ['lamina-cabecera', 'ausente'], ['abrir'], ['editables', 1], ['agregar-sin-punto'], ['form', 'nueva'], ['tipo', 'quebradura'], ['guardar'], ['rpc', { fn: 'carroceria_marca_agregar', a: { p_tipo: 'quebradura', p_x: null, p_y: null } }], ['lista', 2], ['nombres', ['1 Rayón', '2 Quebradura']]],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: tema claro → el panel lleva el filtro del tema y la lámina se ve normal',
+    tema: 'claro', iniciales: [MARCA_PROPIA],
+    pasos: [['bloque'], ['lamina-cabecera', 1], ['abrir'], ['tema-panel', 'claro'], ['lista', 1], ['puntos-panel', ['1']]],
+  }));
+  code = r1 && r2 && r3 && r4 && rA.every(Boolean) && rC.every(Boolean) && rF.every(Boolean) && rR.every(Boolean) && rV.every(Boolean) && rM.every(Boolean) ? 0 : 1;
   console.log(code === 0 ? 'smoke OK: la app carga sin errores en todos los escenarios' : 'smoke FALLÓ: ver arriba (no mergear)');
 } catch (e) {
   console.error('smoke: error del propio script:', e);
