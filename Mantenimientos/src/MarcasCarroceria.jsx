@@ -1,9 +1,10 @@
 // ── Detalles de carrocería sobre la lámina (feat/marcas-carroceria, 23/11/2026) ──
 // En una revisión de compra o general (RC / RG) el mecánico marca los detalles
-// del carro: golpe, rayón, quebradura u "otro", cada uno con foto y descripción
-// opcionales. Con lámina, toca el lugar y queda un punto numerado; sin lámina,
-// el detalle es la foto con su descripción (el método de las fotos adicionales
-// de la recepción).
+// del carro. CON lámina toca el lugar y queda un punto numerado, con su tipo
+// (golpe, rayón, quebradura u "otro") y foto y descripción opcionales. SIN
+// lámina usa el método de la recepción, igual: siete fotos guiadas (frente,
+// trasero, laterales, interior, motor, tablero) y fotos adicionales con su
+// descripción, sin elegir tipo.
 //
 // Las marcas viven en `carroceria_marcas` (una fila por marca, una lista por
 // orden) y se escriben por las funciones de la base, no por el autosave del
@@ -36,7 +37,8 @@ import {
   TIPOS_MARCA, ETIQUETA_TIPO, ORIGEN_REVISION, ORIGEN_RECEPCION, MAX_OTRO, MAX_DESCRIPCION,
   etiquetaMarca, marcasVigentes, laminaDeUrl, puntoDeMarca, tienePuntoGuardado, puntoDesdeToque,
   borradorMarca, problemaMarca, argumentosAgregar, argumentosEditar, resultadoMarca, filtroMarcas,
-  puedeModificarMarca, puedeAgregarEnRevision, resumenMarcas,
+  puedeModificarMarca, puedeAgregarEnRevision, resumenMarcas, ZONAS_GUIADAS, MAX_FOTOS_ADICIONALES,
+  fotosGuiadas, fotosAdicionales, argumentosFoto, argumentosEditarFoto,
 } from "./lib/marcasCarroceria.js";
 
 const INVERTIR = "invert(1) hue-rotate(180deg)";
@@ -75,6 +77,8 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
   const [guardando, setGuardando] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [errorForm, setErrorForm] = useState(null);
+  const [subiendoFoto, setSubiendoFoto] = useState(null); // la casilla que está subiendo, o "libre"
+  const [errorFotos, setErrorFotos] = useState(null);
   const formRef = useRef(null);
   const vivoRef = useRef(true);
   useEffect(() => { vivoRef.current = true; return () => { vivoRef.current = false; }; }, []);
@@ -102,6 +106,11 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
   useEffect(() => { cargar(); }, [cargar]);
 
   const marcas = marcasVigentes(filas);
+  const guiadas = fotosGuiadas(filas);
+  const adicionales = fotosAdicionales(filas);
+  const hayFotos = Object.keys(guiadas).length + adicionales.length > 0;
+  // Sin lámina (o si su imagen falló) se usa el método de la recepción: fotos.
+  const modoFotos = !lamina;
   const rol = session?.rol;
   const puedeAgregar = puedeAgregarEnRevision({ rol, estadoServicio });
   const permisoDe = (m) => puedeModificarMarca(m, { sessionId: session?.id, rol, estadoServicio });
@@ -117,7 +126,7 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
   const reinvertir = claro ? { filter: INVERTIR } : null;
 
   const cerrarForm = () => { setEdicion(null); setErrorForm(null); };
-  const cerrarPanel = () => { if (guardando || subiendo) return; cerrarForm(); setAbierto(false); };
+  const cerrarPanel = () => { if (guardando || subiendo || subiendoFoto) return; cerrarForm(); setErrorFotos(null); setAbierto(false); };
   const nueva = (punto) => { setErrorForm(null); setEdicion({ modo: "nueva", id: null, punto: punto || null, mover: false, borrador: borradorMarca() }); };
   const editar = (m) => { setErrorForm(null); setEdicion({ modo: "editar", id: m.id, punto: puntoDeMarca(m, lamina?.codigo), mover: false, borrador: borradorMarca(m) }); };
   const cambiar = (campos) => setEdicion(e => (e ? { ...e, borrador: { ...e.borrador, ...campos } } : e));
@@ -184,6 +193,45 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
     const id = edicion.id;
     setFilas(f => f.filter(x => x.id !== id));
     cerrarForm();
+  };
+
+  // ── Sin lámina: el método de la recepción ──
+  // Una foto guiada (con su casilla; reemplaza a la que hubiera) o adicional.
+  const subirFotoMarca = async (zona, file) => {
+    if (subiendoFoto) return;
+    setSubiendoFoto(zona || "libre"); setErrorFotos(null);
+    const url = await api.current.subirFoto(file);
+    if (!vivoRef.current) return;
+    if (!url) { setSubiendoFoto(null); return; }
+    const sid = await api.current.asegurarServicio();
+    if (!vivoRef.current) return;
+    if (!sid) { setSubiendoFoto(null); setErrorFotos("El servicio todavía no se pudo guardar. Revisá la conexión y probá de nuevo."); return; }
+    const r = await api.current.rpc("carroceria_marca_agregar", argumentosFoto({ servicioId: sid, zona, fotoUrl: url }));
+    if (!vivoRef.current) return;
+    const res = resultadoMarca(r?.data, r?.error);
+    setSubiendoFoto(null);
+    if (!res.ok) { setErrorFotos(res.mensaje); return; }
+    // Solo lo que devolvió la base entra a la lista; la guiada nueva saca a la anterior.
+    if (res.marca?.id) setFilas(f => [...f.filter(x => x.id !== res.marca.id && !(zona && x.zona === zona && !x.tipo)), res.marca]);
+    else cargar();
+  };
+  const quitarFoto = async (m) => {
+    if (subiendoFoto) return;
+    setErrorFotos(null);
+    const r = await api.current.rpc("carroceria_marca_quitar", { p_id: m.id });
+    if (!vivoRef.current) return;
+    const res = resultadoMarca(r?.data, r?.error);
+    if (!res.ok) { setErrorFotos(res.mensaje); return; }
+    setFilas(f => f.filter(x => x.id !== m.id));
+  };
+  const describirFoto = async (m, texto) => {
+    if (String(texto || "").trim() === String(m.descripcion || "").trim()) return;
+    setErrorFotos(null);
+    const r = await api.current.rpc("carroceria_marca_editar", argumentosEditarFoto({ id: m.id, descripcion: texto, fotoUrl: m.foto_url }));
+    if (!vivoRef.current) return;
+    const res = resultadoMarca(r?.data, r?.error);
+    if (!res.ok) { setErrorFotos(res.mensaje); return; }
+    if (res.marca?.id) setFilas(f => [...f.filter(x => x.id !== res.marca.id), res.marca]);
   };
 
   // Los puntos que se dibujan sobre la lámina de hoy.
@@ -285,7 +333,7 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
 
   const lista = (
     <div data-marcas-lista style={{ display:"flex", flexDirection:"column", gap:8 }}>
-      {marcas.length === 0 && (
+      {marcas.length === 0 && !modoFotos && (
         <div data-marcas-vacio style={{ fontSize:13.5, color:T.textMuted, padding:"10px 2px", lineHeight:1.45 }}>
           Todavía no hay detalles marcados.
         </div>
@@ -319,6 +367,72 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
     </div>
   );
 
+  // Las fotos, como en la recepción de Taller: siete casillas guiadas y las
+  // adicionales con su descripción. `agregar`: si se ofrecen casillas vacías y el
+  // botón de sumar (sin lámina); con lámina solo se muestran las que ya existan.
+  const miniatura = { ...reinvertir, objectFit:"cover", borderRadius:8, border:`1px solid ${T.borderDefault}`, display:"block" };
+  const botonQuitarFoto = (m, etiqueta) => permisoDe(m) && (
+    <button type="button" data-foto-quitar aria-label={`Quitar la foto ${etiqueta}`} title="Quitar la foto" onClick={() => quitarFoto(m)}
+      style={{ position:"absolute", top:4, right:4, width:28, height:28, minWidth:0, minHeight:0, borderRadius:"50%", padding:0, border:"none", background:T.overlay, color:T.text, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
+      <Ic.X size={15} />
+    </button>
+  );
+  const seccionFotos = (agregar) => (
+    <div data-marcas-fotos style={{ display:"flex", flexDirection:"column", gap:12 }}>
+      <div>
+        <Etiqueta>Fotos guiadas</Etiqueta>
+        <div data-fotos-guiadas style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:8 }}>
+          {ZONAS_GUIADAS.filter(z => agregar || guiadas[z.key]).map(({ key, label }) => {
+            const m = guiadas[key];
+            return (
+              <div key={key} data-foto-guiada={key} data-con-foto={m ? "1" : undefined} style={{ minWidth:0 }}>
+                {m ? (
+                  <div style={{ position:"relative" }}>
+                    <a href={m.foto_url} target="_blank" rel="noreferrer" style={{ display:"block", lineHeight:0 }}>
+                      <img src={m.foto_url} alt={label} loading="lazy" style={{ ...miniatura, width:"100%", aspectRatio:"4 / 3" }} />
+                    </a>
+                    {botonQuitarFoto(m, label)}
+                  </div>
+                ) : (
+                  <div style={{ aspectRatio:"4 / 3", borderRadius:8, border:`1px dashed ${T.borderStrong}`, background:T.panel, display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:6, boxSizing:"border-box" }}>
+                    {puedeAgregar
+                      ? <FotoPicker variant="compact" onFile={f => subirFotoMarca(key, f)} busy={subiendoFoto === key} disabled={!!subiendoFoto} />
+                      : <Ic.Image size={20} color={T.textDisabled} />}
+                  </div>
+                )}
+                <div style={{ fontSize:11.5, color:T.textMuted, textAlign:"center", marginTop:4 }}>{label}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <Etiqueta>Fotos adicionales (<span data-fotos-adicionales-conteo>{adicionales.length}</span>/{MAX_FOTOS_ADICIONALES})</Etiqueta>
+        <div data-fotos-adicionales style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {adicionales.map((m, i) => (
+            <div key={m.id} data-foto-adicional style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+              <div style={{ position:"relative", flexShrink:0 }}>
+                <a href={m.foto_url} target="_blank" rel="noreferrer" style={{ display:"block", lineHeight:0 }}>
+                  <img src={m.foto_url} alt={`Foto adicional ${i + 1}`} loading="lazy" style={{ ...miniatura, width:72, height:72 }} />
+                </a>
+                {botonQuitarFoto(m, `adicional ${i + 1}`)}
+              </div>
+              <input type="text" data-foto-descripcion placeholder="Descripción…" defaultValue={m.descripcion || ""} maxLength={MAX_DESCRIPCION}
+                readOnly={!permisoDe(m)} onBlur={e => describirFoto(m, e.target.value)}
+                style={{ ...campoMB, flex:1, minWidth:0, boxSizing:"border-box" }} />
+            </div>
+          ))}
+          {agregar && puedeAgregar && adicionales.length < MAX_FOTOS_ADICIONALES && (
+            <div data-fotos-agregar style={{ display:"flex", gap:8 }}>
+              <FotoPicker onFile={f => subirFotoMarca(null, f)} busy={subiendoFoto === "libre"} disabled={!!subiendoFoto} />
+            </div>
+          )}
+        </div>
+      </div>
+      {errorFotos && <MensajeCampo error data-fotos-error>{errorFotos}</MensajeCampo>}
+    </div>
+  );
+
   return (
     <div data-marcas-carroceria style={{ marginTop:8 }}>
       {/* La lámina, con los puntos. Nace oculta y se muestra cuando la imagen
@@ -334,7 +448,7 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
         style={{ marginTop: lamina && laminaLista ? 6 : 0, width:"100%", minHeight:44, display:"flex", alignItems:"center", gap:8, padding:"0 12px", borderRadius:T.radio.control, border:`1px solid ${T.borderDefault}`, background:T.card, color:T.text, fontFamily:T.sans, fontSize:14, cursor:"pointer", textAlign:"left" }}>
         <Ic.MapPin size={16} color={T.accentMuted} />
         <span style={{ flex:1, minWidth:0 }}>Detalles de carrocería</span>
-        <span data-marcas-resumen style={{ fontSize:13, color: marcas.length ? T.text : T.textMuted, fontFamily:T.mono, fontVariantNumeric:"tabular-nums" }}>{resumenMarcas(marcas)}</span>
+        <span data-marcas-resumen style={{ fontSize:13, color: marcas.length || hayFotos ? T.text : T.textMuted, fontFamily:T.mono, fontVariantNumeric:"tabular-nums" }}>{resumenMarcas(filas)}</span>
         <Ic.ChevronRight size={16} color={T.textMuted} />
       </button>
       {errorCarga && (
@@ -348,7 +462,7 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
           style={{ position:"fixed", inset:0, zIndex:600, background:T.shell, color:T.text, fontFamily:T.sans, overflowY:"auto", WebkitOverflowScrolling:"touch", ...(claro ? { filter: INVERTIR } : null) }}>
           <div style={{ position:"sticky", top:0, zIndex:2, display:"flex", alignItems:"center", gap:8, padding:"8px 8px 8px 16px", background:T.panel, borderBottom:`1px solid ${T.borderSubtle}` }}>
             <h2 style={{ ...tituloB, fontSize:16, flex:1, minWidth:0 }}>Detalles de carrocería</h2>
-            <span style={{ fontSize:13, color:T.textMuted, fontFamily:T.mono, fontVariantNumeric:"tabular-nums" }}>{resumenMarcas(marcas)}</span>
+            <span style={{ fontSize:13, color:T.textMuted, fontFamily:T.mono, fontVariantNumeric:"tabular-nums" }}>{resumenMarcas(filas)}</span>
             <BotonIcono icono={Ic.X} title="Cerrar" data-marcas-cerrar onClick={cerrarPanel} />
           </div>
           <div style={{ maxWidth:920, margin:"0 auto", padding:"12px 12px 28px", display:"flex", flexDirection:"column", gap:12 }}>
@@ -358,27 +472,41 @@ export default function MarcasCarroceria({ laminaUrl, ordenId, servicioId, estad
                 {dibujo(true)}
               </div>
             )}
-            {!lamina && (
-              <div data-marcas-sin-lamina style={{ fontSize:13, color:T.textMuted, lineHeight:1.5 }}>
-                Este vehículo no tiene lámina: los detalles se registran con su foto y su descripción. Si se identifica el vehículo con el VIN en Taller, aparece la lámina.
-              </div>
-            )}
-            {puedeAgregar ? (
-              !edicion && (
-                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                  {laminaLista && <div data-marcas-ayuda style={{ fontSize:13.5, color:T.textSoft, lineHeight:1.45 }}>Tocá la lámina donde está el detalle.</div>}
-                  <Boton icono={Ic.Plus} data-marcas-agregar onClick={() => nueva(null)} ancho>
-                    {laminaLista ? "Agregar un detalle sin marcar en la lámina" : "Agregar detalle"}
-                  </Boton>
+            {modoFotos ? (
+              <>
+                <div data-marcas-sin-lamina style={{ fontSize:13, color:T.textMuted, lineHeight:1.5 }}>
+                  Este vehículo no tiene lámina: se registra con fotos, como en la recepción. Si se identifica el vehículo con el VIN en Taller, aparece la lámina.
                 </div>
-              )
+                {!puedeAgregar && (
+                  <div data-marcas-solo-lectura style={{ fontSize:13, color:T.textMuted, lineHeight:1.5 }}>
+                    La revisión ya se cerró: las fotos las cambia un jefe.
+                  </div>
+                )}
+                {seccionFotos(true)}
+              </>
             ) : (
-              <div data-marcas-solo-lectura style={{ fontSize:13, color:T.textMuted, lineHeight:1.5 }}>
-                La revisión ya se cerró: los detalles los cambia un jefe.
-              </div>
+              <>
+                {puedeAgregar ? (
+                  !edicion && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                      {laminaLista && <div data-marcas-ayuda style={{ fontSize:13.5, color:T.textSoft, lineHeight:1.45 }}>Tocá la lámina donde está el detalle.</div>}
+                      {laminaLista && (
+                        <Boton icono={Ic.Plus} data-marcas-agregar onClick={() => nueva(null)} ancho>
+                          Agregar un detalle sin marcar en la lámina
+                        </Boton>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  <div data-marcas-solo-lectura style={{ fontSize:13, color:T.textMuted, lineHeight:1.5 }}>
+                    La revisión ya se cerró: los detalles los cambia un jefe.
+                  </div>
+                )}
+              </>
             )}
             {formulario}
             {lista}
+            {!modoFotos && hayFotos && seccionFotos(false)}
           </div>
         </div>,
         document.body

@@ -10,11 +10,13 @@
 // - Sobre la lámina técnica se marcan los detalles del carro: golpe, rayón,
 //   quebradura u "otro" (con su texto). Cada marca puede llevar foto y
 //   descripción.
-// - Sin lámina, el detalle es la foto con su descripción (el método de las fotos
-//   adicionales de la recepción): la misma marca, sin punto.
+// - Sin lámina se usa el método de la recepción, igual: siete fotos guiadas
+//   (frente, trasero, laterales, interior, motor, tablero) y fotos adicionales
+//   con su descripción, sin elegir tipo.
 // - Va en las revisiones RC y RG y en la recepción, y es UNA lista por orden.
-// - Las marcas viven en la tabla `carroceria_marcas`, una fila por marca, y se
-//   escriben solo por las funciones carroceria_marca_agregar / _editar / _quitar.
+// - Todo vive en la tabla `carroceria_marcas`, una fila por MARCA (con `tipo`) o
+//   por FOTO (sin `tipo`: guiada si tiene `zona`, adicional si no), y se escribe
+//   solo por las funciones carroceria_marca_agregar / _editar / _quitar.
 // - El punto (x, y) es una fracción de la imagen de la lámina, con el código de
 //   la carrocería sobre la que se tocó. Solo se dibuja si la lámina de hoy es la
 //   de ese código: nunca un punto sobre un dibujo que no es el suyo.
@@ -28,6 +30,18 @@ export const ETIQUETA_ORIGEN = { recepcion: 'Recepción', revision: 'Revisión' 
 export const MAX_OTRO = 60;
 export const MAX_DESCRIPCION = 500;
 export const MAX_MARCAS = 60;
+// Las casillas de las fotos guiadas: las mismas siete de la recepción de Taller
+// (GUIDED_SLOTS), con las mismas claves y los mismos rótulos.
+export const ZONAS_GUIADAS = [
+  { key: 'frente', label: 'Frente' },
+  { key: 'trasero', label: 'Trasero' },
+  { key: 'lat_der', label: 'Lat. Der.' },
+  { key: 'lat_izq', label: 'Lat. Izq.' },
+  { key: 'interior', label: 'Interior' },
+  { key: 'motor', label: 'Motor' },
+  { key: 'tablero', label: 'Tablero' },
+];
+export const MAX_FOTOS_ADICIONALES = 15;
 export const ROLES_MARCAS = ['jefe', 'admin'];
 
 const limpio = (s) => String(s ?? '').trim();
@@ -37,7 +51,7 @@ const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const uuidONull = (v) => (RE_UUID.test(limpio(v)) ? limpio(v) : null);
 
 // Lo que se lee de cada fila.
-export const COLUMNAS_MARCA = 'id, orden_id, servicio_id, origen, tipo, tipo_otro, descripcion, foto_url, carroceria_codigo, lamina_version, x, y, creado_por, creado_por_id, created_at, editado_at, eliminada_at';
+export const COLUMNAS_MARCA = 'id, orden_id, servicio_id, origen, tipo, tipo_otro, zona, descripcion, foto_url, carroceria_codigo, lamina_version, x, y, creado_por, creado_por_id, created_at, editado_at, eliminada_at';
 
 // El nombre de una marca: su tipo, o el texto de "otro".
 export function etiquetaMarca(m) {
@@ -45,20 +59,36 @@ export function etiquetaMarca(m) {
   return ETIQUETA_TIPO[m?.tipo] || ETIQUETA_TIPO.otro;
 }
 
-// Las marcas vigentes (sin las quitadas), en el orden en que se hicieron y con
-// su número (1, 2, 3…). El número es la posición de hoy: si se quita una, las
-// que siguen se corren.
+const porCreacion = (a, b) => {
+  const ta = String(a.created_at || '');
+  const tb = String(b.created_at || '');
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0;
+};
+const vigentes = (filas) => (Array.isArray(filas) ? filas : []).filter((m) => m && m.id && !m.eliminada_at);
+
+// Una fila sin `tipo` es una FOTO (guiada o adicional); con `tipo`, una MARCA.
+export const esFoto = (m) => !!m && !limpio(m.tipo);
+
+// Las MARCAS vigentes (sin las quitadas y sin las fotos), en el orden en que se
+// hicieron y con su número (1, 2, 3…). El número es la posición de hoy: si se
+// quita una, las que siguen se corren.
 export function marcasVigentes(filas) {
-  return (Array.isArray(filas) ? filas : [])
-    .filter((m) => m && m.id && !m.eliminada_at)
-    .slice()
-    .sort((a, b) => {
-      const ta = String(a.created_at || '');
-      const tb = String(b.created_at || '');
-      if (ta !== tb) return ta < tb ? -1 : 1;
-      return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0;
-    })
-    .map((m, i) => ({ ...m, numero: i + 1 }));
+  return vigentes(filas).filter((m) => !esFoto(m)).sort(porCreacion).map((m, i) => ({ ...m, numero: i + 1 }));
+}
+
+// Las fotos guiadas vigentes, por casilla: { frente: fila, … }. Si hubiera más
+// de una por casilla, vale la más nueva.
+export function fotosGuiadas(filas) {
+  const claves = ZONAS_GUIADAS.map((z) => z.key);
+  const out = {};
+  for (const m of vigentes(filas).filter((x) => esFoto(x) && claves.includes(x.zona)).sort(porCreacion)) out[m.zona] = m;
+  return out;
+}
+
+// Las fotos adicionales vigentes (sin casilla), en el orden en que se subieron.
+export function fotosAdicionales(filas) {
+  return vigentes(filas).filter((m) => esFoto(m) && !limpio(m.zona)).sort(porCreacion);
 }
 
 // Datos de la lámina a partir de su URL pública del bucket:
@@ -147,6 +177,39 @@ export function argumentosAgregar({ origen, ordenId, servicioId, borrador, punto
     p_servicio_id: revision ? uuidONull(servicioId) : null,
     ...contenido(borrador || {}),
     ...puntoParaGuardar(punto, lamina),
+    p_zona: null,
+  };
+}
+
+const SIN_PUNTO = { p_carroceria_codigo: null, p_lamina_version: null, p_x: null, p_y: null };
+
+// Argumentos de carroceria_marca_agregar para una FOTO de la revisión: guiada
+// (con su casilla; reemplaza a la que hubiera) o adicional (sin casilla).
+export function argumentosFoto({ servicioId, zona, fotoUrl, descripcion } = {}) {
+  return {
+    p_origen: ORIGEN_REVISION,
+    p_orden_id: null,
+    p_servicio_id: uuidONull(servicioId),
+    p_tipo: null,
+    p_tipo_otro: null,
+    p_descripcion: limpio(descripcion) || null,
+    p_foto_url: limpio(fotoUrl) || null,
+    ...SIN_PUNTO,
+    p_zona: limpio(zona) || null,
+  };
+}
+
+// Argumentos de carroceria_marca_editar para una FOTO: su descripción (la foto
+// viaja igual: una foto nunca queda sin foto).
+export function argumentosEditarFoto({ id, descripcion, fotoUrl } = {}) {
+  return {
+    p_id: uuidONull(id),
+    p_tipo: null,
+    p_tipo_otro: null,
+    p_descripcion: limpio(descripcion) || null,
+    p_foto_url: limpio(fotoUrl) || null,
+    p_mover: false,
+    ...SIN_PUNTO,
   };
 }
 
@@ -173,6 +236,9 @@ const MENSAJES = {
   foto_invalida: 'La foto no se pudo guardar. Volvé a tomarla.',
   punto_invalido: 'El punto no cayó sobre la lámina. Tocá de nuevo.',
   demasiadas: `Ya hay ${MAX_MARCAS} detalles: no se pueden agregar más.`,
+  falta_foto: 'Falta la foto.',
+  zona_invalida: 'Esa casilla de foto no existe.',
+  demasiadas_fotos: `Ya hay ${MAX_FOTOS_ADICIONALES} fotos adicionales: no se pueden agregar más.`,
 };
 export function mensajeMarca(codigo) {
   return MENSAJES[codigo] || 'No se pudo guardar el detalle. Probá de nuevo.';
@@ -222,9 +288,12 @@ export function puedeAgregarEnRevision({ rol, estadoServicio } = {}) {
   return estadoServicio === 'borrador';
 }
 
-// "3 detalles" / "1 detalle" / "Sin detalles".
-export function resumenMarcas(lista) {
-  const n = marcasVigentes(lista).length;
-  if (n === 0) return 'Sin detalles';
-  return n === 1 ? '1 detalle' : `${n} detalles`;
+// "3 detalles", "1 detalle · 4 fotos", "2 fotos" o "Sin detalles".
+export function resumenMarcas(filas) {
+  const n = marcasVigentes(filas).length;
+  const f = Object.keys(fotosGuiadas(filas)).length + fotosAdicionales(filas).length;
+  const partes = [];
+  if (n) partes.push(n === 1 ? '1 detalle' : `${n} detalles`);
+  if (f) partes.push(f === 1 ? '1 foto' : `${f} fotos`);
+  return partes.length ? partes.join(' · ') : 'Sin detalles';
 }

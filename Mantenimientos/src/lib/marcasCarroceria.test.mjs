@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import {
   etiquetaMarca, marcasVigentes, laminaDeUrl, puntoDeMarca, puntoDesdeToque, problemaMarca,
   argumentosAgregar, argumentosEditar, resultadoMarca, mensajeMarca, filtroMarcas,
-  puedeModificarMarca, puedeAgregarEnRevision, resumenMarcas,
+  puedeModificarMarca, puedeAgregarEnRevision, resumenMarcas, ZONAS_GUIADAS, fotosGuiadas, fotosAdicionales,
+  argumentosFoto, argumentosEditarFoto,
 } from "./marcasCarroceria.js";
 
 const O1 = "11111111-1111-4111-8111-111111111111";
@@ -51,7 +52,7 @@ test("lo que le falta al borrador", () => {
 test("argumentos: la revisión manda el servicio; sin lámina no viaja punto", () => {
   const lamina = laminaDeUrl(LAMINA);
   const a = argumentosAgregar({ origen: "revision", ordenId: O1, servicioId: S1, borrador: { tipo: "golpe", descripcion: " Puerta " }, punto: { x: 0.2, y: 0.3 }, lamina });
-  assert.deepEqual(a, { p_origen: "revision", p_orden_id: null, p_servicio_id: S1, p_tipo: "golpe", p_tipo_otro: null, p_descripcion: "Puerta", p_foto_url: null, p_carroceria_codigo: "W204", p_lamina_version: "e0af820261", p_x: 0.2, p_y: 0.3 });
+  assert.deepEqual(a, { p_origen: "revision", p_orden_id: null, p_servicio_id: S1, p_tipo: "golpe", p_tipo_otro: null, p_descripcion: "Puerta", p_foto_url: null, p_carroceria_codigo: "W204", p_lamina_version: "e0af820261", p_x: 0.2, p_y: 0.3, p_zona: null });
   const sin = argumentosAgregar({ origen: "revision", servicioId: S1, borrador: { tipo: "rayon" }, punto: { x: 0.2, y: 0.3 }, lamina: null });
   assert.deepEqual([sin.p_carroceria_codigo, sin.p_x, sin.p_y], [null, null, null]);
   const e = argumentosEditar({ id: M1, borrador: { tipo: "golpe" }, punto: { x: 0.1, y: 0.1 }, lamina });
@@ -75,4 +76,23 @@ test("qué se lee y quién puede", () => {
   assert.equal(puedeModificarMarca(mia, { sessionId: "u-otto", rol: "jefe", estadoServicio: "aprobado" }), true);
   assert.equal(puedeAgregarEnRevision({ rol: "mecanico", estadoServicio: "pendiente" }), false);
   assert.equal(puedeAgregarEnRevision({ rol: "jefe", estadoServicio: "aprobado" }), true);
+});
+
+test("sin lámina: fotos guiadas y adicionales, como en la recepción", () => {
+  const URL = "https://x.supabase.co/storage/v1/object/public/fotos-servicios/marcas/a.jpg";
+  const filas = [
+    { id: "m1", created_at: "1", tipo: "golpe" },
+    { id: "g1", created_at: "2", tipo: null, zona: "frente", foto_url: URL },
+    { id: "g2", created_at: "3", tipo: null, zona: "frente", foto_url: URL },
+    { id: "a1", created_at: "4", tipo: null, zona: null, foto_url: URL, descripcion: "Techo" },
+  ];
+  assert.deepEqual(ZONAS_GUIADAS.map((z) => z.key), ["frente", "trasero", "lat_der", "lat_izq", "interior", "motor", "tablero"]);
+  assert.deepEqual(marcasVigentes(filas).map((m) => m.id), ["m1"]);
+  assert.equal(fotosGuiadas(filas).frente.id, "g2");
+  assert.deepEqual(fotosAdicionales(filas).map((m) => m.id), ["a1"]);
+  assert.equal(resumenMarcas(filas), "1 detalle · 2 fotos");
+  const a = argumentosFoto({ servicioId: S1, zona: "frente", fotoUrl: URL });
+  assert.deepEqual([a.p_tipo, a.p_zona, a.p_foto_url, a.p_x], [null, "frente", URL, null]);
+  const e = argumentosEditarFoto({ id: M1, descripcion: "Nueva", fotoUrl: URL });
+  assert.deepEqual([e.p_tipo, e.p_descripcion, e.p_foto_url, e.p_mover], [null, "Nueva", URL, false]);
 });

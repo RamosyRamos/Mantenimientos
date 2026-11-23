@@ -20,7 +20,9 @@
 
 import { build, preview, loadEnv } from 'vite';
 import puppeteer from 'puppeteer';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const root = process.cwd();
 const env = loadEnv('production', root, 'VITE_');
@@ -818,6 +820,11 @@ const LAMINA_TIPO = /\.webp$/i.test(process.env.SMOKE_LAMINA || '') ? 'image/web
 RESP.conLaminaMarcas = { ...RESP.automatico, imagenes: { foto: null, lamina: LAMINA_MARCAS, mascara: null } };
 const MARCA_RECEPCION = { id: '00000000-0000-4000-8000-0000000000f1', orden_id: null, servicio_id: SVC_ID, origen: 'recepcion', tipo: 'rayon', tipo_otro: null, descripcion: 'Defensa delantera', foto_url: null, carroceria_codigo: 'W204', lamina_version: 'abc123', x: 0.2, y: 0.3, creado_por: 'Joseline Guzman', creado_por_id: '00000000-0000-4000-8000-000000000009', created_at: '2026-11-23T14:00:00Z', editado_at: null, eliminada_at: null };
 const MARCA_PROPIA = { id: '00000000-0000-4000-8000-0000000000f2', orden_id: null, servicio_id: SVC_ID, origen: 'revision', tipo: 'golpe', tipo_otro: null, descripcion: 'Puerta trasera', foto_url: null, carroceria_codigo: 'W204', lamina_version: 'abc123', x: 0.6, y: 0.7, creado_por: USUARIO.nombre, creado_por_id: UID, created_at: '2026-11-23T15:00:00Z', editado_at: null, eliminada_at: null };
+const FOTO_GUIADA = { ...MARCA_PROPIA, id: '00000000-0000-4000-8000-0000000000f5', tipo: null, zona: 'trasero', descripcion: null, foto_url: 'https://lamina.smoke/foto-trasero.png', carroceria_codigo: null, lamina_version: null, x: null, y: null, created_at: '2026-11-23T15:10:00Z' };
+const FOTO_ADICIONAL = { ...FOTO_GUIADA, id: '00000000-0000-4000-8000-0000000000f6', zona: null, descripcion: 'Rayón en el techo', foto_url: 'https://lamina.smoke/foto-libre.png', created_at: '2026-11-23T15:20:00Z' };
+// La foto que suben los escenarios de "sin lámina" (un PNG de 1×1 en un archivo temporal).
+const FOTO_ARCHIVO = join(tmpdir(), 'ryr-smoke-foto.png');
+writeFileSync(FOTO_ARCHIVO, PNG_1X1);
 const MARCA_OTRA_LAMINA = { ...MARCA_PROPIA, id: '00000000-0000-4000-8000-0000000000f3', carroceria_codigo: 'W205', created_at: '2026-11-23T16:00:00Z', descripcion: 'Se marcó sobre otra carrocería' };
 async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver = 'conLaminaMarcas', usuario = USUARIO, iniciales = [], errorRpc = null, tema = null, entrada = 'servicio', pasos = [] }) {
   const context = await browser.createBrowserContext();
@@ -827,6 +834,7 @@ async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver =
   const rpcs = [];
   const lecturas = [];
   const posts = [];
+  const subidas = [];
   let confirmaciones = 0;
   let marcas = iniciales.map((m) => ({ ...m }));
   page.on('pageerror', (e) => errores.push(`pageerror: ${e.message}`));
@@ -858,7 +866,8 @@ async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver =
         rpcs.push({ fn, a });
         if (errorRpc) return req.respond(json({ ok: false, error: errorRpc }));
         if (fn === 'carroceria_marca_agregar') {
-          const m = { id: `00000000-0000-4000-8000-0000000001${String(marcas.length).padStart(2, '0')}`, orden_id: null, servicio_id: a.p_servicio_id, origen: a.p_origen, tipo: a.p_tipo, tipo_otro: a.p_tipo_otro, descripcion: a.p_descripcion, foto_url: a.p_foto_url, carroceria_codigo: a.p_x == null ? null : a.p_carroceria_codigo, lamina_version: a.p_lamina_version, x: a.p_x, y: a.p_y, creado_por: usuario.nombre, creado_por_id: usuario.id, created_at: new Date().toISOString(), editado_at: null, eliminada_at: null };
+          if (a.p_zona && !a.p_tipo) marcas = marcas.filter((x) => !(x.zona === a.p_zona && !x.tipo));
+          const m = { id: `00000000-0000-4000-8000-0000000001${String(rpcs.length).padStart(2, '0')}`, orden_id: null, servicio_id: a.p_servicio_id, origen: a.p_origen, tipo: a.p_tipo, tipo_otro: a.p_tipo_otro, zona: a.p_tipo ? null : (a.p_zona ?? null), descripcion: a.p_descripcion, foto_url: a.p_foto_url, carroceria_codigo: a.p_x == null ? null : a.p_carroceria_codigo, lamina_version: a.p_lamina_version, x: a.p_x, y: a.p_y, creado_por: usuario.nombre, creado_por_id: usuario.id, created_at: new Date().toISOString(), editado_at: null, eliminada_at: null };
           marcas.push(m);
           return req.respond(json({ ok: true, error: null, marca: m }));
         }
@@ -871,6 +880,7 @@ async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver =
         marcas[i] = { ...marcas[i], tipo: a.p_tipo, tipo_otro: a.p_tipo_otro, descripcion: a.p_descripcion, foto_url: a.p_foto_url, ...(a.p_mover ? { x: a.p_x, y: a.p_y, carroceria_codigo: a.p_carroceria_codigo } : null) };
         return req.respond(json({ ok: true, error: null, marca: marcas[i] }));
       }
+      if (u.includes('/storage/v1/object/fotos-servicios/')) { subidas.push(u); return req.respond(json({ Key: 'smoke' })); }
       if (u.includes('/rest/v1/carroceria_marcas')) { lecturas.push(decodeURIComponent(u)); return req.respond(json(marcas)); }
       // entrada 'orden': el link de Taller abre el servicio vigente de la orden.
       if (u.includes('/rest/v1/servicios?orden_id=eq.')) return req.respond(json(entrada === 'orden' ? [row] : []));
@@ -884,7 +894,7 @@ async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver =
       if (u.includes('/rest/v1/')) return req.respond(json([]));
       return req.respond(json({}));
     }
-    if (u === LAMINA_MARCAS) return req.respond({ status: 200, contentType: LAMINA_REAL ? LAMINA_TIPO : 'image/png', headers: CORS, body: LAMINA_REAL || PNG_1X1 });
+    if (u === LAMINA_MARCAS || u.startsWith('https://lamina.smoke/foto-')) return req.respond({ status: 200, contentType: LAMINA_REAL ? LAMINA_TIPO : 'image/png', headers: CORS, body: LAMINA_REAL || PNG_1X1 });
     return req.respond({ status: 204, headers: CORS, body: '' });
   });
   await page.evaluateOnNewDocument(sembrarSesion(), REF, UID, usuario);
@@ -952,7 +962,8 @@ async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver =
         if (!r || r.fn !== arg.fn) { errores.push(`la última función llamada es ${r?.fn}, esperado ${arg.fn}`); break; }
         for (const [k, v] of Object.entries(arg.a || {})) {
           const real = r.a[k];
-          const igual = typeof v === 'number' ? typeof real === 'number' && Math.abs(real - v) < 0.02 : real === v;
+          const igual = v && typeof v === 'object' ? typeof real === 'string' && real.startsWith(v.empieza)
+            : typeof v === 'number' ? typeof real === 'number' && Math.abs(real - v) < 0.02 : real === v;
           if (!igual) errores.push(`${arg.fn}: ${k} = ${JSON.stringify(real)}, esperado ${JSON.stringify(v)}`);
         }
         break;
@@ -968,6 +979,32 @@ async function escenarioMarcas(browser, baseUrl, { nombre, fila = {}, resolver =
         } else if (f.tema !== 'oscuro' || f.panel !== 'none' || (f.lamina && f.lamina !== 'none')) errores.push(`tema oscuro: el panel lleva filtros (${JSON.stringify(f)})`);
         break;
       }
+      case 'sin-tipos': if (await hay('[data-marca-tipo]') || await hay('[data-marcas-agregar]')) errores.push('sin lámina ofrece elegir un tipo de detalle, y debía ofrecer solo fotos'); break;
+      case 'guiadas': { const n = await cuenta('[data-fotos-guiadas] [data-foto-guiada]'); if (n !== arg) errores.push(`casillas de fotos guiadas: ${n}, esperado ${arg}`); break; }
+      case 'guiadas-con-foto': { const n = await cuenta('[data-fotos-guiadas] [data-foto-guiada][data-con-foto]'); if (n !== arg) errores.push(`casillas guiadas con foto: ${n}, esperado ${arg}`); break; }
+      case 'adicionales': { const n = await cuenta('[data-fotos-adicionales] [data-foto-adicional]'); const c = await texto('[data-fotos-adicionales-conteo]'); if (n !== arg || c !== String(arg)) errores.push(`fotos adicionales: ${n} (el conteo dice ${c}), esperado ${arg}`); break; }
+      case 'sin-sumar-fotos': if (await hay('[data-fotos-agregar]') || await hay('[data-foto-guiada]:not([data-con-foto])')) errores.push('con lámina ofrece sumar fotos, y solo debía mostrar las que hay'); break;
+      case 'subir-guiada':
+      case 'subir-adicional': {
+        // El segundo input del FotoPicker es el de la galería.
+        const sel = paso === 'subir-guiada' ? `[data-foto-guiada="${arg}"] input[type=file]` : '[data-fotos-agregar] input[type=file]';
+        const ins = await page.$$(sel);
+        if (ins.length < 2) { errores.push(`no hay dónde subir la foto (${sel})`); break; }
+        const antes = rpcs.length;
+        await ins[1].uploadFile(FOTO_ARCHIVO);
+        for (let i = 0; i < 80 && rpcs.length === antes; i++) await espera(100);
+        await espera(200);
+        if (rpcs.length === antes) errores.push(`la foto no llegó a la base (subidas al bucket: ${subidas.length})`);
+        break;
+      }
+      case 'describir': {
+        const ins = await page.$$('[data-foto-descripcion]');
+        if (!ins[arg[0]]) { errores.push(`no hay foto adicional ${arg[0]} para describir`); break; }
+        await ins[arg[0]].click({ clickCount: 3 }); await ins[arg[0]].type(arg[1]); await page.keyboard.press('Tab'); await espera(350);
+        break;
+      }
+      case 'quitar-foto': { const bs = await page.$$('[data-foto-quitar]'); if (!bs[arg]) errores.push(`no hay foto ${arg} para quitar`); else await bs[arg].evaluate((b) => b.click()); await espera(350); break; }   // click del DOM: la cabecera fija del panel puede tapar la casilla al desplazar
+      case 'fotos-quitables': { const n = await cuenta('[data-foto-quitar]'); if (n !== arg) errores.push(`fotos con botón de quitar: ${n}, esperado ${arg}`); break; }
       case 'captura': if (process.env.SMOKE_CAPTURAS) await page.screenshot({ path: `${process.env.SMOKE_CAPTURAS}/${arg}.png` }).catch((e) => errores.push(`captura: ${e.message.slice(0, 80)}`)); break;
       default: errores.push(`paso desconocido: ${paso}`);
     }
@@ -1084,12 +1121,16 @@ try {
       ['sin-form'], ['lista', 1], ['nombres', ['1 Golpe']], ['puntos-panel', ['1']], ['cerrar'], ['lamina-cabecera', 1], ['resumen', '1 detalle']],
   }));
   rM.push(await escenarioMarcas(browser, baseUrl, {
-    nombre: 'marcas: RG sin lámina → el detalle es el tipo con su descripción, sin punto; "otro" pide su texto',
+    nombre: 'marcas: RG sin lámina → el método de la recepción: fotos guiadas y adicionales con descripción, sin tipo',
     fila: { servicio_codigo: 'RG' }, resolver: 'automatico',
-    pasos: [['bloque'], ['lamina-cabecera', 'ausente'], ['abrir'], ['sin-lamina-aviso'], ['agregar-sin-punto'], ['form', 'nueva'], ['tipo', 'otro'], ['guardar'], ['error', 'Escribí qué es el detalle.'], ['rpcs', 0],
-      ['otro', 'Óxido'], ['descripcion', 'Bajo la puerta del conductor'], ['guardar'],
-      ['rpc', { fn: 'carroceria_marca_agregar', a: { p_tipo: 'otro', p_tipo_otro: 'Óxido', p_descripcion: 'Bajo la puerta del conductor', p_carroceria_codigo: null, p_x: null, p_y: null } }],
-      ['lista', 1], ['nombres', ['1 Óxido']], ['cerrar'], ['resumen', '1 detalle']],
+    pasos: [['bloque'], ['lamina-cabecera', 'ausente'], ['resumen', 'Sin detalles'], ['abrir'], ['sin-lamina-aviso'], ['sin-tipos'], ['guiadas', 7], ['guiadas-con-foto', 0], ['adicionales', 0],
+      ['subir-guiada', 'frente'],
+      ['rpc', { fn: 'carroceria_marca_agregar', a: { p_origen: 'revision', p_servicio_id: SVC_ID, p_tipo: null, p_zona: 'frente', p_x: null, p_y: null, p_carroceria_codigo: null, p_foto_url: { empieza: `${SUPA}/storage/v1/object/public/fotos-servicios/marcas/` } } }],
+      ['guiadas-con-foto', 1], ['subir-adicional'],
+      ['rpc', { fn: 'carroceria_marca_agregar', a: { p_tipo: null, p_zona: null, p_foto_url: { empieza: `${SUPA}/storage/v1/object/public/fotos-servicios/marcas/` } } }],
+      ['adicionales', 1], ['describir', [0, 'Rayón en el techo']],
+      ['rpc', { fn: 'carroceria_marca_editar', a: { p_tipo: null, p_descripcion: 'Rayón en el techo', p_mover: false, p_foto_url: { empieza: `${SUPA}/storage/v1/object/public/fotos-servicios/marcas/` } } }],
+      ['fotos-quitables', 2], ['quitar-foto', 0], ['rpcs', 4], ['guiadas-con-foto', 0], ['adicionales', 1], ['lista', 0], ['cerrar'], ['resumen', '1 foto']],
   }));
   rM.push(await escenarioMarcas(browser, baseUrl, {
     nombre: 'marcas: la base rechaza el guardado → se ve el motivo, el formulario sigue abierto y la lista no cambia',
@@ -1113,9 +1154,15 @@ try {
     pasos: [['bloque'], ['abrir'], ['sin-agregar'], ['lista', 1], ['editables', 0], ['tocar-lamina', [0.5, 0.5]], ['sin-form'], ['rpcs', 0]],
   }));
   rM.push(await escenarioMarcas(browser, baseUrl, {
-    nombre: 'marcas: un jefe sobre una revisión aprobada (sin lámina: no se consulta) → agrega y edita también las de recepción',
-    fila: { estado: 'aprobado', aprobado: true }, usuario: JEFE, iniciales: [MARCA_RECEPCION],
-    pasos: [['bloque'], ['lamina-cabecera', 'ausente'], ['abrir'], ['editables', 1], ['agregar-sin-punto'], ['form', 'nueva'], ['tipo', 'quebradura'], ['guardar'], ['rpc', { fn: 'carroceria_marca_agregar', a: { p_tipo: 'quebradura', p_x: null, p_y: null } }], ['lista', 2], ['nombres', ['1 Rayón', '2 Quebradura']]],
+    nombre: 'marcas: un jefe sobre una revisión aprobada (sin lámina: no se consulta) → edita también las de recepción y ve las casillas de fotos',
+    fila: { estado: 'aprobado', aprobado: true }, usuario: JEFE, iniciales: [MARCA_RECEPCION, FOTO_GUIADA],
+    pasos: [['bloque'], ['lamina-cabecera', 'ausente'], ['resumen', '1 detalle · 1 foto'], ['abrir'], ['lista', 1], ['editables', 1], ['guiadas', 7], ['guiadas-con-foto', 1], ['fotos-quitables', 1],
+      ['editar', 0], ['form', 'editar'], ['tipo', 'quebradura'], ['guardar'], ['rpc', { fn: 'carroceria_marca_editar', a: { p_id: MARCA_RECEPCION.id, p_tipo: 'quebradura', p_mover: false } }], ['nombres', ['1 Quebradura']]],
+  }));
+  rM.push(await escenarioMarcas(browser, baseUrl, {
+    nombre: 'marcas: con lámina y fotos de cuando no la había → las fotos se muestran, sin ofrecer sumar más; la lista numerada es solo de marcas',
+    iniciales: [MARCA_PROPIA, FOTO_GUIADA, FOTO_ADICIONAL],
+    pasos: [['bloque'], ['lamina-cabecera', 1], ['resumen', '1 detalle · 2 fotos'], ['abrir'], ['lista', 1], ['nombres', ['1 Golpe']], ['puntos-panel', ['1']], ['guiadas', 1], ['guiadas-con-foto', 1], ['adicionales', 1], ['sin-sumar-fotos'], ['fotos-quitables', 2]],
   }));
   rM.push(await escenarioMarcas(browser, baseUrl, {
     nombre: 'marcas: tema claro → el panel lleva el filtro del tema y la lámina se ve normal',
