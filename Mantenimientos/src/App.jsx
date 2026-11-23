@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import imageCompression from 'browser-image-compression';
 import FotoPicker from './FotoPicker.jsx';
+import MarcasCarroceria from './MarcasCarroceria.jsx';
 // Tema B (feat/tema-b-mantenimientos): tokens gemelos de Taller, sus estilos y los íconos.
 import { T } from './theme/tokensB.js';
 import { monoB, botonB, menuB } from './theme/estilosB.js';
@@ -29,6 +30,7 @@ import { normalizarCombustible, estadoCombustible, TEXTO_SEGUN_VEHICULO } from '
 import { APROBADORES_Y_ADMIN } from './lib/destinatariosPush.js';
 import { buildTasks, stripInterna, itemDeTareaId, estadoCandado, adicionalesOfrecidos, SIN_ADICIONALES } from './lib/checklistReceta.js';
 import { emparejarPuntos, estadoDesdeAsignados, instantaneaEmparejada, anterioresVisibles, conAnteriores, fotosParaGuardar, tareasOcultas, ocultosParaGuardar, adicionalesAlAbrir, adicionalesParaGuardar, pendientesDeRevisiones, detallesDeRevisiones } from './lib/emparejarPuntos.js';
+import { TABLA_MARCAS, COLUMNAS_MARCA } from './lib/marcasCarroceria.js';
 import { problemaCierreRevision, tipoRevision, nuevaReparacion, reparacionesParaGuardar, reparacionesSinId, bloqueDictamenInforme, conBloqueDictamen } from './lib/revisionPuntos.js';
 import { estadoTraccion, es4maticDeRespuesta, TEXTO_TRACCION_SEGUN_VEHICULO } from './lib/traccionVehiculo.js';
 import { servicioVigente, accionAlAbrir, ACCION, esAjeno, urlInformePublico, tipoDelLink, seriesVisibles, esChoqueVigente, esServicioDescartado, marcasParaPasar, claveChoque, TIPO, LIMPIAR_RECHAZO } from './lib/servicioVigente.js';
@@ -3134,17 +3136,20 @@ function MainApp({ session, onLogout }) {
   // FotoPicker — este flujo de compresión/bucket fotos-servicios NO cambió;
   // solo dejó de crear el input a mano (que forzaba capture y en Android
   // bloqueaba la galería).
-  const subirFotoTarea = async (id, file) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return; }
-    if (file.size > 25 * 1024 * 1024) { alert('La imagen supera los 25 MB'); return; }
+  // La subida al bucket es UNA: la usan las fotos de las tareas y las de los
+  // detalles de carrocería. Devuelve la URL pública, o null si no se subió (ya
+  // avisó).
+  const subirFotoABucket = async (carpeta, file) => {
+    if (!file) return null;
+    if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return null; }
+    if (file.size > 25 * 1024 * 1024) { alert('La imagen supera los 25 MB'); return null; }
     const comprimida = await imageCompression(file, {
       maxSizeMB: 1,
       maxWidthOrHeight: 2000,
       useWebWorker: true,
       fileType: 'image/jpeg',
     });
-    const path = `servicios/${id}/${crypto.randomUUID()}.jpg`;
+    const path = `${carpeta}/${crypto.randomUUID()}.jpg`;
     // Red o HTTP: se avisa y la foto NO se agrega a la lista (antes un fallo de
     // red quedaba como promesa rechazada sin manejar).
     try {
@@ -3155,12 +3160,46 @@ function MainApp({ session, onLogout }) {
           body: comprimida }
       );
     } catch (e) {
-      console.error('[subirFotoTarea]', e);
+      console.error('[subirFotoABucket]', e);
       alert(`⚠️ No se pudo subir la imagen (${mensajeError(e)}). Intentá de nuevo.`);
-      return;
+      return null;
     }
-    const url = `${API_URL}/storage/v1/object/public/fotos-servicios/${path}`;
-    setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
+    return `${API_URL}/storage/v1/object/public/fotos-servicios/${path}`;
+  };
+  const subirFotoTarea = async (id, file) => {
+    const url = await subirFotoABucket(`servicios/${id}`, file);
+    if (url) setTaskPhotos(p => ({ ...p, [id]: [...(p[id] || []), url] }));
+  };
+
+  // ── Detalles de carrocería (feat/marcas-carroceria) ──
+  // Lo que el componente MarcasCarroceria necesita de la red. Las marcas no
+  // pasan por el autosave: cada una se escribe por su función de la base.
+  const leerMarcas = async (filtro) => {
+    try {
+      const r = await apiFetch(`${API_URL}/rest/v1/${TABLA_MARCAS}?select=${encodeURIComponent(COLUMNAS_MARCA.replace(/\s+/g, ''))}&or=(${encodeURIComponent(filtro)})&eliminada_at=is.null&order=created_at.asc`);
+      return { filas: await r.json(), error: null };
+    } catch (e) {
+      console.error('[leerMarcas]', e);
+      return { filas: null, error: mensajeError(e) };
+    }
+  };
+  const rpcMarcas = async (nombre, args) => {
+    try {
+      const r = await apiFetch(`${API_URL}/rest/v1/rpc/${nombre}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args),
+      });
+      return { data: await r.json(), error: null };
+    } catch (e) {
+      console.error(`[rpcMarcas ${nombre}]`, e);
+      return { data: null, error: mensajeError(e) };
+    }
+  };
+  // Una marca se liga a la fila del servicio: si todavía no existe (servicio
+  // nuevo, sin ningún guardado), se guarda ahora por el camino de siempre.
+  const asegurarServicioMarcas = async () => {
+    if (editingIdRef.current) return editingIdRef.current;
+    await guardarAhoraRef.current?.();
+    return editingIdRef.current || null;
   };
 
   // ── Firma helpers ──
@@ -4859,7 +4898,14 @@ _Progreso: ${doneN}/${total} ítems (${pct}%)_`;
             dos temas. En el claro (el invert de #root) el bloque entero se vuelve a invertir
             por CSS (index.html) y su imagen queda fuera de la re-inversión por imagen de
             alternarTema y main.jsx; si no, se invertiría tres veces. */}
-        {laminaVeh && (
+        {/* En una revisión de compra o general la lámina lleva los detalles de
+            carrocería: se toca para marcarlos (MarcasCarroceria). En los demás
+            servicios, la lámina sola, como antes. */}
+        {tipoRev ? (
+          <MarcasCarroceria laminaUrl={laminaVeh} ordenId={esUuid(ordenId) ? ordenId : null} servicioId={editingId}
+            estadoServicio={estadoOriginal} session={session} leer={leerMarcas} rpc={rpcMarcas}
+            subirFoto={f => subirFotoABucket('marcas', f)} asegurarServicio={asegurarServicioMarcas} />
+        ) : laminaVeh && (
           <div key={laminaVeh} data-lamina-carroceria data-tema-fijo style={{ marginTop:8, background:T.plateBg, borderRadius:T.radio.control, padding:6, display:"none", justifyContent:"center" }}>
             <img src={laminaVeh} alt="Lámina técnica del vehículo"
               onLoad={e => { e.currentTarget.parentElement.style.display = 'flex'; }}
